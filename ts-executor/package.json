@@ -12,10 +12,11 @@
     "lint": "eslint src/"
   },
   "dependencies": {
-    "ioredis": "^5.4.2",
-    "viem": "^2.23.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "dotenv": "^16.4.7",
-    "ajv": "^8.17.1"
+    "ioredis": "^5.4.2",
+    "viem": "^2.23.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",

@@ -29,3 +29,17 @@ Completed:
 Blocked: none
 Next: INFRA-003 - Schema validation (ajv + jsonschema wiring)
 Commit: feat(icarus): implement INFRA-001 project scaffolding
+
+--- Session 2026-02-16-03 ---
+Agent: Claude Opus 4.6
+Worked on: INFRA-003 - Schema validation
+Completed:
+  - Created ts-executor/src/validation/schema-validator.ts (ajv with formats)
+  - Created py-engine/validation/schema_validator.py (jsonschema Draft 2020-12)
+  - Added ajv-formats dependency for date-time validation
+  - 16 TS tests covering all 3 schemas (valid, missing fields, invalid enums, additional props)
+  - 17 Python tests mirroring TS coverage
+  - Both validate() and validateOrThrow()/validate_or_raise() APIs
+Blocked: none
+Next: INFRA-002 - Redis communication layer
+Commit: feat(icarus): implement INFRA-003 schema validation

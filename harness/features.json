@@ -45,7 +45,7 @@
       "Test suite sends malformed messages and confirms rejection with appropriate errors",
       "Schemas include a version field in every message for forward compatibility"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "INFRA-004",
