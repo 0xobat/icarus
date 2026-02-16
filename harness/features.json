@@ -13,7 +13,7 @@
       "README with setup instructions that a fresh machine can follow end-to-end",
       ".env.example documents all required environment variables"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "INFRA-002",

@@ -14,3 +14,18 @@ Completed:
 Blocked: none
 Next: INFRA-001 - Full project scaffolding (build out stubs into working services)
 Commit: init(icarus): harness initialization
+
+--- Session 2026-02-16-02 ---
+Agent: Claude Opus 4.6
+Worked on: INFRA-001 - Project scaffolding
+Completed:
+  - Created ts-executor/Dockerfile (Node 22 Alpine, multi-stage with dev/prod targets)
+  - Created py-engine/Dockerfile (Python 3.12-slim, uv-based, multi-stage dev/prod)
+  - Updated docker-compose.yml with dev build targets and volume mounts
+  - Created README.md with prerequisites, setup, running, testing, architecture
+  - Verified pnpm build produces dist/ cleanly
+  - Smoke tested docker compose up — all 3 containers start, logs "ready"
+  - Added signal handling and event loops to both services for clean shutdown
+Blocked: none
+Next: INFRA-003 - Schema validation (ajv + jsonschema wiring)
+Commit: feat(icarus): implement INFRA-001 project scaffolding

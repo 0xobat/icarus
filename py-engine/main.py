@@ -1,10 +1,19 @@
 """Crypto agent Python engine — decision-making service."""
 
 import json
+import signal
 import sys
+import time
 from datetime import UTC, datetime
 
 SERVICE_NAME = "py-engine"
+
+_shutdown = False
+
+
+def _handle_signal(sig: int, _frame: object) -> None:
+    global _shutdown  # noqa: PLW0603
+    _shutdown = True
 
 
 def log(event: str, message: str, **kwargs: object) -> None:
@@ -16,20 +25,26 @@ def log(event: str, message: str, **kwargs: object) -> None:
         "message": message,
         **kwargs,
     }
-    print(json.dumps(entry))
+    print(json.dumps(entry), flush=True)
 
 
 def main() -> None:
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
     log("startup", "Python engine starting...")
 
-    # TODO: Load agent-state.json (HARNESS-001)
     # TODO: Initialize Redis connection (INFRA-002)
     # TODO: Initialize data pipeline (DATA-001)
     # TODO: Initialize strategy engine (STRAT-001)
     # TODO: Initialize risk manager (RISK-001)
-    # TODO: Run startup recovery sequence (HARNESS-002)
 
-    log("ready", "Python engine ready (stub)")
+    log("ready", "Python engine ready")
+
+    while not _shutdown:
+        time.sleep(1)
+
+    log("shutdown", "Python engine shutting down")
 
 
 if __name__ == "__main__":
