@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-orders.schema.json",
+  "title": "Execution Order",
+  "description": "Orders published by Python engine to execution:orders channel for TS executor",
+  "type": "object",
+  "required": ["version", "orderId", "timestamp", "chain", "protocol", "action", "correlationId", "params", "limits"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "orderId": {
+      "type": "string",
+      "description": "Unique order identifier (UUID)"
+    },
+    "correlationId": {
+      "type": "string",
+      "description": "Links to originating market event for full lifecycle tracing"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "chain": {
+      "type": "string",
+      "enum": ["ethereum", "arbitrum", "base", "solana"]
+    },
+    "protocol": {
+      "type": "string",
+      "enum": ["aave_v3", "uniswap_v3", "lido", "gmx", "aerodrome", "marinade", "raydium", "jupiter"]
+    },
+    "action": {
+      "type": "string",
+      "enum": ["supply", "withdraw", "swap", "mint_lp", "burn_lp", "stake", "unstake", "collect_fees", "flash_loan"]
+    },
+    "strategy": {
+      "type": "string",
+      "description": "Originating strategy ID"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["urgent", "normal", "low"],
+      "default": "normal",
+      "description": "urgent = stop-loss/emergency, bypasses gas pause"
+    },
+    "params": {
+      "type": "object",
+      "description": "Action-specific parameters (token addresses, amounts, etc.)",
+      "required": ["tokenIn", "amount"],
+      "properties": {
+        "tokenIn": { "type": "string" },
+        "tokenOut": { "type": "string" },
+        "amount": { "type": "string", "description": "Amount in wei as string" },
+        "recipient": { "type": "string" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": ["maxGasWei", "maxSlippageBps", "deadlineUnix"],
+      "properties": {
+        "maxGasWei": {
+          "type": "string",
+          "description": "Maximum gas cost in wei"
+        },
+        "maxSlippageBps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Maximum slippage in basis points"
+        },
+        "deadlineUnix": {
+          "type": "integer",
+          "description": "Unix timestamp deadline for TX inclusion"
+        }
+      }
+    },
+    "useFlashbotsProtect": {
+      "type": "boolean",
+      "default": true,
+      "description": "Route through Flashbots Protect private mempool"
+    }
+  },
+  "additionalProperties": false
+}

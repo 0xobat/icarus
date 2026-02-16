@@ -1,0 +1,47 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  ts-executor:
+    build:
+      context: ./ts-executor
+      dockerfile: Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./ts-executor/src:/app/src
+      - ./shared:/app/shared
+    restart: unless-stopped
+
+  py-engine:
+    build:
+      context: ./py-engine
+      dockerfile: Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./py-engine:/app
+      - ./shared:/app/shared
+      - ./agent-state.json:/app/agent-state.json
+    restart: unless-stopped
+
+volumes:
+  redis-data:

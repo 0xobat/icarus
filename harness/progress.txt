@@ -1,0 +1,16 @@
+--- Session 2026-02-16-01 ---
+Agent: Claude Opus 4.6
+Worked on: Harness initialization
+Completed:
+  - Created dual-service directory structure (ts-executor, py-engine, shared/schemas)
+  - Moved 113-feature features.json into harness/
+  - Created init.sh (idempotent, checks docker/pnpm/uv, installs both services)
+  - Created verify.sh (progressive: type check, ruff, pytest, schema validation)
+  - Created minimal stubs for both services with trivial passing tests
+  - Created shared JSON schemas for all three Redis channels
+  - Created docker-compose.yml, .env.example, .gitignore, CLAUDE.md
+  - Updated umbrella harness to include icarus
+  - Renamed project from crypto-agent to icarus
+Blocked: none
+Next: INFRA-001 - Full project scaffolding (build out stubs into working services)
+Commit: init(icarus): harness initialization

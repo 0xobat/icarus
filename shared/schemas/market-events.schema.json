@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "market-events.schema.json",
+  "title": "Market Event",
+  "description": "Events published by TS chain listener to market:events channel",
+  "type": "object",
+  "required": ["version", "timestamp", "sequence", "chain", "eventType", "protocol"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO 8601 timestamp"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonically increasing sequence number"
+    },
+    "chain": {
+      "type": "string",
+      "enum": ["ethereum", "arbitrum", "base", "solana"]
+    },
+    "eventType": {
+      "type": "string",
+      "enum": ["swap", "liquidity_change", "rate_change", "large_transfer", "new_block", "price_update"]
+    },
+    "protocol": {
+      "type": "string",
+      "enum": ["aave_v3", "uniswap_v3", "lido", "gmx", "aerodrome", "marinade", "raydium", "jupiter", "system"]
+    },
+    "blockNumber": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "txHash": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "description": "Event-specific payload"
+    }
+  },
+  "additionalProperties": false
+}
