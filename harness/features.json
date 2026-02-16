@@ -29,7 +29,7 @@
       "Schema violations are rejected with structured error logs, not silently consumed",
       "Connection loss to Redis triggers graceful pause in both services without crash or orphaned state"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "INFRA-003",

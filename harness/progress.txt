@@ -43,3 +43,18 @@ Completed:
 Blocked: none
 Next: INFRA-002 - Redis communication layer
 Commit: feat(icarus): implement INFRA-003 schema validation
+
+--- Session 2026-02-16-04 ---
+Agent: Claude Opus 4.6
+Worked on: INFRA-002 - Redis communication layer
+Completed:
+  - Expanded ts-executor RedisManager class: pub/sub, streams, cache, schema validation on publish/subscribe
+  - Created py-engine/data/redis_client.py with matching RedisManager
+  - Both services validate messages at boundary (publish rejects invalid, subscribe drops invalid)
+  - Stream write on every publish for durability, configurable stream trim
+  - Cache layer with TTL for prices/gas/pool states
+  - Connection loss events surfaced via callbacks
+  - 8 TS integration tests + 8 Python integration tests (all pass with live Redis)
+Blocked: none
+Next: INFRA-004 - Docker Compose polish, then Phase B worktree setup
+Commit: feat(icarus): implement INFRA-002 Redis communication layer
