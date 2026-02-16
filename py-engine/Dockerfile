@@ -14,7 +14,7 @@ COPY . .
 # ── Development target (auto-reload via watchfiles) ──
 FROM base AS dev
 RUN uv sync --frozen
-CMD ["uv", "run", "--", "python", "-u", "main.py"]
+CMD ["uv", "run", "--", "watchfiles", "--filter", "python", "python -u main.py", "."]
 
 # ── Production target ──
 FROM base AS prod

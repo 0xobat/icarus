@@ -60,7 +60,7 @@
       "Environment variables injected via .env file, not hardcoded",
       "Container networking allows both services to reach Redis by hostname"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "LISTEN-001",

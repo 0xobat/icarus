@@ -58,3 +58,16 @@ Completed:
 Blocked: none
 Next: INFRA-004 - Docker Compose polish, then Phase B worktree setup
 Commit: feat(icarus): implement INFRA-002 Redis communication layer
+
+--- Session 2026-02-16-05 ---
+Agent: Claude Opus 4.6
+Worked on: INFRA-004 - Docker Compose polish
+Completed:
+  - Added watchfiles dependency for Python hot-reload in Docker dev mode
+  - Updated py-engine Dockerfile dev target to use watchfiles auto-reload
+  - TS already had tsx watch via dev target
+  - Verified: docker compose up starts all 3 containers, logs visible with prefixes
+  - Verified: env injection via .env, container networking via redis hostname
+Blocked: none
+Next: Phase B - worktree setup for parallel agent execution (Waves 3-12)
+Commit: feat(icarus): implement INFRA-004 Docker Compose polish
