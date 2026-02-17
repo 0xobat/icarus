@@ -362,7 +362,7 @@
       "Logs written to both stdout (for Railway) and rotating log files",
       "Sensitive data (private keys, full wallet addresses) never logged"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-001",
