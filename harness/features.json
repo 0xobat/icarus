@@ -108,7 +108,7 @@
       "Nonce management prevents stuck transactions from nonce gaps",
       "Failed transactions retried with configurable backoff, max 3 retries"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-002",
