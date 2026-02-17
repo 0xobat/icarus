@@ -313,7 +313,7 @@
       "State backed up to PostgreSQL periodically, not just local filesystem",
       "State is versioned with schema version field for forward compatibility"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-002",
