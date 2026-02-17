@@ -186,7 +186,7 @@
       "TWAP calculation available over configurable windows (5m, 1h, 24h)",
       "All timestamps are UTC"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "DATA-002",
