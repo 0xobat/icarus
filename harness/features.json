@@ -250,7 +250,7 @@
       "Tracks historical performance of each market supplied to",
       "Works on Sepolia with Aave V3 testnet deployment"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-007",
