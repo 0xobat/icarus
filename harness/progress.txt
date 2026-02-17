@@ -142,20 +142,37 @@ Next: STRAT-001 - Aave lending optimization
 Commit: feat(icarus): implement PORT-002 position tracker
 
 --- Session 2026-02-16-10 ---
-Agent: Claude Opus 4.6 (lead)
-Worked on: Wave 6 merge checkpoint + pause
+Agent: Claude Opus 4.6 (ts-dev teammate)
+Worked on: EXEC-002 - Alchemy Smart Wallet integration
 Completed:
-  - Merged feat/ts-dev into dev (LISTEN-001 + EXEC-001)
-  - Merged feat/py-data into dev (DATA-001 + DATA-002 + DATA-003)
-  - Merged feat/py-strat into dev (MON-001 + HARNESS-001 + PORT-001 + PORT-002)
-  - All merges clean, no conflicts
-  - Verified: 280 tests pass on merged dev (68 TS + 212 Python)
-  - 13/31 P1 features now passing on dev
-  - Shut down all 3 agents (ts-dev, py-data, py-strat)
-  - 3 features were in-flight when shutdown requested (EXEC-002, DATA-004, STRAT-001) — no commits found, must restart
+  - Created ts-executor/src/wallet/smart-wallet.ts (SmartWalletManager class)
+  - Spending limits: per-tx cap + daily cap with UTC midnight reset
+  - Contract allowlist: case-insensitive matching, rejects non-allowlisted targets
+  - Combined validateOrder() runs both allowlist + spending checks
+  - Balance queries: ETH (getBalance) and ERC-20 (getTokenBalance)
+  - Nonce query via ERC-4337 EntryPoint v0.7 getNonce()
+  - UserOp construction: encodes execute(dest,value,calldata), gas estimation with fallback
+  - UserOp signing via EOA signer, submission to bundler via JSON-RPC
+  - Private key never appears in logs or error messages (tested)
+  - 25 unit tests: spending limits, allowlist, validation, balance/nonce, UserOp, security
+  - All 93 TS tests passing, TypeScript type check clean
 Blocked: none
-Next: Resume Phase C from Wave 5 in-flight features (EXEC-002, DATA-004, STRAT-001), then continue Waves 7-13
+Next: EXEC-003 - Flashbots Protect integration
+Commit: feat(icarus): implement EXEC-002 Smart Wallet integration
+
+--- Session 2026-02-16-11 ---
+Agent: Claude Opus 4.6 (lead)
+Worked on: Final merge checkpoint + pause
+Completed:
+  - Merged feat/ts-dev into dev (EXEC-002)
+  - Merged feat/py-data into dev (DATA-004)
+  - Merged feat/py-strat into dev (STRAT-001)
+  - All 3 in-flight features completed before agent shutdown
+  - 16/31 P1 features now passing on dev
+  - All agents shut down, team cleaned up
+Blocked: none
+Next: Resume Phase C from Wave 6 (LISTEN-002, HARNESS-002, STRAT-007), then continue Waves 7-13
 Commits:
-  - merge(icarus): LISTEN-001 + EXEC-001 from ts-dev
-  - merge(icarus): DATA-001 + DATA-002 + DATA-003 from py-data
-  - merge(icarus): MON-001 + HARNESS-001 + PORT-001 + PORT-002 from py-strat
+  - merge(icarus): EXEC-002 Smart Wallet from ts-dev
+  - merge(icarus): DATA-004 reconciliation from py-data
+  - merge(icarus): STRAT-001 Aave lending from py-strat

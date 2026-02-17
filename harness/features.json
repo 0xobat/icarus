@@ -124,7 +124,7 @@
       "Gas sponsorship or bundled UserOps work correctly via ERC-4337 flow",
       "Private key stored securely via environment variable, never in code"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-003",
