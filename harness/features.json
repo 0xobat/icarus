@@ -282,7 +282,7 @@
       "Calculates available capital for new positions accounting for all active positions and reserves",
       "Rebalancing triggers when allocation drifts beyond configurable threshold (e.g. ±5%)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "PORT-002",
@@ -297,7 +297,7 @@
       "Queryable by strategy, protocol, chain, and asset",
       "Position history maintained in PostgreSQL for audit trail"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-001",
@@ -313,7 +313,7 @@
       "State backed up to PostgreSQL periodically, not just local filesystem",
       "State is versioned with schema version field for forward compatibility"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-002",
@@ -362,7 +362,7 @@
       "Logs written to both stdout (for Railway) and rotating log files",
       "Sensitive data (private keys, full wallet addresses) never logged"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-001",
