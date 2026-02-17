@@ -76,7 +76,7 @@
       "Connection health monitored; prolonged disconnection triggers alert",
       "Alchemy rate limits handled gracefully with backpressure, not crash"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "LISTEN-002",
