@@ -297,7 +297,7 @@
       "Queryable by strategy, protocol, chain, and asset",
       "Position history maintained in PostgreSQL for audit trail"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-001",

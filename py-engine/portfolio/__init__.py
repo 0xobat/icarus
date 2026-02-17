@@ -3,5 +3,6 @@
 from __future__ import annotations
 
 from portfolio.allocator import PortfolioAllocator
+from portfolio.position_tracker import PositionTracker
 
-__all__ = ["PortfolioAllocator"]
+__all__ = ["PortfolioAllocator", "PositionTracker"]
