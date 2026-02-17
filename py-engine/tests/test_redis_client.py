@@ -16,7 +16,8 @@ def redis_mgr() -> RedisManager | None:
     try:
         mgr.connect()
     except Exception:
-        return None
+        yield None
+        return
     yield mgr
     # Cleanup
     try:

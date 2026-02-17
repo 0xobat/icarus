@@ -3,10 +3,10 @@
 ## Status at Pause
 
 **Branch:** `dev` (all work merged)
-**Tests:** 280 passing (68 TS + 212 Python)
-**Features:** 13/31 P1 passing
+**Tests:** 340 passing (85 TS + 255 Python), 9 skipped (Redis offline)
+**Features:** 16/31 P1 passing
 
-### Completed (13)
+### Completed (16)
 | ID | Subsystem | Agent |
 |----|-----------|-------|
 | INFRA-001 | Project scaffolding | lead |
@@ -15,20 +15,20 @@
 | INFRA-004 | Docker Compose polish | lead |
 | LISTEN-001 | WebSocket manager | ts-dev |
 | EXEC-001 | Transaction builder | ts-dev |
+| EXEC-002 | Smart Wallet (ERC-4337) | ts-dev |
 | DATA-001 | Price feeds | py-data |
 | DATA-002 | Gas monitor | py-data |
 | DATA-003 | DeFi metrics | py-data |
+| DATA-004 | Position reconciliation | py-data |
 | MON-001 | Structured logging | py-strat |
 | HARNESS-001 | State persistence | py-strat |
 | PORT-001 | Portfolio allocator | py-strat |
 | PORT-002 | Position tracker | py-strat |
+| STRAT-001 | Aave lending strategy | py-strat |
 
-### Remaining (18)
+### Remaining (15)
 | ID | Subsystem | Assign To | Dependencies |
 |----|-----------|-----------|-------------|
-| EXEC-002 | Smart Wallet (ERC-4337) | ts-dev | — |
-| DATA-004 | Position reconciliation | py-data | — |
-| STRAT-001 | Aave lending strategy | py-strat | — |
 | LISTEN-002 | Market event publisher | ts-dev | LISTEN-001 |
 | EXEC-003 | Flashbots Protect | ts-dev | EXEC-001 |
 | EXEC-004 | Aave V3 adapter | ts-dev | EXEC-001 |
@@ -58,19 +58,9 @@ cd .worktrees/py-data && git merge dev && cd -
 cd .worktrees/py-strat && git merge dev && cd -
 ```
 
-### Step 2: Restart In-Flight Features (Wave 5 redo)
+### Step 2: Continue Waves 6-10
 
-These 3 features were in-flight when agents were shut down. No commits exist — restart from scratch:
-
-| Feature | Agent | Worktree |
-|---------|-------|----------|
-| EXEC-002 | ts-dev | .worktrees/ts-dev |
-| DATA-004 | py-data | .worktrees/py-data |
-| STRAT-001 | py-strat | .worktrees/py-strat |
-
-### Step 3: Continue Waves 6-12
-
-After merging Wave 5 redo into dev and refreshing worktrees:
+After refreshing worktrees:
 
 | Wave | ts-dev | py-data | py-strat |
 |------|--------|---------|----------|
@@ -87,7 +77,7 @@ git merge --no-ff feat/ts-dev -m "merge(icarus): FEATURE from ts-dev"
 # then refresh worktrees
 ```
 
-### Step 4: Wave 13 — TEST-001 Sepolia Integration
+### Step 3: Wave 13 — TEST-001 Sepolia Integration
 
 All 3 agents collaborate:
 - **ts-dev:** TS test harness (Sepolia TX lifecycle with mocked Alchemy)
@@ -101,7 +91,6 @@ Same strategy: agents mock dependencies from other services rather than waiting.
 
 | Feature | Needs | Mock Strategy |
 |---------|-------|---------------|
-| STRAT-001 | EXEC-004 response | Mock execution:results |
 | STRAT-007 | Multiple strategies | Mock strategy configs |
 | RISK-001 | PORT-002 + DATA-001 | Both already merged to dev |
 | HARNESS-002 | All services | Mock Redis messages |
