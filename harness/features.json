@@ -282,7 +282,7 @@
       "Calculates available capital for new positions accounting for all active positions and reserves",
       "Rebalancing triggers when allocation drifts beyond configurable threshold (e.g. ±5%)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "PORT-002",
