@@ -110,3 +110,52 @@ Completed:
 Blocked: none
 Next: EXEC-010 - Event reporter (standardized TX result publishing)
 Commit: feat(icarus): implement EXEC-001 viem transaction builder
+
+--- Session 2026-02-16-08 ---
+Agent: Claude Opus 4.6 (py-data teammate)
+Worked on: DATA-003 - DeFi protocol metrics collector
+Completed:
+  - Created py-engine/data/defi_metrics.py (DeFiMetricsCollector class)
+  - Aave V3, Uniswap V3, and Lido protocol metrics collection
+  - TVL aggregation across all tracked protocols
+  - Graceful degradation: individual provider failure doesn't crash collector
+  - Redis caching of collected metrics with configurable TTL
+  - 21 tests covering all providers, aggregation, caching, error handling
+  - All 212 Python tests passing, ruff clean
+Blocked: none
+Next: DATA-004 - On-chain position reconciliation
+Commit: feat(icarus): implement DATA-003 DeFi protocol metrics collector
+
+--- Session 2026-02-16-09 ---
+Agent: Claude Opus 4.6 (py-strat teammate)
+Worked on: PORT-002 - Position tracker
+Completed:
+  - Created py-engine/portfolio/position_tracker.py (PositionTracker class)
+  - Open/close positions with P&L calculation
+  - Query filtering by status, protocol, asset
+  - Execution result handling from Redis messages
+  - State persistence integration with StateManager
+  - 32 tests covering lifecycle, P&L, queries, edge cases
+  - All Python tests passing, ruff clean
+Blocked: none
+Next: STRAT-001 - Aave lending optimization
+Commit: feat(icarus): implement PORT-002 position tracker
+
+--- Session 2026-02-16-10 ---
+Agent: Claude Opus 4.6 (lead)
+Worked on: Wave 6 merge checkpoint + pause
+Completed:
+  - Merged feat/ts-dev into dev (LISTEN-001 + EXEC-001)
+  - Merged feat/py-data into dev (DATA-001 + DATA-002 + DATA-003)
+  - Merged feat/py-strat into dev (MON-001 + HARNESS-001 + PORT-001 + PORT-002)
+  - All merges clean, no conflicts
+  - Verified: 280 tests pass on merged dev (68 TS + 212 Python)
+  - 13/31 P1 features now passing on dev
+  - Shut down all 3 agents (ts-dev, py-data, py-strat)
+  - 3 features were in-flight when shutdown requested (EXEC-002, DATA-004, STRAT-001) — no commits found, must restart
+Blocked: none
+Next: Resume Phase C from Wave 5 in-flight features (EXEC-002, DATA-004, STRAT-001), then continue Waves 7-13
+Commits:
+  - merge(icarus): LISTEN-001 + EXEC-001 from ts-dev
+  - merge(icarus): DATA-001 + DATA-002 + DATA-003 from py-data
+  - merge(icarus): MON-001 + HARNESS-001 + PORT-001 + PORT-002 from py-strat
