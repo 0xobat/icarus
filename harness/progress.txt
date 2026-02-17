@@ -71,3 +71,42 @@ Completed:
 Blocked: none
 Next: Phase B - worktree setup for parallel agent execution (Waves 3-12)
 Commit: feat(icarus): implement INFRA-004 Docker Compose polish
+
+--- Session 2026-02-16-06 ---
+Agent: Claude Opus 4.6 (ts-dev teammate)
+Worked on: LISTEN-001 - Alchemy WebSocket subscription manager
+Completed:
+  - Created ts-executor/src/listeners/event-normalizer.ts (normalize raw chain events to market-events schema)
+  - Created ts-executor/src/listeners/websocket-manager.ts (AlchemyWebSocketManager class)
+  - WebSocket connection via viem with reconnect: false (custom reconnection logic)
+  - Exponential backoff reconnection: 200ms initial, 2x growth, 30s cap, resets on success
+  - Health monitoring: configurable timeout (default 60s), alerts on prolonged silence
+  - Rate limit detection (429 errors) with backpressure queue (max 1000 events)
+  - Block watcher and contract event subscriptions that survive reconnects
+  - Event normalizer supports all 6 market-events schema types: new_block, swap, rate_change, liquidity_change, large_transfer, price_update
+  - Monotonically increasing sequence numbers for event ordering
+  - 22 unit tests covering: normalizer, backpressure, config, schema compliance
+  - All 46 TS tests passing, TypeScript type check clean
+Blocked: none
+Next: LISTEN-002 - Market event publisher (transforms and publishes to Redis)
+Commit: feat(icarus): implement LISTEN-001 Alchemy WebSocket manager
+
+--- Session 2026-02-16-07 ---
+Agent: Claude Opus 4.6 (ts-dev teammate)
+Worked on: EXEC-001 - viem transaction builder
+Completed:
+  - Created ts-executor/src/execution/transaction-builder.ts
+  - TransactionBuilder class subscribes to execution:orders via RedisManager
+  - Uses viem to construct, sign, and send transactions with privateKeyToAccount
+  - NonceManager tracks nonces locally, syncs from chain, prevents gaps
+  - Pre-flight checks: deadline expiry rejection, gas ceiling enforcement
+  - Retry logic: exponential backoff (1s base), max 3 retries, non-retryable error detection
+  - Publishes structured results to execution:results (schema-validated via RedisManager)
+  - ABI registry for protocol-specific transaction encoding
+  - Revert reason decoding via call simulation
+  - All operations logged with correlation IDs
+  - 22 unit tests: nonce management, preflight, retries, result building, logging
+  - All 68 TS tests passing, TypeScript type check clean
+Blocked: none
+Next: EXEC-010 - Event reporter (standardized TX result publishing)
+Commit: feat(icarus): implement EXEC-001 viem transaction builder

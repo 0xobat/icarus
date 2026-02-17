@@ -76,7 +76,7 @@
       "Connection health monitored; prolonged disconnection triggers alert",
       "Alchemy rate limits handled gracefully with backpressure, not crash"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "LISTEN-002",
@@ -108,7 +108,7 @@
       "Nonce management prevents stuck transactions from nonce gaps",
       "Failed transactions retried with configurable backoff, max 3 retries"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-002",
