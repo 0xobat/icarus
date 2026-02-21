@@ -91,7 +91,7 @@
       "Publishing latency from event detection to Redis is under 100ms",
       "Events include a monotonically increasing sequence number for ordering"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-001",
@@ -139,7 +139,7 @@
       "Configurable per-transaction: some strategies can opt out of private routing",
       "Latency overhead of Flashbots routing logged and monitored"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-004",
@@ -155,7 +155,7 @@
       "Gas estimation accurate within 10% of actual cost",
       "All interactions go through the Smart Wallet"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-010",
@@ -170,7 +170,7 @@
       "Results published within 1 block of transaction confirmation",
       "Results conform to shared JSON schema for execution:results"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "DATA-001",
@@ -266,7 +266,7 @@
       "Underperforming strategies flagged for review; auto-pause if losses exceed per-strategy threshold",
       "New strategy tier activation requires human approval (Human-in-the-Loop gate)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "PORT-001",
@@ -330,7 +330,7 @@
       "Resumes normal operation if all checks pass; enters diagnostic mode with alert if not",
       "Recovery completes in under 60 seconds (target), under 5 minutes (hard limit)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-004",
@@ -346,7 +346,7 @@
       "Alert sent to owner with summary of what went wrong",
       "Manual exit from diagnostic mode required — no auto-resume"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "MON-001",
@@ -378,7 +378,7 @@
       "Cannot be overridden programmatically — requires manual restart after investigation",
       "Drawdown calculation accounts for all positions across all chains"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-002",
@@ -393,7 +393,7 @@
       "Cooldown enforced — strategy cannot open new positions until cooldown expires",
       "Loss events logged with full context: entry price, exit price, duration, strategy"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-003",
@@ -408,7 +408,7 @@
       "Queued operations held and executed when gas returns below threshold",
       "Alert sent when gas pause activates and when it deactivates"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-004",
@@ -423,7 +423,7 @@
       "System does not auto-resume — requires manual investigation",
       "Distinguishes between parameter errors and systemic failures (network issues)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-006",
@@ -439,7 +439,7 @@
       "Allowlist includes Aave V3, Uniswap V3, Lido, and their periphery contracts",
       "Separate allowlists per chain (mainnet, Arbitrum, Base, Solana)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-007",
@@ -454,7 +454,7 @@
       "Logs all price rejections with source details for post-hoc analysis",
       "Does not block operations when one source is temporarily unavailable (graceful degradation + alert)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-008",
@@ -470,7 +470,7 @@
       "Current exposure levels queryable for dashboard display",
       "Limits are configurable but changes are logged for audit trail"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "TEST-001",
@@ -485,7 +485,7 @@
       "Circuit breakers trigger correctly when simulated thresholds are exceeded",
       "Redis schema validation catches malformed messages"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "INFRA-006",
