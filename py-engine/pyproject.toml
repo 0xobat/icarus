@@ -10,6 +10,8 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "jsonschema>=4.23.0",
     "watchfiles>=1.0.4",
+    "sqlalchemy>=2.0",
+    "aiosqlite>=0.20",
 ]
 
 [project.optional-dependencies]

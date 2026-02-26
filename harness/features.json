@@ -76,7 +76,7 @@
       "Migrations framework in place for schema evolution",
       "Backup strategy defined (at minimum Railway's managed backups)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "INFRA-007",
