@@ -375,7 +375,7 @@
       "Fallback to deterministic fast-path when API is unavailable or budget exhausted",
       "Decision audit log with full prompt/response for debugging"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "AI-002",
@@ -409,7 +409,7 @@
       "Includes recent decision history for context continuity",
       "Snapshot schema validated before sending to decision engine"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-001",
@@ -538,7 +538,7 @@
       "Trigger AI-002 code-gen pipeline for new or modified strategies",
       "Flag removed strategies for retirement via lifecycle manager"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "PORT-001",
