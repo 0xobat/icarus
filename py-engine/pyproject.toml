@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "jsonschema>=4.23.0",
     "watchfiles>=1.0.4",
+    "anthropic>=0.40.0",
 ]
 
 [project.optional-dependencies]
