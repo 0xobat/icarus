@@ -633,7 +633,7 @@
       "Emergency override commands via Discord: pause all, force-unwind, withdraw all",
       "All approvals and rejections logged with timestamp"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-004",
@@ -681,7 +681,7 @@
       "Configurable alert severity levels (not everything sends a push notification)",
       "Inline keyboard buttons for human-in-the-loop approvals (approve/reject)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "MON-003",
@@ -712,7 +712,7 @@
       "Anomalies trigger alerts with severity classification",
       "False positive rate is manageable (not alert fatigue)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-001",
