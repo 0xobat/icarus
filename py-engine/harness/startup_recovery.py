@@ -17,6 +17,8 @@ RECOVERY_HARD_LIMIT_SECONDS = 300
 
 
 class RecoveryStatus(StrEnum):
+    """Enumeration of startup recovery outcomes."""
+
     SUCCESS = "success"
     DIAGNOSTIC = "diagnostic"
     FAILED = "failed"

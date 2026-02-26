@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 const SERVICE_NAME = 'ts-executor';
 
+/** Emit a structured JSON log entry. */
 function log(event: string, message: string, extra?: Record<string, unknown>): void {
   console.log(JSON.stringify({
     timestamp: new Date().toISOString(),
@@ -12,6 +13,7 @@ function log(event: string, message: string, extra?: Record<string, unknown>): v
   }));
 }
 
+/** Bootstrap and run the TypeScript executor service. */
 async function main(): Promise<void> {
   log('startup', 'TypeScript executor starting...');
 

@@ -10,9 +10,6 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { type Address } from 'viem';
 import { type RedisManager, CHANNELS } from '../redis/client.js';
 import { type ExecutionOrder, type ExecutionResult } from '../execution/transaction-builder.js';
 
@@ -78,6 +75,7 @@ const DEFAULT_CONFIG: AllowlistConfig = {
 
 // ── Contract Allowlist ──────────────────────────────
 
+/** Validates transaction targets against a per-chain contract allowlist. */
 export class ContractAllowlist {
   private readonly config: AllowlistConfig;
   private readonly lookupMap: Map<string, AllowlistEntry>; // chain:lowercaseAddress -> entry
@@ -131,6 +129,7 @@ export class ContractAllowlist {
     this.redis = redis;
   }
 
+  /** Get allowlist check statistics. */
   get stats() {
     return {
       checked: this._checked,

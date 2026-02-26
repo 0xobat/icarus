@@ -53,6 +53,7 @@ class RedisManager:
 
     @property
     def connected(self) -> bool:
+        """Check whether the Redis connection is established."""
         return self._connected
 
     def connect(self) -> None:
@@ -80,6 +81,7 @@ class RedisManager:
 
     @property
     def client(self) -> redis.Redis:
+        """Return the underlying Redis client instance."""
         if not self._client:
             raise RuntimeError("Redis not connected. Call connect() first.")
         return self._client

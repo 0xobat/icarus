@@ -13,6 +13,8 @@ _logger = get_logger("diagnostic-mode", enable_file=False)
 
 
 class DiagnosticTrigger(StrEnum):
+    """Enumeration of events that trigger diagnostic mode."""
+
     STARTUP_RECONCILIATION = "startup_reconciliation"
     CRITICAL_CIRCUIT_BREAKER = "critical_circuit_breaker"
     MANUAL_COMMAND = "manual_command"
@@ -59,14 +61,17 @@ class DiagnosticMode:
 
     @property
     def is_active(self) -> bool:
+        """Check whether diagnostic mode is currently active."""
         return self._active
 
     @property
     def state_dump(self) -> StateDump | None:
+        """Return the captured state dump, or None if not in diagnostic mode."""
         return self._state_dump
 
     @property
     def entry_time(self) -> str | None:
+        """Return the ISO timestamp when diagnostic mode was entered."""
         return self._entry_time
 
     def enter(

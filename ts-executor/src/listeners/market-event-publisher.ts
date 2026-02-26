@@ -30,6 +30,7 @@ export interface MarketEventPublisherOptions {
 
 // ── Publisher ──────────────────────────────────────────
 
+/** Deduplicates and publishes market events to Redis. */
 export class MarketEventPublisher {
   private redis: RedisManager | null = null;
   private readonly dedupCache = new Set<string>();

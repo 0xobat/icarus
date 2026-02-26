@@ -35,6 +35,8 @@ def _log(event: str, message: str, **kwargs: Any) -> None:
 
 
 class DiscrepancyType(StrEnum):
+    """Enumeration of reconciliation discrepancy types."""
+
     MISSING_POSITION = "missing_position"
     UNEXPECTED_BALANCE = "unexpected_balance"
     UNRECORDED_TX = "unrecorded_tx"
@@ -42,6 +44,8 @@ class DiscrepancyType(StrEnum):
 
 
 class Severity(StrEnum):
+    """Enumeration of discrepancy severity levels."""
+
     AUTO_FIXABLE = "auto_fixable"
     MANUAL_REVIEW = "manual_review"
 
@@ -117,6 +121,7 @@ class Discrepancy:
             self.timestamp = datetime.now(UTC).isoformat()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         d = asdict(self)
         d["type"] = self.type.value
         d["severity"] = self.severity.value
@@ -142,6 +147,7 @@ class Reconciler:
 
     @property
     def interval_seconds(self) -> int:
+        """Return the reconciliation interval in seconds."""
         return self._interval
 
     def _balances_match(self, a: float, b: float) -> bool:

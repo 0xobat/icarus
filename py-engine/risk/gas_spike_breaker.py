@@ -77,22 +77,27 @@ class GasSpikeBreaker:
 
     @property
     def is_active(self) -> bool:
+        """Check whether the gas spike breaker is currently active."""
         return self._is_active
 
     @property
     def current_gas(self) -> Decimal:
+        """Return the most recent gas price."""
         return self._current_gas
 
     @property
     def average_gas(self) -> Decimal:
+        """Return the rolling average gas price."""
         return self._average_gas
 
     @property
     def queued_operations(self) -> list[QueuedOperation]:
+        """Return a copy of all queued operations."""
         return list(self._queue)
 
     @property
     def alerts(self) -> list[dict[str, Any]]:
+        """Return a copy of all gas spike alerts."""
         return list(self._alerts)
 
     def update(

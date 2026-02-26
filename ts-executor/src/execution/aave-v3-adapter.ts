@@ -16,11 +16,9 @@ import {
   type Hex,
   type Chain,
   createPublicClient,
-  createWalletClient,
   http,
   encodeFunctionData,
   parseAbi,
-  formatUnits,
 } from 'viem';
 import { sepolia } from 'viem/chains';
 import { type SmartWalletManager } from '../wallet/smart-wallet.js';
@@ -92,6 +90,7 @@ const SEPOLIA_AAVE_V3_POOL: Address = '0x6Ae43d3271ff6888e7Fc43Fd7321a503ff73895
 
 // ── Adapter ──────────────────────────────────────────
 
+/** Adapter for Aave V3 supply and withdraw operations. */
 export class AaveV3Adapter {
   private readonly poolAddress: Address;
   private readonly publicClient: PublicClient;
@@ -128,7 +127,7 @@ export class AaveV3Adapter {
       abi: AAVE_POOL_ABI,
       functionName: 'getReserveData',
       args: [asset],
-    }) as any;
+    }) as Record<string, bigint | number | string>;
 
     // Aave V3 stores rates as RAY (1e27)
     const RAY = BigInt('1000000000000000000000000000');

@@ -137,11 +137,13 @@ class StateManager:
 
     @property
     def schema_version(self) -> int:
+        """Return the current state schema version."""
         return self._state["schema_version"]
 
     # -- Positions ------------------------------------------------------
 
     def get_positions(self) -> dict[str, Any]:
+        """Return all tracked positions."""
         return self._state["positions"]
 
     def set_position(self, position_id: str, position: dict[str, Any]) -> None:
@@ -165,6 +167,7 @@ class StateManager:
     # -- Strategy statuses -----------------------------------------------
 
     def get_strategy_statuses(self) -> dict[str, Any]:
+        """Return all strategy statuses."""
         return self._state["strategy_statuses"]
 
     def set_strategy_status(self, strategy_id: str, status: str) -> None:
@@ -179,6 +182,7 @@ class StateManager:
     # -- Reconciliation --------------------------------------------------
 
     def get_last_reconciliation(self) -> str | None:
+        """Return the ISO timestamp of the last reconciliation, or None."""
         return self._state["last_reconciliation"]
 
     def mark_reconciled(self) -> None:
@@ -189,9 +193,11 @@ class StateManager:
     # -- Operational flags -----------------------------------------------
 
     def get_operational_flags(self) -> dict[str, Any]:
+        """Return all operational flags."""
         return self._state["operational_flags"]
 
     def set_operational_flag(self, flag: str, value: bool) -> None:
+        """Set an operational flag and persist the state."""
         self._state["operational_flags"][flag] = value
         self.save()
         _logger.info(

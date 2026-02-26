@@ -61,28 +61,34 @@ class DrawdownBreaker:
 
     @property
     def peak_value(self) -> Decimal:
+        """Return the highest portfolio value observed."""
         return self._peak_value
 
     @property
     def current_value(self) -> Decimal:
+        """Return the current portfolio value."""
         return self._current_value
 
     @property
     def entries_paused(self) -> bool:
+        """Check whether new position entries are paused."""
         return self._entries_paused
 
     @property
     def trading_halted(self) -> bool:
+        """Check whether all trading is halted."""
         return self._trading_halted
 
     @property
     def drawdown_pct(self) -> Decimal:
+        """Return the current drawdown as a fraction of peak value."""
         if self._peak_value <= 0:
             return Decimal(0)
         return (self._peak_value - self._current_value) / self._peak_value
 
     @property
     def level(self) -> str:
+        """Return the current drawdown severity level."""
         if self._trading_halted:
             return "critical"
         if self._entries_paused:
@@ -91,6 +97,7 @@ class DrawdownBreaker:
 
     @property
     def alerts(self) -> list[dict[str, Any]]:
+        """Return a copy of all drawdown alerts."""
         return list(self._alerts)
 
     def update(self, portfolio_value: Decimal) -> DrawdownState:

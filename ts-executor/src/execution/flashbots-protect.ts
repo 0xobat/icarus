@@ -78,6 +78,7 @@ export interface FlashbotsResult {
 
 // ── Flashbots Protect Manager ──────────────────────
 
+/** Routes transactions through Flashbots Protect to prevent front-running. */
 export class FlashbotsProtectManager {
   private readonly flashbotsRpcUrl: string;
   private readonly publicClient: PublicClient;
@@ -120,6 +121,7 @@ export class FlashbotsProtectManager {
     });
   }
 
+  /** Get submission statistics. */
   get stats() {
     return {
       totalSent: this._totalSent,
@@ -306,6 +308,7 @@ export class FlashbotsProtectManager {
     }
   }
 
+  /** Async sleep utility. */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }

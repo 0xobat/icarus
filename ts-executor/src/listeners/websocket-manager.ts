@@ -61,6 +61,7 @@ type Unwatch = () => void;
 
 // ── Manager ──────────────────────────────────────────
 
+/** Manages persistent WebSocket connections to Alchemy with auto-reconnection. */
 export class AlchemyWebSocketManager {
   private client: PublicClient | null = null;
   private unwatchers: Unwatch[] = [];
@@ -108,14 +109,17 @@ export class AlchemyWebSocketManager {
     this.maxBackpressureQueue = opts.maxBackpressureQueue ?? 1000;
   }
 
+  /** Check if the WebSocket is currently connected. */
   get connected(): boolean {
     return this._connected;
   }
 
+  /** Get the total number of reconnection attempts. */
   get reconnectCount(): number {
     return this._reconnectCount;
   }
 
+  /** Check if the manager has been stopped. */
   get stopped(): boolean {
     return this._stopped;
   }
@@ -317,6 +321,7 @@ export class AlchemyWebSocketManager {
 
   // ── Event emission with backpressure ──────────────
 
+  /** Emit an event or queue it during backpressure. */
   private emitEvent(event: MarketEvent): void {
     if (this.backpressureActive) {
       if (this.backpressureQueue.length < this.maxBackpressureQueue) {
@@ -363,6 +368,7 @@ export class AlchemyWebSocketManager {
 
   // ── Reconnection ──────────────────────────────────
 
+  /** Handle a WebSocket transport error and detect rate limiting. */
   private handleTransportError(error: Error): void {
     this.log('ws_transport_error', 'WebSocket transport error', {
       error: error.message,
@@ -374,6 +380,7 @@ export class AlchemyWebSocketManager {
     }
   }
 
+  /** Handle a WebSocket disconnection event. */
   private handleDisconnect(): void {
     if (this._stopped) return;
 
@@ -382,6 +389,7 @@ export class AlchemyWebSocketManager {
     this.scheduleReconnect();
   }
 
+  /** Schedule a reconnection attempt with exponential backoff. */
   private scheduleReconnect(): void {
     if (this._stopped || this.reconnecting) return;
     this.reconnecting = true;
@@ -410,6 +418,7 @@ export class AlchemyWebSocketManager {
 
   // ── Health monitoring ──────────────────────────────
 
+  /** Record that an event was received for health monitoring. */
   private touchHealth(): void {
     this.lastEventTime = Date.now();
     if (this.healthAlerted) {
@@ -418,6 +427,7 @@ export class AlchemyWebSocketManager {
     }
   }
 
+  /** Start periodic health checks for event flow silence. */
   private startHealthMonitor(): void {
     if (this.healthTimer) {
       clearInterval(this.healthTimer);

@@ -77,10 +77,12 @@ export class RedisManager {
     this.client = createBaseClient(opts);
   }
 
+  /** Check if the Redis clients are connected. */
   get connected(): boolean {
     return this._connected;
   }
 
+  /** Connect all Redis clients (pub, sub, and general). */
   async connect(): Promise<void> {
     await Promise.all([
       this.pub.connect(),
@@ -90,6 +92,7 @@ export class RedisManager {
     this._connected = true;
   }
 
+  /** Disconnect all Redis clients. */
   async disconnect(): Promise<void> {
     this._connected = false;
     await Promise.all([

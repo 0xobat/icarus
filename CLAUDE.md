@@ -56,6 +56,11 @@ bash harness/verify.sh
 - Risk limits are environment variables, not hardcoded
 - One strategy adjustment per decision cycle
 
+## Documentation
+
+- **Python:** Google-style docstrings. Required on modules, public classes, public methods/functions. Include `Args:`, `Returns:`, `Raises:` sections when non-obvious. Use imperative mood for summary lines. Test methods and `__init__.py` files are exempt.
+- **TypeScript:** JSDoc `/** */` comments. Required on exported classes, exported functions, and public methods. Include `@param`, `@returns`, `@throws` when non-obvious. Test files are exempt.
+
 ## Commit Messages
 
 ```

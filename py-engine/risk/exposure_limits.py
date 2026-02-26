@@ -104,10 +104,12 @@ class ExposureLimiter:
 
     @property
     def config(self) -> ExposureLimitsConfig:
+        """Return the current exposure limits configuration."""
         return self._config
 
     @property
     def total_capital(self) -> Decimal:
+        """Return the total capital amount."""
         return self._total_capital
 
     def update_config(self, **kwargs: Any) -> None:

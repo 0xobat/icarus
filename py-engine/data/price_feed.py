@@ -74,6 +74,7 @@ class PriceResult:
         self.timestamp = timestamp
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         return {
             "token": self.token,
             "price_usd": self.price_usd,

@@ -36,6 +36,7 @@ class Position:
     protocol_data: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         d = asdict(self)
         # Convert Decimals to str for JSON serialization
         for k, v in d.items():
@@ -45,6 +46,7 @@ class Position:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Position:
+        """Construct a Position from a dictionary."""
         decimal_fields = {
             "entry_price", "amount", "current_value",
             "unrealized_pnl", "realized_pnl",

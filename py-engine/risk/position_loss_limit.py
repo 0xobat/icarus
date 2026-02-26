@@ -34,6 +34,7 @@ class LossEvent:
     timestamp: str
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         return {
             "position_id": self.position_id,
             "strategy_id": self.strategy_id,
@@ -79,14 +80,17 @@ class PositionLossLimit:
 
     @property
     def loss_threshold(self) -> Decimal:
+        """Return the loss percentage threshold that triggers a close."""
         return self._loss_threshold
 
     @property
     def cooldown_hours(self) -> int:
+        """Return the cooldown duration in hours after a loss event."""
         return self._cooldown_hours
 
     @property
     def loss_events(self) -> list[LossEvent]:
+        """Return a copy of all recorded loss events."""
         return list(self._loss_events)
 
     def check_position(

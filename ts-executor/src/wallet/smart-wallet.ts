@@ -93,6 +93,7 @@ const ERC20_ABI = parseAbi([
 
 // ── Smart Wallet Manager ──────────────────────────────
 
+/** Manages an ERC-4337 smart wallet with spending limits and allowlist enforcement. */
 export class SmartWalletManager {
   private readonly account: PrivateKeyAccount;
   private readonly walletAddress: Address;

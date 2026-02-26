@@ -70,6 +70,7 @@ class AaveMetrics:
             self.timestamp = datetime.now(UTC).isoformat()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         return {
             "protocol": self.protocol,
             "markets": [asdict(m) for m in self.markets],
@@ -107,6 +108,7 @@ class UniswapMetrics:
             self.timestamp = datetime.now(UTC).isoformat()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         return {
             "protocol": self.protocol,
             "pools": [asdict(p) for p in self.pools],
@@ -129,6 +131,7 @@ class LidoMetrics:
             self.timestamp = datetime.now(UTC).isoformat()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         return asdict(self)
 
 
@@ -146,6 +149,7 @@ class ProtocolTVL:
             self.timestamp = datetime.now(UTC).isoformat()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         return asdict(self)
 
 

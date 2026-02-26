@@ -36,6 +36,7 @@ class TxFailure:
     strategy_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         return {
             "tx_id": self.tx_id,
             "reason": self.reason,
@@ -84,14 +85,17 @@ class TxFailureMonitor:
 
     @property
     def is_paused(self) -> bool:
+        """Check whether execution is paused due to failure threshold."""
         return self._is_paused
 
     @property
     def diagnostic_mode(self) -> bool:
+        """Check whether diagnostic mode is active."""
         return self._diagnostic_mode
 
     @property
     def alerts(self) -> list[dict[str, Any]]:
+        """Return a copy of all failure threshold alerts."""
         return list(self._alerts)
 
     def _classify_failure(self, reason: str) -> str:

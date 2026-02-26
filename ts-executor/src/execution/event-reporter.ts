@@ -13,8 +13,6 @@ import {
   type TransactionReceipt,
   createPublicClient,
   http,
-  decodeErrorResult,
-  type Hex,
   type Chain,
 } from 'viem';
 import { sepolia } from 'viem/chains';
@@ -41,6 +39,7 @@ export interface ReportResult {
 
 // ── Event Reporter ──────────────────────────────────
 
+/** Publishes transaction results to the execution:results Redis channel. */
 export class EventReporter {
   private redis: RedisManager | null = null;
   private readonly publicClient: PublicClient;
@@ -72,6 +71,7 @@ export class EventReporter {
     this.log('reporter_attached', 'Event reporter attached to Redis');
   }
 
+  /** Get reporting statistics. */
   get stats() {
     return {
       reported: this._reported,
@@ -268,7 +268,7 @@ export class EventReporter {
         if (errorDataMatch) {
           try {
             const decoded = Buffer.from(errorDataMatch[0].slice(10), 'hex');
-            const offset = Number('0x' + decoded.slice(0, 32).toString('hex'));
+            // Skip the 32-byte offset, read the 32-byte length, then extract the string
             const length = Number('0x' + decoded.slice(32, 64).toString('hex'));
             return decoded.slice(64, 64 + length).toString('utf8') || 'Unknown revert';
           } catch {

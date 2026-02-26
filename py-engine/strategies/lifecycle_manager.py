@@ -83,6 +83,7 @@ class StrategyPerformance:
             self.sharpe_ratio = mean / std if std > 0 else Decimal(0)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         return {
             "strategy_id": self.strategy_id,
             "total_pnl": str(self.total_pnl),
@@ -116,6 +117,7 @@ class LifecycleManager:
 
     @property
     def adjustment_made_this_cycle(self) -> bool:
+        """Check whether a strategy adjustment was already made this cycle."""
         return self._adjustment_made_this_cycle
 
     def reset_cycle(self) -> None:

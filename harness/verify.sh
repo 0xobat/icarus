@@ -34,6 +34,13 @@ else
     fi
   fi
 
+  # Linting
+  echo "Running ESLint..."
+  if ! pnpm lint; then
+    echo "ERROR: ESLint check failed"
+    ERRORS=$((ERRORS + 1))
+  fi
+
   # Tests
   if [ -d "tests" ] && ls tests/*.test.ts &>/dev/null 2>&1; then
     echo "Running TS tests..."

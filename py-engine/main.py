@@ -29,6 +29,7 @@ def log(event: str, message: str, **kwargs: object) -> None:
 
 
 def main() -> None:
+    """Run the Python engine main loop."""
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 

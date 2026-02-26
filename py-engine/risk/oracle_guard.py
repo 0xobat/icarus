@@ -66,10 +66,12 @@ class OracleGuard:
 
     @property
     def deviation_threshold(self) -> float:
+        """Return the maximum allowed price deviation between sources."""
         return self._deviation_threshold
 
     @property
     def min_sources(self) -> int:
+        """Return the minimum number of price sources required."""
         return self._min_sources
 
     def validate_price(

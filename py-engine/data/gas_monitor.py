@@ -55,6 +55,7 @@ class GasPrices:
         self.timestamp = timestamp
 
     def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
         return {
             "fast": self.fast,
             "standard": self.standard,

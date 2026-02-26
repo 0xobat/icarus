@@ -103,6 +103,7 @@ class StructuredFormatter(logging.Formatter):
         self.service = service
 
     def format(self, record: logging.LogRecord) -> str:
+        """Format a log record as single-line JSON."""
         entry: dict[str, object] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "service": self.service,
@@ -138,6 +139,7 @@ class SensitiveDataFilter(logging.Filter):
     """Scrub sensitive data from log record messages before formatting."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """Redact sensitive patterns from the log record message."""
         if isinstance(record.msg, str):
             record.msg = _redact_value(record.msg)
         return True

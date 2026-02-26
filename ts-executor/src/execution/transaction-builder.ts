@@ -17,7 +17,6 @@ import {
   type Chain,
   encodeFunctionData,
   type Abi,
-  decodeErrorResult,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
@@ -91,6 +90,7 @@ export interface TransactionBuilderOptions {
 
 // ── Nonce Manager ──────────────────────────────────
 
+/** Tracks and manages transaction nonces to prevent conflicts. */
 export class NonceManager {
   private currentNonce: number | null = null;
   private pendingNonces = new Set<number>();
@@ -139,6 +139,7 @@ export class NonceManager {
     this.pendingNonces.clear();
   }
 
+  /** Get the count of pending nonces. */
   get pending(): number {
     return this.pendingNonces.size;
   }
@@ -146,6 +147,7 @@ export class NonceManager {
 
 // ── Transaction Builder ──────────────────────────────
 
+/** Builds and submits Ethereum transactions from execution orders. */
 export class TransactionBuilder {
   private readonly publicClient: PublicClient;
   private readonly walletClient: WalletClient;
@@ -188,6 +190,7 @@ export class TransactionBuilder {
     this.abiRegistry = opts.abiRegistry ?? new Map();
   }
 
+  /** Check if an order is currently being processed. */
   get processing(): boolean {
     return this._processing;
   }
