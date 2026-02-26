@@ -140,7 +140,7 @@
       "Listener handles L2-specific quirks (faster block times, different finality guarantees)",
       "Can be enabled/disabled per-chain via configuration"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-001",
@@ -220,7 +220,7 @@
       "Pool state queries return: current price, active tick, liquidity at each tick range, 24h volume",
       "All swaps routed through Flashbots Protect"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-006",
@@ -235,7 +235,7 @@
       "Handle stETH rebasing model correctly in position tracking",
       "Works on testnet with Lido Sepolia deployment or mock"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-007",
@@ -251,7 +251,7 @@
       "Profit calculation accounts for: flash loan fee, gas cost, slippage",
       "Routed through Flashbots Protect"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-009",
@@ -265,7 +265,7 @@
       "Both adapters use same order schema and result reporting as Ethereum adapters",
       "L2 gas estimation accounts for L1 data posting costs (Arbitrum/Base specific)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-010",
