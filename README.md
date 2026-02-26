@@ -2,67 +2,41 @@
 
 Autonomous multi-strategy DeFi bot. Python (brain) handles all analysis and decisions. TypeScript (hands) handles all blockchain interaction. Communication via Redis.
 
+Sepolia testnet only.
+
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) with Docker Compose
+- Docker with Docker Compose
 - [pnpm](https://pnpm.io/installation) (v9+)
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
-- Node.js 22+
-- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) — Python package manager
+- Node.js 22+ / Python 3.12+
 
 ## Setup
 
 ```bash
-# 1. Clone and install dependencies
 bash harness/init.sh
-
-# 2. Configure environment
 cp .env.example .env
-# Edit .env with your Alchemy API key and wallet config
+# Fill in ALCHEMY_SEPOLIA_API_KEY, WALLET_PRIVATE_KEY
 ```
 
 ## Running
 
-### Docker (recommended)
-
 ```bash
-# Start all services (Redis + both services)
+# All services
 docker compose up
 
-# Background mode
-docker compose up -d
-
-# View logs
-docker compose logs -f
-
-# Stop
-docker compose down
-```
-
-### Local development
-
-```bash
-# Start Redis
+# Local dev (3 terminals)
 docker compose up -d redis
-
-# TS service (separate terminal)
 cd ts-executor && pnpm dev
-
-# Python service (separate terminal)
 cd py-engine && uv run python main.py
 ```
 
 ## Testing
 
 ```bash
-# TypeScript
-cd ts-executor && pnpm test
-
-# Python
-cd py-engine && uv run pytest tests/ --tb=short -q
-
-# Full verification (both services + schemas)
-bash harness/verify.sh
+cd ts-executor && pnpm test          # 172 tests, vitest
+cd py-engine && uv run pytest tests/ # 560 tests, pytest
+bash harness/verify.sh               # both + schema checks
 ```
 
 ## Architecture
@@ -72,40 +46,80 @@ bash harness/verify.sh
 │  py-engine   │◄──────────►│ ts-executor   │
 │  (brain)     │            │ (hands)       │
 │              │            │               │
-│ - Strategies │  market:   │ - WebSocket   │
-│ - Risk mgmt  │  events    │   listener    │
-│ - Portfolio  │ ──────────►│ - TX builder  │
-│ - Data pipe  │            │ - Smart Wallet│
-│              │  exec:     │ - Flashbots   │
-│              │  orders    │ - Protocol    │
-│              │◄───────────│   adapters    │
+│  strategies  │  market:   │  listeners    │
+│  risk mgmt   │  events    │  tx builder   │
+│  portfolio   │ ──────────►│  smart wallet │
+│  data pipe   │            │  flashbots    │
+│              │  exec:     │  protocol     │
+│              │  orders    │  adapters     │
+│              │◄───────────│               │
 │              │  exec:     │               │
 │              │  results   │               │
 │              │───────────►│               │
 └─────────────┘            └──────────────┘
 ```
 
-### Redis Channels
+All Redis messages are validated against JSON schemas in `shared/schemas/` at the boundary.
 
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| `market:events` | TS → Python | Blockchain events, price updates |
-| `execution:orders` | Python → TS | Trade orders from strategy engine |
-| `execution:results` | TS → Python | Transaction results and confirmations |
+## Codebase
 
-### Shared Schemas
+### `ts-executor/src/` — Chain interaction
 
-All Redis messages validated against JSON schemas in `shared/schemas/`.
+| Module | What it does |
+|--------|-------------|
+| `listeners/websocket-manager.ts` | Alchemy WebSocket subscriptions with reconnect, backpressure |
+| `listeners/event-normalizer.ts` | Raw chain events → normalized market event schema |
+| `listeners/market-event-publisher.ts` | Publishes normalized events to Redis `market:events` |
+| `execution/transaction-builder.ts` | Builds, signs, sends TXs via viem; nonce management, retries |
+| `execution/flashbots-protect.ts` | MEV-protected TX submission via Flashbots |
+| `execution/aave-v3-adapter.ts` | Aave V3 supply/withdraw/borrow encoding |
+| `execution/event-reporter.ts` | Publishes TX results to Redis `execution:results` |
+| `wallet/smart-wallet.ts` | ERC-4337 smart wallet: spending limits, allowlist, UserOp signing |
+| `security/contract-allowlist.ts` | Rejects TXs to non-allowlisted contracts |
+| `redis/client.ts` | Redis pub/sub, streams, cache with schema validation |
+| `validation/schema-validator.ts` | AJV-based JSON schema validation |
 
-## Environment Variables
+### `py-engine/` — Decision engine
 
-See `.env.example` for all required configuration. Key variables:
+| Module | What it does |
+|--------|-------------|
+| `data/price_feed.py` | Price data ingestion and caching |
+| `data/gas_monitor.py` | Gas price tracking |
+| `data/defi_metrics.py` | Aave V3, Uniswap V3, Lido protocol metrics |
+| `data/reconciliation.py` | On-chain vs local position reconciliation |
+| `data/redis_client.py` | Redis pub/sub, streams, cache with schema validation |
+| `strategies/aave_lending.py` | Aave lending optimization (supply rate, utilization) |
+| `strategies/lifecycle_manager.py` | Strategy registration, activation, cooldowns |
+| `portfolio/allocator.py` | Capital allocation across strategies |
+| `portfolio/position_tracker.py` | Open/close positions, P&L tracking |
+| `risk/drawdown_breaker.py` | Portfolio-level drawdown circuit breaker |
+| `risk/position_loss_limit.py` | Per-position loss limit enforcement |
+| `risk/gas_spike_breaker.py` | Pauses execution during gas spikes |
+| `risk/tx_failure_monitor.py` | Consecutive TX failure rate detection |
+| `risk/oracle_guard.py` | Oracle manipulation detection |
+| `risk/exposure_limits.py` | Per-protocol and per-asset concentration limits |
+| `harness/state_manager.py` | Persistent state across restarts |
+| `harness/startup_recovery.py` | Graceful recovery after crash |
+| `harness/diagnostic_mode.py` | Read-only diagnostic mode for debugging |
+| `monitoring/logger.py` | Structured JSON logging |
 
-- `ALCHEMY_SEPOLIA_API_KEY` — Alchemy API access
-- `WALLET_PRIVATE_KEY` — Sepolia testnet wallet (never mainnet)
-- `REDIS_URL` — Redis connection string
-- Risk limits (`MAX_DRAWDOWN_PERCENT`, etc.)
+### `shared/schemas/`
 
-## Network
+| Schema | Channel | Direction |
+|--------|---------|-----------|
+| `market-events.schema.json` | `market:events` | TS → Python |
+| `execution-orders.schema.json` | `execution:orders` | Python → TS |
+| `execution-results.schema.json` | `execution:results` | TS → Python |
 
-Phase 1 operates exclusively on **Sepolia testnet**. No mainnet until P2.
+## Environment
+
+See `.env.example`. Key variables:
+
+| Variable | Purpose |
+|----------|---------|
+| `ALCHEMY_SEPOLIA_API_KEY` | Alchemy API access |
+| `WALLET_PRIVATE_KEY` | Sepolia testnet wallet |
+| `REDIS_URL` | Redis connection (default `redis://localhost:6379`) |
+| `MAX_DRAWDOWN_PERCENT` | Portfolio drawdown limit (default 20) |
+| `GAS_SPIKE_MULTIPLIER` | Gas price circuit breaker threshold (default 3x) |
+| `TX_FAILURE_RATE_THRESHOLD` | Consecutive TX failures before halt (default 3) |
