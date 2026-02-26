@@ -212,3 +212,21 @@ Completed:
 Blocked: none
 Next: P2 planning — INFRA-006 (PostgreSQL), L2 listeners, advanced strategies
 Commit: feat(icarus): complete P1 — 31/31 features passing, 732 tests
+
+--- Session 2026-02-25-01 ---
+Agent: Claude Opus 4.6
+Worked on: PRD redesign + CLAUDE.md alignment
+Completed:
+  - PRD redesigned (ac0e30b): Claude is now the core decision engine, not just sentiment analysis
+    - Two AI integration points: compile-time code-gen (strategy.md → Python) + runtime reasoning (Claude API)
+    - Added features: AI-001 (decision engine), AI-002 (code-gen), AI-003 (insight synthesis), STRAT-008 (strategy.md watcher), INFRA-007 (main loop)
+    - features.json expanded from 31 → 62 features, phases restructured
+  - Docstring/JSDoc linting enforced (b1fe018): ruff D rules for Python, eslint-plugin-jsdoc for TS
+  - CLAUDE.md aligned with PRD (57e6b46): decision loop, strategy tiers, risk thresholds, human-in-the-loop gates
+  - Phase structure clarified:
+    - P1 = build full system (57 features — 31 passing, 26 remaining)
+    - P2 = historical stress testing (1 feature)
+    - P3 = Solana chain support (3 features)
+    - P4 = Railway production deployment (1 feature)
+Blocked: none
+Next: Continue P1 — 26 remaining features (AI engine, strategies, L2, monitoring, deployment infra)

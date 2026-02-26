@@ -302,3 +302,25 @@ How a lending rotation flows through the system:
 | Restart Recovery | <60 seconds | <5 minutes |
 
 The project is successful when the agent consistently generates returns above the S&P 500 benchmark with controlled drawdowns, running autonomously on Railway with Discord alerts and human-in-the-loop controls for high-stakes decisions.
+
+---
+
+## 10. Phases
+
+### P1 — Build Full System
+
+All infrastructure, strategies, AI decision engine, risk management, monitoring, and L2 support for Ethereum + Arbitrum + Base. The bot is feature-complete and running on Sepolia testnet.
+
+Includes: infrastructure (Redis, PostgreSQL, Docker, main loop), all chain listeners (Ethereum + L2), all protocol adapters (Aave, Uniswap V3, Lido, GMX, Aerodrome, flash loans), all 6 strategies, Claude AI engine (runtime reasoning + code-gen + insight synthesis), full risk management suite, portfolio rebalancing, Discord alerts, performance dashboard, anomaly detection, human-in-the-loop gates, tax/P&L reporting, and ML gas prediction.
+
+### P2 — Historical Stress Testing
+
+Replay historical market crises (March 2020 COVID crash, May 2021 crypto crash, November 2022 FTX collapse) through the system to validate circuit breakers hold and the bot survives extreme conditions.
+
+### P3 — Solana Chain Support
+
+Extend listeners, executors, and data pipeline to Solana's account-based model (Marinade, Raydium, Jupiter).
+
+### P4 — Production Deployment
+
+Deploy to Railway with managed Redis, secrets management, auto-deploy from main, health checks, and cost monitoring within budget.
