@@ -230,3 +230,47 @@ Completed:
     - P4 = Railway production deployment (1 feature)
 Blocked: none
 Next: Continue P1 — 26 remaining features (AI engine, strategies, L2, monitoring, deployment infra)
+
+--- Session 2026-02-25-02 ---
+Agent: Claude Opus 4.6 (lead + 6 parallel agents)
+Worked on: 26 P1 features (6 parallel worktree agents)
+Completed:
+  - Spawned 6 agents to cover all remaining P1 features
+  - Session was CANCELED mid-execution
+  - 9 features merged to dev before cancelation
+  - 3 features committed on worktree branch (not merged)
+  - 7 features with code + passing tests (not committed)
+  - 3 features with code but failing tests (not committed)
+  - 5 features never started
+  - 6 orphaned worktrees left behind
+Blocked: Session canceled
+Next: Recovery session needed — merge committed work, rescue uncommitted, fix bugs, implement remaining
+
+--- Session 2026-02-28-01 ---
+Agent: Claude Opus 4.6 (lead + 4 parallel agents)
+Worked on: Recovery + P1 completion (7-phase plan)
+Starting state: 40/62 features passing, 1,109 tests, 6 orphaned worktrees
+Completed:
+  Phase 1 — Merged MON-002, MON-004, HARNESS-003 from worktree-agent-a418e6cb (43/62)
+  Phase 2 — Rescued AI-002, STRAT-002-006 from worktree-agent-a2825e05
+            Wrote 2 missing test files (test_flash_loan_arb.py: 22 tests, test_rate_arb.py: 25 tests)
+            Fixed ruff lint. (49/62, 1,082 tests)
+  Phase 3 — Rescued MON-003, REPORT-001, REPORT-002 from worktree-agent-a91cff9f
+            Fixed 3 bug categories: timezone (_ensure_aware), CSV line endings,
+            Decimal precision (_to_decimal). Fixed ruff lint. (52/62, 1,177 tests)
+  Phase 4 — Cleaned up all 6 orphaned worktrees and branches
+  Phase 5 — Implemented INFRA-007 main decision loop (both services)
+            Python: DecisionLoop class with enrich→synthesize→decide→risk gate→emit pipeline
+            TypeScript: component init, order validation, graceful shutdown
+            Fixed API mismatches: Decision fields, DecisionAction enum, TxFailureMonitor kwargs
+            24 Python + 6 TS tests for INFRA-007. (53/62, 1,498 tests)
+  Phase 6 — 4 parallel agents implemented remaining features:
+            DATA-005: L2 data pipeline (price_feed, gas_monitor, defi_metrics L2 extensions)
+            RISK-005: Protocol TVL monitor (risk/tvl_monitor.py, 34 tests)
+            PORT-003: Rebalancing engine (portfolio/rebalancer.py, 30 tests)
+            TEST-003: ML gas prediction (ml/ package, scikit-learn GBR + heuristic fallback, 27 tests)
+  Phase 7 — Final verification, features.json updated, progress.txt written
+Final state: 57/62 features passing, 1,628 tests (297 TS + 1,331 Python)
+Remaining 5 features: P2 (TEST-002), P3 (CHAIN-001, CHAIN-002, CHAIN-003), P4 (DEPLOY-001)
+Blocked: none
+Next: P2 — TEST-002 historical stress testing with real market data
