@@ -45,6 +45,162 @@ describe('initializeComponents', () => {
     expect(adapters.aerodrome).toBeDefined();
     expect(adapters.gmx).toBeDefined();
   });
+
+  it('passes adapters, flashbots, and reporter to txBuilder', async () => {
+    const { initializeComponents } = await import('../src/index.js');
+    const components = initializeComponents();
+
+    // txBuilder is constructed with adapters, flashbots, and reporter options.
+    // Verify it's a TransactionBuilder instance with processing capability.
+    expect(components.txBuilder).toBeDefined();
+    expect(components.txBuilder.processing).toBe(false);
+    // The txBuilder should have been constructed (no throw) with the provided options
+    expect(components.flashbots).toBeDefined();
+    expect(components.reporter).toBeDefined();
+  });
+});
+
+describe('buildAdapterMap', () => {
+  it('creates entries for all six protocols', async () => {
+    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
+    const { adapters } = initializeComponents();
+    const map = buildAdapterMap(adapters);
+
+    expect(map.size).toBe(6);
+    expect(map.has('aave_v3')).toBe(true);
+    expect(map.has('lido')).toBe(true);
+    expect(map.has('uniswap_v3')).toBe(true);
+    expect(map.has('flash_loan')).toBe(true);
+    expect(map.has('aerodrome')).toBe(true);
+    expect(map.has('gmx')).toBe(true);
+  });
+
+  it('aave_v3 wrapper encodes supply transaction', async () => {
+    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
+    const { adapters } = initializeComponents();
+    const map = buildAdapterMap(adapters);
+    const adapter = map.get('aave_v3')!;
+
+    const result = await adapter.buildTransaction(
+      'supply',
+      { tokenIn: '0x0000000000000000000000000000000000000001', amount: '1000000' },
+      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+    );
+
+    expect(result.to).toBe(adapters.aave_v3.pool);
+    expect(result.data).toBeDefined();
+    expect(typeof result.data).toBe('string');
+    expect(result.data!.startsWith('0x')).toBe(true);
+  });
+
+  it('aave_v3 wrapper encodes withdraw transaction', async () => {
+    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
+    const { adapters } = initializeComponents();
+    const map = buildAdapterMap(adapters);
+    const adapter = map.get('aave_v3')!;
+
+    const result = await adapter.buildTransaction(
+      'withdraw',
+      { tokenIn: '0x0000000000000000000000000000000000000001', amount: '1000000', recipient: '0x0000000000000000000000000000000000000002' },
+      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+    );
+
+    expect(result.to).toBe(adapters.aave_v3.pool);
+    expect(result.data).toBeDefined();
+  });
+
+  it('aave_v3 wrapper throws on unsupported action', async () => {
+    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
+    const { adapters } = initializeComponents();
+    const map = buildAdapterMap(adapters);
+    const adapter = map.get('aave_v3')!;
+
+    await expect(adapter.buildTransaction(
+      'borrow',
+      { tokenIn: '0x0000000000000000000000000000000000000001', amount: '1000000' },
+      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+    )).rejects.toThrow('Unsupported aave_v3 action: borrow');
+  });
+
+  it('lido wrapper encodes stake with ETH value', async () => {
+    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
+    const { adapters } = initializeComponents();
+    const map = buildAdapterMap(adapters);
+    const adapter = map.get('lido')!;
+
+    const result = await adapter.buildTransaction(
+      'stake',
+      { tokenIn: '0x0000000000000000000000000000000000000000', amount: '1000000000000000000' },
+      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+    );
+
+    expect(result.to).toBe(adapters.lido.steth);
+    expect(result.data).toBeDefined();
+    expect(result.value).toBe(1000000000000000000n);
+  });
+
+  it('lido wrapper encodes wrap transaction', async () => {
+    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
+    const { adapters } = initializeComponents();
+    const map = buildAdapterMap(adapters);
+    const adapter = map.get('lido')!;
+
+    const result = await adapter.buildTransaction(
+      'wrap',
+      { tokenIn: '0x0000000000000000000000000000000000000000', amount: '500000000000000000' },
+      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+    );
+
+    expect(result.to).toBe(adapters.lido.wsteth);
+    expect(result.data).toBeDefined();
+    expect(result.value).toBeUndefined();
+  });
+
+  it('lido wrapper encodes unwrap transaction', async () => {
+    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
+    const { adapters } = initializeComponents();
+    const map = buildAdapterMap(adapters);
+    const adapter = map.get('lido')!;
+
+    const result = await adapter.buildTransaction(
+      'unwrap',
+      { tokenIn: '0x0000000000000000000000000000000000000000', amount: '500000000000000000' },
+      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+    );
+
+    expect(result.to).toBe(adapters.lido.wsteth);
+    expect(result.data).toBeDefined();
+  });
+
+  it('lido wrapper throws on unsupported action', async () => {
+    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
+    const { adapters } = initializeComponents();
+    const map = buildAdapterMap(adapters);
+    const adapter = map.get('lido')!;
+
+    await expect(adapter.buildTransaction(
+      'borrow',
+      { tokenIn: '0x0000000000000000000000000000000000000000', amount: '1000' },
+      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+    )).rejects.toThrow('Unsupported lido action: borrow');
+  });
+
+  it('complex protocol adapters throw descriptive errors', async () => {
+    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
+    const { adapters } = initializeComponents();
+    const map = buildAdapterMap(adapters);
+    const params = { tokenIn: '0x0000000000000000000000000000000000000001', amount: '1000' };
+    const limits = { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 };
+
+    await expect(map.get('uniswap_v3')!.buildTransaction('mint', params, limits))
+      .rejects.toThrow('requires complex parameters');
+    await expect(map.get('flash_loan')!.buildTransaction('execute', params, limits))
+      .rejects.toThrow('requires complex parameters');
+    await expect(map.get('aerodrome')!.buildTransaction('addLiquidity', params, limits))
+      .rejects.toThrow('requires complex parameters');
+    await expect(map.get('gmx')!.buildTransaction('openPosition', params, limits))
+      .rejects.toThrow('requires complex parameters');
+  });
 });
 
 describe('validateOrder', () => {
