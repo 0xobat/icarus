@@ -94,7 +94,7 @@
       "Result processing: listen on execution:results, update portfolio state, feed back into next cycle",
       "Graceful shutdown: drain in-flight orders, persist state, close connections"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "LISTEN-001",
