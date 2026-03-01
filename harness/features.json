@@ -697,7 +697,7 @@
       "Max drawdown tracking: current drawdown from peak, historical worst drawdown",
       "Data stored in PostgreSQL; queryable via API for frontend consumption"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "MON-004",
@@ -851,7 +851,7 @@
       "Handles DeFi-specific tax events: LP entry/exit, staking rewards, yield farming rewards, flash loan fees",
       "Full audit trail linking every tax event to original transaction hash"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "REPORT-002",
@@ -867,7 +867,7 @@
       "Includes gas costs as line item (total gas, gas per strategy)",
       "Exportable as CSV or JSON"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "TEST-001",
