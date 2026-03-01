@@ -392,7 +392,7 @@
       "Detect changes in strategy.md and regenerate only affected strategy classes",
       "Version tracking: old class gracefully retired via lifecycle manager"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "AI-003",
@@ -442,7 +442,7 @@
       "Monitors staking APR and adjusts position sizing accordingly",
       "Lifecycle manager picks up generated class and transitions through evaluating \u2192 active"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-003",
@@ -458,7 +458,7 @@
       "Auto-collects fees and recompounds at configurable intervals",
       "Lifecycle manager picks up generated class and transitions through evaluating \u2192 active"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-004",
@@ -474,7 +474,7 @@
       "Compounds harvested rewards back into position",
       "Lifecycle manager picks up generated class and transitions through evaluating \u2192 active"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-005",
@@ -490,7 +490,7 @@
       "Uses flash loan executor (EXEC-007) for zero-capital execution",
       "Risk gate validates profitability after gas before submission"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-006",
@@ -506,7 +506,7 @@
       "Manages borrow + supply positions across protocols",
       "Auto-unwinds when spread compresses below threshold"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-007",
