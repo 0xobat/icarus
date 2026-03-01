@@ -274,3 +274,42 @@ Final state: 57/62 features passing, 1,628 tests (297 TS + 1,331 Python)
 Remaining 5 features: P2 (TEST-002), P3 (CHAIN-001, CHAIN-002, CHAIN-003), P4 (DEPLOY-001)
 Blocked: none
 Next: P2 — TEST-002 historical stress testing with real market data
+
+--- Session 2026-03-01-01 ---
+Agent: Claude Opus 4.6 (lead + 3 parallel agents)
+Worked on: ts-executor P1 integration fixes (5 issues across 2 waves)
+Starting state: 57/62 features passing, 1,628 tests (297 TS + 1,331 Python), verify.sh FAILING (3 flaky ML tests)
+
+Pre-work:
+  - Fixed flaky ML gas predictor tests: increased data span from 8.3h to 9 days
+    so GradientBoosting sees multiple diurnal cycles (commit c0dfd2e)
+  - Read ethskills.com (ship, security, L2s, standards, tools) for best practices
+
+Wave 1 (2 agents, parallel worktrees):
+  agent-sw: Issue #4 — ERC-4337 UserOp signing fix (smart-wallet.ts)
+    - Replaced string-concat signing with proper EntryPoint v0.7 getUserOpHash()
+    - Packs all UserOp fields, wraps with EntryPoint address + chainId
+    - 6 new tests (hash determinism, chain sensitivity, ECDSA format)
+    - Commit: 48e6211
+
+  agent-txb: Issues #2, #3, #5 — Order router + Flashbots + Result consolidation (transaction-builder.ts)
+    - #2: Added ProtocolAdapter interface, adapter routing in buildTransactionData()
+    - #3: FlashbotsProtectManager integration, routes useFlashbotsProtect orders through it
+    - #5: EventReporter delegation via emitResult(), fallback to direct publish
+    - 19 new tests (adapter routing, flashbots, reporter delegation, fallbacks)
+    - Commit: 1d5700c
+
+Wave 2 (1 agent, after Wave 1 merge):
+  agent-main: Issue #1 — Wire main() boot sequence (index.ts)
+    - buildAdapterMap(): wraps protocol adapters into ProtocolAdapter interface
+    - initializeComponents() passes adapters, flashbots, reporter, onLog to TransactionBuilder
+    - main() now starts: WS manager, publisher→Redis, L2 listeners, TX builder
+    - 10 new tests (adapter map, encoding, txBuilder options)
+    - Commit: bab5f5b
+
+Final state: 57/62 features passing, 1,657 tests (326 TS + 1,331 Python)
+Baseline commit: 59c0094
+Final commit: bab5f5b
+verify.sh: PASS
+Remaining 5 features: P2 (TEST-002), P3 (CHAIN-001, CHAIN-002, CHAIN-003), P4 (DEPLOY-001)
+Next: P2 — TEST-002 historical stress testing with real market data
