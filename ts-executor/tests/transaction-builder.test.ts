@@ -4,7 +4,10 @@ import {
   NonceManager,
   type ExecutionOrder,
   type TransactionBuilderOptions,
+  type ProtocolAdapter,
 } from '../src/execution/transaction-builder.js';
+import type { FlashbotsProtectManager, FlashbotsResult } from '../src/execution/flashbots-protect.js';
+import type { EventReporter } from '../src/execution/event-reporter.js';
 
 // ── Test Helpers ──────────────────────────────────
 
@@ -436,6 +439,326 @@ describe('TransactionBuilder', () => {
       expect(sent).toBeDefined();
       expect(sent!.extra?.txHash).toBeDefined();
       expect(sent!.extra?.nonce).toBeDefined();
+    });
+  });
+
+  // ── Issue #2: Protocol Adapter Routing ──────────────────
+
+  describe('adapter routing', () => {
+    it('routes order through matching protocol adapter', async () => {
+      vi.useRealTimers();
+
+      const mockAdapter: ProtocolAdapter = {
+        buildTransaction: vi.fn().mockResolvedValue({
+          to: '0xAavePoolAddress1234567890abcdef12345678' as `0x${string}`,
+          data: '0xdeadbeef' as `0x${string}`,
+          value: BigInt(0),
+        }),
+      };
+
+      const adapters = new Map<string, ProtocolAdapter>();
+      adapters.set('aave_v3', mockAdapter);
+
+      const walClient = mockWalletClient();
+      const builder = createBuilder({ adapters, walletClient: walClient });
+
+      const order = makeOrder({ protocol: 'aave_v3', action: 'supply' });
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('confirmed');
+      expect(mockAdapter.buildTransaction).toHaveBeenCalledWith(
+        'supply',
+        order.params,
+        order.limits,
+      );
+      // Verify walletClient received the adapter's output
+      expect(walClient.sendTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: '0xAavePoolAddress1234567890abcdef12345678',
+          data: '0xdeadbeef',
+        }),
+      );
+    });
+
+    it('falls through to raw transfer when no adapter found', async () => {
+      vi.useRealTimers();
+
+      const adapters = new Map<string, ProtocolAdapter>();
+      adapters.set('lido', {
+        buildTransaction: vi.fn().mockResolvedValue({ to: '0x00' as `0x${string}` }),
+      });
+
+      const walClient = mockWalletClient();
+      const builder = createBuilder({ adapters, walletClient: walClient });
+
+      const order = makeOrder({ protocol: 'unknown_protocol' });
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('confirmed');
+      // Should use raw transfer fallback (value = BigInt(amount))
+      expect(walClient.sendTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: order.params.tokenIn,
+          value: BigInt(order.params.amount),
+        }),
+      );
+    });
+
+    it('passes order limits to adapter', async () => {
+      vi.useRealTimers();
+
+      const mockAdapter: ProtocolAdapter = {
+        buildTransaction: vi.fn().mockResolvedValue({
+          to: '0x1234567890abcdef1234567890abcdef12345678' as `0x${string}`,
+          data: '0xaa' as `0x${string}`,
+        }),
+      };
+
+      const adapters = new Map<string, ProtocolAdapter>();
+      adapters.set('uniswap_v3', mockAdapter);
+
+      const builder = createBuilder({ adapters });
+
+      const order = makeOrder({
+        protocol: 'uniswap_v3',
+        action: 'swap',
+        limits: {
+          maxGasWei: '10000000000000000',
+          maxSlippageBps: 100,
+          deadlineUnix: Math.floor(Date.now() / 1000) + 3600,
+        },
+      });
+      await builder.handleOrder(order);
+
+      expect(mockAdapter.buildTransaction).toHaveBeenCalledWith(
+        'swap',
+        order.params,
+        order.limits,
+      );
+    });
+  });
+
+  // ── Issue #3: Flashbots Protect Integration ──────────────
+
+  describe('flashbots integration', () => {
+    function mockFlashbots(overrides: Partial<FlashbotsProtectManager> = {}): FlashbotsProtectManager {
+      return {
+        sendTransaction: vi.fn().mockResolvedValue({
+          txHash: '0xfb1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd' as `0x${string}`,
+          receipt: {
+            status: 'success',
+            blockNumber: BigInt(99999),
+            gasUsed: BigInt(80000),
+            effectiveGasPrice: BigInt('25000000000'),
+            transactionHash: '0xfb1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd',
+          },
+          usedFlashbots: true,
+          latencyMs: 500,
+          status: 'INCLUDED',
+        } satisfies FlashbotsResult),
+        ...overrides,
+      } as unknown as FlashbotsProtectManager;
+    }
+
+    it('routes through Flashbots when useFlashbotsProtect=true', async () => {
+      vi.useRealTimers();
+
+      const fb = mockFlashbots();
+      const walClient = mockWalletClient();
+      const builder = createBuilder({ flashbots: fb, walletClient: walClient });
+
+      const order = makeOrder({ useFlashbotsProtect: true });
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('confirmed');
+      expect(result.txHash).toBe('0xfb1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd');
+      expect(result.blockNumber).toBe(99999);
+      expect(result.gasUsed).toBe('80000');
+      expect(fb.sendTransaction).toHaveBeenCalledTimes(1);
+      // walletClient should NOT have been called
+      expect(walClient.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it('uses walletClient when useFlashbotsProtect=false', async () => {
+      vi.useRealTimers();
+
+      const fb = mockFlashbots();
+      const walClient = mockWalletClient();
+      const builder = createBuilder({ flashbots: fb, walletClient: walClient });
+
+      const order = makeOrder({ useFlashbotsProtect: false });
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('confirmed');
+      expect(walClient.sendTransaction).toHaveBeenCalledTimes(1);
+      expect(fb.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it('uses walletClient when flashbots not configured', async () => {
+      vi.useRealTimers();
+
+      const walClient = mockWalletClient();
+      const builder = createBuilder({ walletClient: walClient });
+
+      const order = makeOrder({ useFlashbotsProtect: true });
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('confirmed');
+      expect(walClient.sendTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('maps Flashbots reverted receipt to reverted result', async () => {
+      vi.useRealTimers();
+
+      const fb = mockFlashbots({
+        sendTransaction: vi.fn().mockResolvedValue({
+          txHash: '0xfbrev234567890abcdef1234567890abcdef1234567890abcdef1234567890ab' as `0x${string}`,
+          receipt: {
+            status: 'reverted',
+            blockNumber: BigInt(88888),
+            gasUsed: BigInt(21000),
+            effectiveGasPrice: BigInt('20000000000'),
+            transactionHash: '0xfbrev234567890abcdef1234567890abcdef1234567890abcdef1234567890ab',
+          },
+          usedFlashbots: true,
+          latencyMs: 300,
+          status: 'INCLUDED',
+        } satisfies FlashbotsResult),
+      } as unknown as Partial<FlashbotsProtectManager>);
+
+      const builder = createBuilder({ flashbots: fb });
+
+      const order = makeOrder({ useFlashbotsProtect: true });
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('reverted');
+      expect(result.blockNumber).toBe(88888);
+    });
+
+    it('returns timeout when Flashbots has no receipt', async () => {
+      vi.useRealTimers();
+
+      const fb = mockFlashbots({
+        sendTransaction: vi.fn().mockResolvedValue({
+          txHash: '0xfbpend34567890abcdef1234567890abcdef1234567890abcdef1234567890ab' as `0x${string}`,
+          receipt: null,
+          usedFlashbots: true,
+          latencyMs: 120000,
+          status: 'PENDING',
+        } satisfies FlashbotsResult),
+      } as unknown as Partial<FlashbotsProtectManager>);
+
+      const builder = createBuilder({ flashbots: fb, maxRetries: 0 });
+
+      const order = makeOrder({ useFlashbotsProtect: true });
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('timeout');
+      expect(result.txHash).toBe('0xfbpend34567890abcdef1234567890abcdef1234567890abcdef1234567890ab');
+    });
+  });
+
+  // ── Issue #5: Consolidated Result Publishing ──────────────
+
+  describe('reporter delegation', () => {
+    function mockReporter(): EventReporter {
+      return {
+        reportConfirmed: vi.fn().mockResolvedValue({ published: true, result: {} }),
+        reportFailed: vi.fn().mockResolvedValue({ published: true, result: {} }),
+        reportReverted: vi.fn().mockResolvedValue({ published: true, result: {} }),
+        reportTimeout: vi.fn().mockResolvedValue({ published: true, result: {} }),
+      } as unknown as EventReporter;
+    }
+
+    it('delegates confirmed result to reporter.reportConfirmed', async () => {
+      vi.useRealTimers();
+
+      const reporter = mockReporter();
+      const builder = createBuilder({ reporter });
+
+      const order = makeOrder();
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('confirmed');
+      expect(reporter.reportConfirmed).toHaveBeenCalledTimes(1);
+      expect(reporter.reportConfirmed).toHaveBeenCalledWith(
+        order,
+        expect.objectContaining({ status: 'success' }),
+        expect.objectContaining({ retryCount: 0 }),
+      );
+    });
+
+    it('delegates failed result to reporter.reportFailed', async () => {
+      vi.useRealTimers();
+
+      const reporter = mockReporter();
+      const builder = createBuilder({ reporter });
+
+      const order = makeOrder({
+        limits: {
+          maxGasWei: '50000000000000000',
+          maxSlippageBps: 50,
+          deadlineUnix: Math.floor(Date.now() / 1000) - 60,
+        },
+      });
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('failed');
+      expect(reporter.reportFailed).toHaveBeenCalledTimes(1);
+      expect(reporter.reportFailed).toHaveBeenCalledWith(
+        order,
+        expect.stringContaining('deadline expired'),
+        undefined,
+      );
+    });
+
+    it('delegates reverted result to reporter.reportReverted', async () => {
+      vi.useRealTimers();
+
+      const pubClient = mockPublicClient({
+        waitForTransactionReceipt: vi.fn().mockResolvedValue({
+          status: 'reverted',
+          blockNumber: BigInt(12345),
+          gasUsed: BigInt(50000),
+          effectiveGasPrice: BigInt('30000000000'),
+        }),
+      });
+
+      const reporter = mockReporter();
+      const builder = createBuilder({ publicClient: pubClient, reporter });
+
+      const order = makeOrder();
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('reverted');
+      expect(reporter.reportReverted).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to direct publishResult when no reporter', async () => {
+      vi.useRealTimers();
+
+      // No reporter — just verify it doesn't crash and still works
+      const builder = createBuilder();
+      const order = makeOrder();
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('confirmed');
+      // No error thrown — direct publish path was used
+    });
+
+    it('falls back to direct publish on reporter error', async () => {
+      vi.useRealTimers();
+
+      const reporter = mockReporter();
+      (reporter.reportConfirmed as any).mockRejectedValue(new Error('Reporter down'));
+
+      const builder = createBuilder({ reporter });
+      const order = makeOrder();
+      const result = await builder.handleOrder(order);
+
+      // Should still succeed — falls back to publishResult
+      expect(result.status).toBe('confirmed');
+      expect(reporter.reportConfirmed).toHaveBeenCalledTimes(1);
     });
   });
 });

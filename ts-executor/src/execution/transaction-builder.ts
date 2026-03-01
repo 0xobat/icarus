@@ -15,12 +15,16 @@ import {
   type TransactionReceipt,
   type Account,
   type Chain,
+  type Address,
+  type Hex,
   encodeFunctionData,
   type Abi,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 import { type RedisManager, CHANNELS } from '../redis/client.js';
+import type { FlashbotsProtectManager, FlashbotsResult } from './flashbots-protect.js';
+import type { EventReporter } from './event-reporter.js';
 
 // ── Types ──────────────────────────────────────────
 
@@ -65,6 +69,15 @@ export interface ExecutionResult {
   retryCount?: number;
 }
 
+/** Common interface for protocol-specific transaction adapters. */
+export interface ProtocolAdapter {
+  buildTransaction(
+    action: string,
+    params: ExecutionOrder['params'],
+    limits: ExecutionOrder['limits'],
+  ): Promise<{ to: Address; data?: Hex; value?: bigint }>;
+}
+
 export interface TransactionBuilderOptions {
   /** Private key for signing. Defaults to env WALLET_PRIVATE_KEY. */
   privateKey?: string;
@@ -86,6 +99,12 @@ export interface TransactionBuilderOptions {
   publicClient?: PublicClient;
   /** Override wallet client (for testing). */
   walletClient?: WalletClient;
+  /** Protocol adapter registry for order routing. */
+  adapters?: Map<string, ProtocolAdapter>;
+  /** Flashbots Protect manager for MEV protection. */
+  flashbots?: FlashbotsProtectManager;
+  /** Event reporter for consolidated result publishing. */
+  reporter?: EventReporter;
 }
 
 // ── Nonce Manager ──────────────────────────────────
@@ -158,6 +177,9 @@ export class TransactionBuilder {
   private readonly confirmationTimeoutMs: number;
   private readonly log: (event: string, message: string, extra?: Record<string, unknown>) => void;
   private readonly abiRegistry: Map<string, Abi>;
+  private readonly adapters: Map<string, ProtocolAdapter>;
+  private readonly flashbots: FlashbotsProtectManager | null;
+  private readonly reporter: EventReporter | null;
   private redis: RedisManager | null = null;
   private _processing = false;
 
@@ -188,6 +210,9 @@ export class TransactionBuilder {
     this.confirmationTimeoutMs = opts.confirmationTimeoutMs ?? 120_000;
     this.log = opts.onLog ?? (() => {});
     this.abiRegistry = opts.abiRegistry ?? new Map();
+    this.adapters = opts.adapters ?? new Map();
+    this.flashbots = opts.flashbots ?? null;
+    this.reporter = opts.reporter ?? null;
   }
 
   /** Check if an order is currently being processed. */
@@ -225,13 +250,13 @@ export class TransactionBuilder {
       const rejection = await this.preflight(order);
       if (rejection) {
         const result = this.buildResult(order, 'failed', { error: rejection });
-        await this.publishResult(result);
+        await this.emitResult(order, result);
         return result;
       }
 
       // 2. Execute with retries
       const result = await this.executeWithRetry(order);
-      await this.publishResult(result);
+      await this.emitResult(order, result);
       return result;
     } finally {
       this._processing = false;
@@ -325,10 +350,15 @@ export class TransactionBuilder {
     const nonce = await this.nonceManager.getNextNonce();
 
     try {
-      // Build transaction data
-      const txData = this.buildTransactionData(order);
+      // Build transaction data (adapter routing or fallback)
+      const txData = await this.buildTransactionData(order);
 
-      // Send transaction
+      // Route through Flashbots Protect if requested and available
+      if (order.useFlashbotsProtect && this.flashbots) {
+        return await this.executeViaFlashbots(order, txData, nonce, attempt);
+      }
+
+      // Send transaction via standard walletClient
       const hash = await this.walletClient.sendTransaction({
         to: txData.to,
         data: txData.data,
@@ -376,32 +406,112 @@ export class TransactionBuilder {
     }
   }
 
-  /** Build the transaction calldata from an order. */
-  private buildTransactionData(order: ExecutionOrder): {
+  /** Execute a transaction via Flashbots Protect. */
+  private async executeViaFlashbots(
+    order: ExecutionOrder,
+    txData: { to: `0x${string}`; data?: `0x${string}`; value?: bigint },
+    nonce: number,
+    attempt: number,
+  ): Promise<ExecutionResult> {
+    const fbResult: FlashbotsResult = await this.flashbots!.sendTransaction(
+      {
+        to: txData.to,
+        data: txData.data,
+        value: txData.value,
+        nonce,
+        account: this.account,
+        chain: this.walletClient.chain,
+      },
+      true,
+    );
+
+    this.log('exec_tx_sent', 'Transaction submitted via Flashbots', {
+      orderId: order.orderId,
+      txHash: fbResult.txHash,
+      nonce,
+      attempt,
+      usedFlashbots: fbResult.usedFlashbots,
+      latencyMs: fbResult.latencyMs,
+    });
+
+    if (fbResult.status === 'FAILED') {
+      this.nonceManager.releaseNonce(nonce);
+      throw new Error('Flashbots transaction failed');
+    }
+
+    if (!fbResult.receipt) {
+      // Pending / timeout — no receipt yet
+      this.nonceManager.releaseNonce(nonce);
+      return this.buildResult(order, 'timeout', {
+        txHash: fbResult.txHash,
+        retryCount: attempt,
+      });
+    }
+
+    if (fbResult.receipt.status === 'success') {
+      this.nonceManager.confirmNonce(nonce);
+      return this.buildResult(order, 'confirmed', {
+        txHash: fbResult.txHash,
+        blockNumber: Number(fbResult.receipt.blockNumber),
+        gasUsed: fbResult.receipt.gasUsed.toString(),
+        effectiveGasPrice: fbResult.receipt.effectiveGasPrice.toString(),
+        retryCount: attempt,
+      });
+    } else {
+      this.nonceManager.confirmNonce(nonce);
+      const revertReason = await this.getRevertReason(fbResult.txHash);
+      return this.buildResult(order, 'reverted', {
+        txHash: fbResult.txHash,
+        blockNumber: Number(fbResult.receipt.blockNumber),
+        gasUsed: fbResult.receipt.gasUsed.toString(),
+        effectiveGasPrice: fbResult.receipt.effectiveGasPrice.toString(),
+        revertReason,
+        retryCount: attempt,
+      });
+    }
+  }
+
+  /** Build the transaction calldata from an order via adapter or fallback. */
+  private async buildTransactionData(order: ExecutionOrder): Promise<{
     to: `0x${string}`;
     data?: `0x${string}`;
     value?: bigint;
-  } {
+  }> {
     const { params, protocol, action } = order;
 
-    // Look up ABI from registry
+    // 1. Try protocol adapter
+    const adapter = this.adapters.get(protocol);
+    if (adapter) {
+      this.log('exec_adapter_routed', 'Routing order through protocol adapter', {
+        orderId: order.orderId,
+        protocol,
+        action,
+      });
+      const result = await adapter.buildTransaction(action, params, order.limits);
+      return {
+        to: result.to as `0x${string}`,
+        data: result.data as `0x${string}` | undefined,
+        value: result.value,
+      };
+    }
+
+    // 2. Try ABI registry
     const abiKey = `${protocol}:${action}`;
     const abi = this.abiRegistry.get(abiKey);
 
     if (abi) {
-      // Encode using ABI
       const data = encodeFunctionData({
         abi,
         functionName: action,
         args: [params.tokenIn, BigInt(params.amount)],
       });
       return {
-        to: params.tokenIn as `0x${string}`, // Protocol contract address
+        to: params.tokenIn as `0x${string}`,
         data,
       };
     }
 
-    // Fallback: raw transfer (for simple ERC-20 operations)
+    // 3. Fallback: raw transfer
     return {
       to: params.tokenIn as `0x${string}`,
       value: BigInt(params.amount),
@@ -472,6 +582,42 @@ export class TransactionBuilder {
       status,
       ...extra,
     };
+  }
+
+  /** Emit result via reporter (preferred) or direct publish (fallback). */
+  private async emitResult(order: ExecutionOrder, result: ExecutionResult): Promise<void> {
+    if (this.reporter) {
+      try {
+        if (result.status === 'confirmed') {
+          await this.reporter.reportConfirmed(order, {
+            transactionHash: result.txHash as `0x${string}`,
+            blockNumber: BigInt(result.blockNumber ?? 0),
+            gasUsed: BigInt(result.gasUsed ?? '0'),
+            effectiveGasPrice: BigInt(result.effectiveGasPrice ?? '0'),
+            status: 'success',
+          } as unknown as import('viem').TransactionReceipt, {
+            retryCount: result.retryCount,
+          });
+        } else if (result.status === 'reverted') {
+          await this.reporter.reportReverted(order, {
+            transactionHash: result.txHash as `0x${string}`,
+            blockNumber: BigInt(result.blockNumber ?? 0),
+            gasUsed: BigInt(result.gasUsed ?? '0'),
+            effectiveGasPrice: BigInt(result.effectiveGasPrice ?? '0'),
+            status: 'reverted',
+          } as unknown as import('viem').TransactionReceipt, result.retryCount);
+        } else {
+          await this.reporter.reportFailed(order, result.error ?? 'Unknown error', result.retryCount);
+        }
+        return;
+      } catch (err) {
+        this.log('exec_reporter_error', 'Reporter failed, falling back to direct publish', {
+          orderId: result.orderId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    await this.publishResult(result);
   }
 
   /** Publish a result to execution:results via Redis. */
