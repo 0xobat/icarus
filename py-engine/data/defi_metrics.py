@@ -153,6 +153,46 @@ class ProtocolTVL:
         return asdict(self)
 
 
+@dataclass
+class GmxMetrics:
+    """GMX perpetuals protocol metrics on Arbitrum."""
+
+    tvl_usd: float
+    volume_24h: float
+    open_interest_usd: float
+    protocol: str = "gmx"
+    chain: str = "arbitrum"
+    timestamp: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.timestamp:
+            self.timestamp = datetime.now(UTC).isoformat()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
+        return asdict(self)
+
+
+@dataclass
+class AerodromeMetrics:
+    """Aerodrome DEX metrics on Base."""
+
+    tvl_usd: float
+    volume_24h: float
+    pools: list[dict[str, Any]] = field(default_factory=list)
+    protocol: str = "aerodrome"
+    chain: str = "base"
+    timestamp: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.timestamp:
+            self.timestamp = datetime.now(UTC).isoformat()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return dictionary representation."""
+        return asdict(self)
+
+
 # ── Collector ────────────────────────────────────────
 
 
@@ -161,6 +201,14 @@ DEFILLAMA_PROTOCOLS = {
     "aave": "aave",
     "uniswap_v3": "uniswap",
     "lido": "lido",
+    "gmx": "gmx",
+    "aerodrome": "aerodrome",
+}
+
+# L2 protocol chain mappings
+L2_PROTOCOL_CHAINS: dict[str, str] = {
+    "gmx": "arbitrum",
+    "aerodrome": "base",
 }
 
 # Target Uniswap pools (pair label → pool address placeholder)
@@ -288,6 +336,162 @@ class DeFiMetricsCollector:
             _log("metrics_fetch_error", f"Lido metrics fetch failed: {e}", protocol="lido")
             return self._get_cached_or_none("lido", "staking", LidoMetrics)
 
+    # ── GMX (Arbitrum) ──────────────────────────────────
+
+    def collect_gmx_metrics(self) -> GmxMetrics | None:
+        """Collect GMX protocol metrics from DeFi Llama.
+
+        Returns:
+            GmxMetrics with TVL, volume, and open interest, or None on failure.
+        """
+        try:
+            # Fetch TVL
+            tvl_data = self._fetch_fn("https://api.llama.fi/tvl/gmx")
+            tvl_usd = float(tvl_data) if isinstance(tvl_data, (int, float)) else 0.0
+
+            # Fetch volume and open interest from yields/pools API
+            pools_data = self._fetch_fn("https://yields.llama.fi/pools")
+            pools = pools_data.get("data", [])
+
+            volume_24h = 0.0
+            open_interest = 0.0
+            for pool in pools:
+                if pool.get("project") == "gmx" and pool.get("chain") == "Arbitrum":
+                    volume_24h += float(pool.get("volumeUsd1d", 0) or 0)
+                    open_interest += float(pool.get("tvlUsd", 0) or 0)
+
+            result = GmxMetrics(
+                tvl_usd=tvl_usd,
+                volume_24h=volume_24h,
+                open_interest_usd=open_interest,
+            )
+            self._cache_set("gmx", "metrics", result.to_dict(), self._rate_ttl)
+            return result
+
+        except Exception as e:
+            _log("metrics_fetch_error", f"GMX metrics fetch failed: {e}", protocol="gmx")
+            cached = self._cache_get("gmx", "metrics")
+            if cached is not None:
+                _log(
+                    "metrics_using_cached",
+                    "Using cached metrics for gmx after fetch failure",
+                    protocol="gmx",
+                )
+                return GmxMetrics(
+                    tvl_usd=cached.get("tvl_usd", 0),
+                    volume_24h=cached.get("volume_24h", 0),
+                    open_interest_usd=cached.get("open_interest_usd", 0),
+                    timestamp=cached.get("timestamp", ""),
+                )
+            return None
+
+    # ── Aerodrome (Base) ─────────────────────────────────
+
+    def collect_aerodrome_metrics(self) -> AerodromeMetrics | None:
+        """Collect Aerodrome DEX metrics from DeFi Llama.
+
+        Returns:
+            AerodromeMetrics with TVL, volume, and pool data, or None on failure.
+        """
+        try:
+            # Fetch TVL
+            tvl_data = self._fetch_fn("https://api.llama.fi/tvl/aerodrome")
+            tvl_usd = float(tvl_data) if isinstance(tvl_data, (int, float)) else 0.0
+
+            # Fetch pool data from yields API
+            pools_data = self._fetch_fn("https://yields.llama.fi/pools")
+            all_pools = pools_data.get("data", [])
+
+            volume_24h = 0.0
+            pool_summaries: list[dict[str, Any]] = []
+            for pool in all_pools:
+                if pool.get("project") == "aerodrome" and pool.get("chain") == "Base":
+                    vol = float(pool.get("volumeUsd1d", 0) or 0)
+                    volume_24h += vol
+                    pool_summaries.append({
+                        "symbol": pool.get("symbol", ""),
+                        "tvl_usd": float(pool.get("tvlUsd", 0) or 0),
+                        "volume_24h": vol,
+                        "apy": float(pool.get("apy", 0) or 0),
+                    })
+
+            result = AerodromeMetrics(
+                tvl_usd=tvl_usd,
+                volume_24h=volume_24h,
+                pools=pool_summaries,
+            )
+            self._cache_set("aerodrome", "metrics", result.to_dict(), self._rate_ttl)
+            return result
+
+        except Exception as e:
+            _log(
+                "metrics_fetch_error",
+                f"Aerodrome metrics fetch failed: {e}",
+                protocol="aerodrome",
+            )
+            cached = self._cache_get("aerodrome", "metrics")
+            if cached is not None:
+                _log(
+                    "metrics_using_cached",
+                    "Using cached metrics for aerodrome after fetch failure",
+                    protocol="aerodrome",
+                )
+                return AerodromeMetrics(
+                    tvl_usd=cached.get("tvl_usd", 0),
+                    volume_24h=cached.get("volume_24h", 0),
+                    pools=cached.get("pools", []),
+                    timestamp=cached.get("timestamp", ""),
+                )
+            return None
+
+    # ── L2 protocol metrics unified interface ────────────
+
+    def get_l2_protocol_metrics(
+        self, protocol: str, chain: str
+    ) -> dict[str, Any] | None:
+        """Fetch metrics for an L2 protocol on a given chain.
+
+        Args:
+            protocol: Protocol identifier (e.g. "gmx", "aerodrome").
+            chain: Chain identifier (e.g. "arbitrum", "base").
+
+        Returns:
+            Normalized dict of protocol metrics, or None if unavailable.
+        """
+        expected_chain = L2_PROTOCOL_CHAINS.get(protocol)
+        if expected_chain is None:
+            _log(
+                "l2_metrics_unknown_protocol",
+                f"Unknown L2 protocol: {protocol}",
+                protocol=protocol,
+                chain=chain,
+            )
+            return None
+
+        if expected_chain != chain.lower():
+            _log(
+                "l2_metrics_chain_mismatch",
+                f"Protocol {protocol} is on {expected_chain}, not {chain}",
+                protocol=protocol,
+                expected_chain=expected_chain,
+                requested_chain=chain,
+            )
+            return None
+
+        fetchers: dict[str, Any] = {
+            "gmx": self.collect_gmx_metrics,
+            "aerodrome": self.collect_aerodrome_metrics,
+        }
+
+        fetcher = fetchers.get(protocol)
+        if fetcher is None:
+            return None
+
+        result = fetcher()
+        if result is None:
+            return None
+        return result.to_dict()
+
     # ── TVL ───────────────────────────────────────────────
 
     def fetch_tvl(self, protocol: str) -> ProtocolTVL | None:
@@ -329,6 +533,8 @@ class DeFiMetricsCollector:
             "aave": self.fetch_aave_metrics,
             "uniswap_v3": self.fetch_uniswap_metrics,
             "lido": self.fetch_lido_metrics,
+            "gmx": self.collect_gmx_metrics,
+            "aerodrome": self.collect_aerodrome_metrics,
         }
 
         fetcher = fetchers.get(protocol)

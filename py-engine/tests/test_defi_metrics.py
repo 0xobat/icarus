@@ -231,14 +231,20 @@ class TestProtocolTVL:
                 return 3e9
             if "lido" in url:
                 return 15e9
+            if "gmx" in url:
+                return 1e9
+            if "aerodrome" in url:
+                return 0.5e9
             return 0
 
         collector = DeFiMetricsCollector(redis, fetch_fn=mock_fetch)
         results = collector.fetch_all_tvl()
 
-        assert len(results) == 3
+        assert len(results) == 5
         assert results["aave"].tvl_usd == 5e9
         assert results["lido"].tvl_usd == 15e9
+        assert results["gmx"].tvl_usd == 1e9
+        assert results["aerodrome"].tvl_usd == 0.5e9
 
 
 # ── Tests: Unified interface ─────────────────────────

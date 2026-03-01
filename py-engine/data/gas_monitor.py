@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 import urllib.request
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -23,6 +24,44 @@ DEFAULT_GAS_TTL_SECONDS = 12  # ~1 block
 DEFAULT_SPIKE_MULTIPLIER = 3.0
 DEFAULT_ALERT_THRESHOLD_GWEI = 100.0
 ROLLING_WINDOW_SECONDS = 86400  # 24h
+
+# L2 gas parameters: L1 data posting overhead multipliers and base gas costs
+L2_GAS_PARAMS: dict[str, dict[str, float]] = {
+    "arbitrum": {
+        "l1_overhead_factor": 1.4,
+        "base_l2_gas_gwei": 0.1,
+        "l1_data_cost_gwei": 0.5,
+    },
+    "base": {
+        "l1_overhead_factor": 1.5,
+        "base_l2_gas_gwei": 0.05,
+        "l1_data_cost_gwei": 0.3,
+    },
+    "optimism": {
+        "l1_overhead_factor": 1.5,
+        "base_l2_gas_gwei": 0.05,
+        "l1_data_cost_gwei": 0.4,
+    },
+}
+
+SUPPORTED_L2_CHAINS = list(L2_GAS_PARAMS.keys())
+
+
+@dataclass
+class L2GasEstimate:
+    """Gas estimate for an L2 transaction including L1 data posting costs.
+
+    Attributes:
+        l2_gas: The L2 execution gas cost in gwei.
+        l1_data_cost: The L1 data posting cost in gwei.
+        total_cost_wei: The total estimated cost in wei.
+        chain: The L2 chain identifier.
+    """
+
+    l2_gas: float
+    l1_data_cost: float
+    total_cost_wei: int
+    chain: str
 
 
 def _log(event: str, message: str, **kwargs: Any) -> None:
@@ -196,6 +235,70 @@ class GasMonitor:
 
         gwei = Decimal(str(prices.get_tier(priority)))
         return gwei * gas_units / Decimal("1e9")
+
+    # ── L2 gas estimation ────────────────────────────────
+
+    def estimate_l2_gas(self, chain: str, gas_units: int = 21000) -> L2GasEstimate:
+        """Estimate gas cost on an L2 chain including L1 data posting overhead.
+
+        Args:
+            chain: The L2 chain identifier (e.g. "arbitrum", "base").
+            gas_units: Number of gas units for the transaction.
+
+        Returns:
+            L2GasEstimate with L2 gas, L1 data cost, and total cost in wei.
+
+        Raises:
+            ValueError: If the chain is not a supported L2.
+        """
+        chain_lower = chain.lower()
+        params = L2_GAS_PARAMS.get(chain_lower)
+        if params is None:
+            raise ValueError(
+                f"Unsupported L2 chain: {chain}. Supported: {SUPPORTED_L2_CHAINS}"
+            )
+
+        l2_gas_gwei = params["base_l2_gas_gwei"] * gas_units
+        l1_data_cost_gwei = params["l1_data_cost_gwei"] * gas_units
+        total_gwei = l2_gas_gwei + l1_data_cost_gwei
+        total_cost_wei = int(total_gwei * 1e9)
+
+        _log(
+            "l2_gas_estimate",
+            f"L2 gas estimate for {chain_lower}",
+            chain=chain_lower,
+            gas_units=gas_units,
+            l2_gas_gwei=round(l2_gas_gwei, 6),
+            l1_data_cost_gwei=round(l1_data_cost_gwei, 6),
+            total_cost_wei=total_cost_wei,
+        )
+
+        return L2GasEstimate(
+            l2_gas=l2_gas_gwei,
+            l1_data_cost=l1_data_cost_gwei,
+            total_cost_wei=total_cost_wei,
+            chain=chain_lower,
+        )
+
+    def get_l2_overhead(self, chain: str) -> float:
+        """Return the L1 data posting overhead factor for an L2 chain.
+
+        Args:
+            chain: The L2 chain identifier (e.g. "arbitrum", "base").
+
+        Returns:
+            The overhead multiplier representing L1 data posting cost ratio.
+
+        Raises:
+            ValueError: If the chain is not a supported L2.
+        """
+        chain_lower = chain.lower()
+        params = L2_GAS_PARAMS.get(chain_lower)
+        if params is None:
+            raise ValueError(
+                f"Unsupported L2 chain: {chain}. Supported: {SUPPORTED_L2_CHAINS}"
+            )
+        return params["l1_overhead_factor"]
 
     # ── Spike detection ──────────────────────────────────
 

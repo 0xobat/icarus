@@ -358,7 +358,7 @@
       "Aerodrome metrics collected: pool APYs, reward emissions, liquidity depth",
       "All L2 data normalized into same internal format as mainnet data"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "AI-001",
@@ -584,7 +584,7 @@
       "Accounts for gas costs in rebalancing decisions (don't rebalance if gas > benefit)",
       "Logs every rebalancing decision with full reasoning for audit"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-001",
@@ -788,7 +788,7 @@
       "Withdrawal prioritized over other operations (treated as urgent)",
       "Tracks TVL from DeFi Llama plus on-chain verification (not single-source dependent)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-006",
@@ -898,7 +898,7 @@
       "Model retrained on configurable schedule (e.g. weekly)",
       "Fallback to simple heuristics if model fails or degrades"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "TEST-002",

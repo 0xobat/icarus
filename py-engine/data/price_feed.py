@@ -36,6 +36,30 @@ DEFILLAMA_TOKEN_ADDRESSES: dict[str, str] = {
     "UNI": "coingecko:uniswap",
 }
 
+# L2-specific token mappings: token -> {chain, contract, coingecko_id}
+L2_TOKEN_MAPPINGS: dict[str, dict[str, str]] = {
+    "ARB": {
+        "chain": "arbitrum",
+        "contract": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+        "coingecko_id": "arbitrum",
+    },
+    "GMX": {
+        "chain": "arbitrum",
+        "contract": "0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a",
+        "coingecko_id": "gmx",
+    },
+    "AERO": {
+        "chain": "base",
+        "contract": "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
+        "coingecko_id": "aerodrome-finance",
+    },
+    "OP": {
+        "chain": "optimism",
+        "contract": "0x4200000000000000000000000000000000000042",
+        "coingecko_id": "optimism",
+    },
+}
+
 # Defaults
 DEFAULT_PRICE_TTL_SECONDS = 30
 DEFAULT_DEVIATION_THRESHOLD = 0.02  # 2%
@@ -100,6 +124,34 @@ class PriceFeedManager:
         self._deviation_threshold = deviation_threshold
         self._tokens = tokens or SUPPORTED_TOKENS
         self._fetch_fn = fetch_fn or _fetch_url
+
+    # ── L2 token helpers ──────────────────────────────────
+
+    def get_l2_tokens(self, chain: str) -> list[str]:
+        """Return tokens available on a given L2 chain.
+
+        Args:
+            chain: The L2 chain identifier (e.g. "arbitrum", "base").
+
+        Returns:
+            List of token symbols available on the specified chain.
+        """
+        return [
+            token
+            for token, info in L2_TOKEN_MAPPINGS.items()
+            if info["chain"] == chain.lower()
+        ]
+
+    def is_l2_token(self, token: str) -> bool:
+        """Check if a token is L2-specific.
+
+        Args:
+            token: The token symbol to check (e.g. "ARB", "GMX").
+
+        Returns:
+            True if the token is an L2-specific token.
+        """
+        return token.upper() in L2_TOKEN_MAPPINGS
 
     # ── Source fetchers ──────────────────────────────────
 
