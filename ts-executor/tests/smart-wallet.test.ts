@@ -325,6 +325,161 @@ describe('SmartWalletManager', () => {
     });
   });
 
+  describe('getUserOpHash', () => {
+    it('produces a deterministic hash for the same inputs', () => {
+      const client = mockPublicClient();
+      // Need chain on the client for getUserOpHash
+      (client as any).chain = { id: 11155111 };
+      const wallet = createWallet({ publicClient: client as any });
+
+      const userOp: UserOperation = {
+        sender: TEST_WALLET_ADDRESS,
+        nonce: 5n,
+        callData: '0xdeadbeef' as `0x${string}`,
+        callGasLimit: 200_000n,
+        verificationGasLimit: 100_000n,
+        preVerificationGas: 50_000n,
+        maxFeePerGas: 30_000_000_000n,
+        maxPriorityFeePerGas: 3_000_000_000n,
+        signature: '0x' as `0x${string}`,
+      };
+
+      const hash1 = wallet.getUserOpHash(userOp);
+      const hash2 = wallet.getUserOpHash(userOp);
+
+      expect(hash1).toBe(hash2);
+      expect(hash1).toMatch(/^0x[0-9a-f]{64}$/);
+    });
+
+    it('produces different hashes for different nonces', () => {
+      const client = mockPublicClient();
+      (client as any).chain = { id: 11155111 };
+      const wallet = createWallet({ publicClient: client as any });
+
+      const baseOp: UserOperation = {
+        sender: TEST_WALLET_ADDRESS,
+        nonce: 0n,
+        callData: '0xdeadbeef' as `0x${string}`,
+        callGasLimit: 200_000n,
+        verificationGasLimit: 100_000n,
+        preVerificationGas: 50_000n,
+        maxFeePerGas: 30_000_000_000n,
+        maxPriorityFeePerGas: 3_000_000_000n,
+        signature: '0x' as `0x${string}`,
+      };
+
+      const hash0 = wallet.getUserOpHash({ ...baseOp, nonce: 0n });
+      const hash1 = wallet.getUserOpHash({ ...baseOp, nonce: 1n });
+
+      expect(hash0).not.toBe(hash1);
+    });
+
+    it('produces different hashes for different chain IDs', () => {
+      const client1 = mockPublicClient();
+      (client1 as any).chain = { id: 11155111 };
+      const wallet1 = createWallet({ publicClient: client1 as any });
+
+      const client2 = mockPublicClient();
+      (client2 as any).chain = { id: 1 };
+      const wallet2 = createWallet({ publicClient: client2 as any });
+
+      const userOp: UserOperation = {
+        sender: TEST_WALLET_ADDRESS,
+        nonce: 0n,
+        callData: '0xdeadbeef' as `0x${string}`,
+        callGasLimit: 200_000n,
+        verificationGasLimit: 100_000n,
+        preVerificationGas: 50_000n,
+        maxFeePerGas: 30_000_000_000n,
+        maxPriorityFeePerGas: 3_000_000_000n,
+        signature: '0x' as `0x${string}`,
+      };
+
+      const hashSepolia = wallet1.getUserOpHash(userOp);
+      const hashMainnet = wallet2.getUserOpHash(userOp);
+
+      expect(hashSepolia).not.toBe(hashMainnet);
+    });
+
+    it('handles initCode and paymasterAndData fields', () => {
+      const client = mockPublicClient();
+      (client as any).chain = { id: 11155111 };
+      const wallet = createWallet({ publicClient: client as any });
+
+      const baseOp: UserOperation = {
+        sender: TEST_WALLET_ADDRESS,
+        nonce: 0n,
+        callData: '0xdeadbeef' as `0x${string}`,
+        callGasLimit: 200_000n,
+        verificationGasLimit: 100_000n,
+        preVerificationGas: 50_000n,
+        maxFeePerGas: 30_000_000_000n,
+        maxPriorityFeePerGas: 3_000_000_000n,
+        signature: '0x' as `0x${string}`,
+      };
+
+      const hashNoExtras = wallet.getUserOpHash(baseOp);
+      const hashWithInitCode = wallet.getUserOpHash({
+        ...baseOp,
+        initCode: '0xabcdef' as `0x${string}`,
+      });
+      const hashWithPaymaster = wallet.getUserOpHash({
+        ...baseOp,
+        paymasterAndData: '0x112233' as `0x${string}`,
+      });
+
+      expect(hashNoExtras).not.toBe(hashWithInitCode);
+      expect(hashNoExtras).not.toBe(hashWithPaymaster);
+      expect(hashWithInitCode).not.toBe(hashWithPaymaster);
+    });
+  });
+
+  describe('signUserOp (ERC-4337 compliant)', () => {
+    it('produces a valid ECDSA signature over the UserOp hash', async () => {
+      const client = mockPublicClient({
+        readContract: vi.fn().mockResolvedValue(0n),
+        getGasPrice: vi.fn().mockResolvedValue(30_000_000_000n),
+      });
+      (client as any).chain = { id: 11155111 };
+
+      const wallet = createWallet({ publicClient: client as any });
+      const userOp = await wallet.buildUserOp({
+        target: TEST_CONTRACT,
+        value: 0n,
+        callData: '0x' as `0x${string}`,
+      });
+
+      // Signature should be 65 bytes (130 hex chars + 0x prefix = 132 chars)
+      expect(userOp.signature).toMatch(/^0x[0-9a-f]{130}$/);
+    });
+
+    it('produces different signatures for different UserOps', async () => {
+      const client = mockPublicClient({
+        readContract: vi.fn()
+          .mockResolvedValueOnce(0n) // nonce for first op
+          .mockResolvedValueOnce(1n), // nonce for second op
+        getGasPrice: vi.fn().mockResolvedValue(30_000_000_000n),
+      });
+      (client as any).chain = { id: 11155111 };
+
+      const wallet = createWallet({ publicClient: client as any });
+
+      const op1 = await wallet.buildUserOp({
+        target: TEST_CONTRACT,
+        value: 0n,
+        callData: '0xaa' as `0x${string}`,
+      });
+
+      const op2 = await wallet.buildUserOp({
+        target: TEST_CONTRACT,
+        value: 0n,
+        callData: '0xbb' as `0x${string}`,
+      });
+
+      expect(op1.signature).not.toBe(op2.signature);
+    });
+  });
+
   describe('sendUserOp', () => {
     it('throws when bundler URL is not configured', async () => {
       const wallet = createWallet({ bundlerUrl: '' });

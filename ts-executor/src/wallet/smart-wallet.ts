@@ -19,6 +19,12 @@ import {
   encodeFunctionData,
   parseAbi,
   formatEther,
+  keccak256,
+  encodeAbiParameters,
+  encodePacked,
+  pad,
+  toHex,
+  concat,
 } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
@@ -344,14 +350,67 @@ export class SmartWalletManager {
     return userOp;
   }
 
-  /** Sign a UserOperation with the EOA signer. */
+  /**
+   * Compute the ERC-4337 EntryPoint v0.7 UserOperation hash.
+   *
+   * The hash is computed as:
+   *   keccak256(abi.encode(
+   *     keccak256(pack(sender, nonce, keccak256(initCode), keccak256(callData),
+   *               accountGasLimits, preVerificationGas, gasFees, keccak256(paymasterAndData))),
+   *     entryPointAddress,
+   *     chainId
+   *   ))
+   */
+  getUserOpHash(userOp: UserOperation): Hex {
+    const chainId = this.publicClient.chain?.id ?? 11155111; // Sepolia fallback
+
+    const initCode = userOp.initCode ?? '0x' as Hex;
+    const paymasterAndData = userOp.paymasterAndData ?? '0x' as Hex;
+
+    // EntryPoint v0.7 packs gas limits into a single bytes32:
+    // accountGasLimits = verificationGasLimit (16 bytes) || callGasLimit (16 bytes)
+    const accountGasLimits = concat([
+      pad(toHex(userOp.verificationGasLimit), { size: 16 }),
+      pad(toHex(userOp.callGasLimit), { size: 16 }),
+    ]);
+
+    // gasFees = maxPriorityFeePerGas (16 bytes) || maxFeePerGas (16 bytes)
+    const gasFees = concat([
+      pad(toHex(userOp.maxPriorityFeePerGas), { size: 16 }),
+      pad(toHex(userOp.maxFeePerGas), { size: 16 }),
+    ]);
+
+    // Pack the UserOp struct fields and hash them
+    const packedUserOp = encodePacked(
+      ['address', 'uint256', 'bytes32', 'bytes32', 'bytes32', 'uint256', 'bytes32', 'bytes32'],
+      [
+        userOp.sender,
+        userOp.nonce,
+        keccak256(initCode),
+        keccak256(userOp.callData),
+        accountGasLimits as Hex,
+        userOp.preVerificationGas,
+        gasFees as Hex,
+        keccak256(paymasterAndData),
+      ],
+    );
+
+    const userOpStructHash = keccak256(packedUserOp);
+
+    // Wrap with EntryPoint address + chainId
+    const encoded = encodeAbiParameters(
+      [{ type: 'bytes32' }, { type: 'address' }, { type: 'uint256' }],
+      [userOpStructHash, ENTRYPOINT_ADDRESS, BigInt(chainId)],
+    );
+
+    return keccak256(encoded);
+  }
+
+  /** Sign a UserOperation with the EOA signer using the EntryPoint v0.7 hash. */
   private async signUserOp(userOp: UserOperation): Promise<Hex> {
-    // Create a hash of the UserOp for signing
-    // In production, this would use the EntryPoint's getUserOpHash
-    // For now, we sign a simplified representation
-    const message = `${userOp.sender}:${userOp.nonce}:${userOp.callData}`;
+    const userOpHash = this.getUserOpHash(userOp);
     const signature = await this.account.signMessage({
-      message,
+      message: { raw: userOpHash },
     });
     return signature;
   }
