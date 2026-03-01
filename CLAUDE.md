@@ -9,25 +9,22 @@ Strategies are data (`strategy.md`), not hardcoded logic. Adding a strategy mean
 
 ## Architecture
 
-- `ts-executor/` — TypeScript service (chain listeners, TX execution, event reporting)
-- `py-engine/` — Python service (data pipeline, insight synthesis, risk management, portfolio)
-- `py-engine/ai/` — Claude API client, decision engine, strategy code-gen
-- `shared/schemas/` — JSON schemas defining the Redis message contracts between services
-- `strategy.md` — Human-authored strategy definitions (source of truth for all strategies)
-- `docker-compose.yml` — Redis + both services
+- `ts-executor/` — TypeScript service (chain listeners, TX execution, protocol adapters)
+- `py-engine/` — Python service (data pipeline, AI reasoning, risk management, portfolio)
+- `shared/schemas/` — JSON schemas defining Redis message contracts between services
+- `strategy.md` — Human-authored strategy definitions (source of truth)
+- `docker-compose.yml` — Redis + PostgreSQL + both services
 
 **Design principle:** Python synthesizes data and translates Claude's decisions into orders. TypeScript owns all chain interactions. Neither crosses into the other's domain.
 
-## Decision Loop
+### Key entry points
 
-1. **Ingest** — TS publishes chain events to `market:events`
-2. **Enrich** — Python crunches raw data into structured insights
-3. **Reason** — Insights + strategy specs sent to Claude API; returns structured decisions
-4. **Risk gate** — Decisions pass through circuit breakers and exposure limits
-5. **Execute** — Approved decisions become `execution:orders` sent to TS
-6. **Report** — TS publishes results to `execution:results`, Python updates portfolio
+- `py-engine/main.py` — `DecisionLoop` class: enrich → synthesize → decide → risk gate → emit orders
+- `ts-executor/src/index.ts` — Bootstraps listeners, wallet, adapters, TX builder; subscribes to `execution:orders`
 
-For simple deterministic situations, the strategy class decides without Claude API. Claude API is invoked when reasoning is needed — competing signals, ambiguous conditions, multi-step rebalancing.
+### Decision fast-path
+
+Simple threshold crossings (single clear signal, no competing strategies) bypass the Claude API entirely. Claude API is invoked for ambiguous conditions, competing signals, multi-strategy reasoning.
 
 ## Strategy Tiers
 
@@ -43,7 +40,7 @@ Chains: Ethereum Mainnet (Sepolia testnet), L2s (Arbitrum, Base)
 
 | Trigger | Threshold | Action |
 |---------|-----------|--------|
-| Portfolio drawdown | >20% from peak | Halt all, unwind to stables, alert |
+| Portfolio drawdown | >20% from peak | Halt all, unwind to stables |
 | Single-position loss | >10% of position | Close position, 24h cooldown |
 | Gas spike | >3x 24h average | Pause non-urgent ops |
 | TX failure rate | >3 failures/hour | Pause execution, diagnostic mode |
@@ -55,39 +52,20 @@ Chains: Ethereum Mainnet (Sepolia testnet), L2s (Arbitrum, Base)
 - Max 60% in any single asset (excluding stablecoins)
 - Min 15% in stablecoins/liquid reserves at all times
 
-### Human-in-the-Loop
-
-- Trades >15% of portfolio require confirmation
-- New protocol deployment requires owner approval
-- New strategy tier activation requires explicit approval
-- Emergency override via Discord: pause all, force-unwind, withdraw
-
 ## Running
 
 ```bash
-# Prerequisites: docker, pnpm, uv
 bash harness/init.sh
-
-# Start Redis (required for both services)
 docker compose up -d redis
-
-# TS service
 cd ts-executor && pnpm dev
-
-# Python service
 cd py-engine && uv run python main.py
 ```
 
 ## Testing
 
 ```bash
-# TypeScript
 cd ts-executor && pnpm test
-
-# Python
 cd py-engine && uv run pytest tests/ --tb=short -q
-
-# Full verification
 bash harness/verify.sh
 ```
 
@@ -103,17 +81,16 @@ bash harness/verify.sh
 
 - All logs are structured JSON with: timestamp, service, event, correlationId
 - All Redis messages validated against shared schemas at the boundary
-- Environment: Sepolia testnet in Phase 1 — no mainnet until P2
+- Sepolia testnet only until P2
 - Risk limits are environment variables, not hardcoded
 - One strategy adjustment per decision cycle
 - Risk gate is non-negotiable — all decisions pass through circuit breakers before execution
-- Clean state after every action — updated state file, logs, and monitoring before next op
 - Strategy status tracking: active / paused / evaluating / retired
 
 ## Documentation
 
-- **Python:** Google-style docstrings. Required on modules, public classes, public methods/functions. Include `Args:`, `Returns:`, `Raises:` sections when non-obvious. Use imperative mood for summary lines. Test methods and `__init__.py` files are exempt.
-- **TypeScript:** JSDoc `/** */` comments. Required on exported classes, exported functions, and public methods. Include `@param`, `@returns`, `@throws` when non-obvious. Test files are exempt.
+- **Python:** Google-style docstrings on modules, public classes, public methods. `Args:`, `Returns:`, `Raises:` when non-obvious.
+- **TypeScript:** JSDoc `/** */` on exported classes, functions, public methods. `@param`, `@returns`, `@throws` when non-obvious.
 
 ## Commit Messages
 
