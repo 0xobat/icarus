@@ -43,22 +43,28 @@ def _make_history(
     return history
 
 
-def _make_predictable_history(n: int = 500) -> list[dict]:
+def _make_predictable_history(n: int = 864) -> list[dict]:
     """Generate a history with a strong hour-of-day pattern the ML model can learn.
 
-    Gas prices follow a smooth sinusoidal curve driven by hour-of-day plus a
-    gentle upward trend.  This gives the GradientBoosting model a clear signal.
+    Gas prices follow a smooth sinusoidal curve driven by hour-of-day.
+    Default 864 points at 15-min intervals = 9 days, giving the model
+    multiple full diurnal cycles in both train and test splits.
+
+    Args:
+        n: Number of data points (default 864 = 9 days at 15-min intervals).
     """
     import math
     from datetime import UTC, datetime
 
-    base_ts = time.time() - n * 60
+    interval = 900  # 15-minute intervals
+    base_ts = time.time() - n * interval
     history: list[dict] = []
     for i in range(n):
-        ts = base_ts + i * 60
-        hour = datetime.fromtimestamp(ts, tz=UTC).hour
-        # Sine wave peaking at hour 14 (UTC afternoon) plus gentle drift
-        gwei = 30.0 + 10.0 * math.sin(2 * math.pi * (hour - 6) / 24) + 0.005 * i
+        ts = base_ts + i * interval
+        dt = datetime.fromtimestamp(ts, tz=UTC)
+        hour = dt.hour + dt.minute / 60.0
+        # Sine wave peaking at hour 14 UTC — no drift so train/test match
+        gwei = 30.0 + 10.0 * math.sin(2 * math.pi * (hour - 6) / 24)
         history.append({"gwei": round(gwei, 2), "ts": ts})
     return history
 
