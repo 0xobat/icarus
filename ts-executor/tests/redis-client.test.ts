@@ -33,7 +33,6 @@ describe('RedisManager', async () => {
   });
 
   afterAll(async () => {
-    await manager.raw.del('cache:test-key', 'cache:test-ttl');
     await manager.raw.del('stream:market:events');
     await manager.disconnect();
   });
@@ -72,33 +71,4 @@ describe('RedisManager', async () => {
     ).rejects.toThrow(/Cannot publish invalid message/);
   });
 
-  it('sets and gets cached values', async () => {
-    await manager.cacheSet('test-key', { price: 1234.56 }, 60);
-    const result = await manager.cacheGet<{ price: number }>('test-key');
-    expect(result).toEqual({ price: 1234.56 });
-  });
-
-  it('returns null for missing cache keys', async () => {
-    const result = await manager.cacheGet('nonexistent-key');
-    expect(result).toBeNull();
-  });
-
-  it('deletes cached values', async () => {
-    await manager.cacheSet('test-ttl', 'value', 60);
-    await manager.cacheDel('test-ttl');
-    const result = await manager.cacheGet('test-ttl');
-    expect(result).toBeNull();
-  });
-
-  it('writes to stream on publish and reads back', async () => {
-    const entries = await manager.streamRead(CHANNELS.MARKET_EVENTS);
-    expect(entries.length).toBeGreaterThan(0);
-    expect(entries[0].data).toHaveProperty('version', '1.0.0');
-  });
-
-  it('trims stream', async () => {
-    await manager.streamTrim(CHANNELS.MARKET_EVENTS, 1);
-    const entries = await manager.streamRead(CHANNELS.MARKET_EVENTS);
-    expect(entries.length).toBeLessThanOrEqual(2);
-  });
 });

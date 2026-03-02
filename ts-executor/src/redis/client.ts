@@ -23,11 +23,6 @@ export interface RedisClientOptions {
   onReconnect?: () => void;
 }
 
-export interface StreamEntry {
-  id: string;
-  data: Record<string, unknown>;
-}
-
 /**
  * Creates a base Redis connection with retry and event handling.
  */
@@ -62,7 +57,7 @@ function createBaseClient(opts: RedisClientOptions): Redis {
 }
 
 /**
- * Full Redis manager: pub/sub, streams, and cache.
+ * Full Redis manager: pub/sub and stream durability.
  */
 export class RedisManager {
   private pub: Redis;
@@ -174,61 +169,6 @@ export class RedisManager {
         }
       });
     }
-  }
-
-  // ── Streams ──────────────────────────────────────────
-
-  /**
-   * Read entries from a stream starting from the given ID.
-   */
-  async streamRead(
-    channel: Channel,
-    fromId = '0-0',
-    count = 100,
-  ): Promise<StreamEntry[]> {
-    const result = await this.client.xrange(`stream:${channel}`, fromId, '+', 'COUNT', count);
-    return result.map(([id, fields]) => {
-      const obj: Record<string, string> = {};
-      for (let i = 0; i < fields.length; i += 2) {
-        obj[fields[i]] = fields[i + 1];
-      }
-      return {
-        id,
-        data: obj.data ? JSON.parse(obj.data) : obj,
-      };
-    });
-  }
-
-  /**
-   * Prune stream entries older than the given max length.
-   */
-  async streamTrim(channel: Channel, maxLen: number): Promise<void> {
-    await this.client.xtrim(`stream:${channel}`, 'MAXLEN', '~', maxLen);
-  }
-
-  // ── Cache ──────────────────────────────────────────
-
-  /**
-   * Set a cached value with TTL in seconds.
-   */
-  async cacheSet(key: string, value: unknown, ttlSeconds: number): Promise<void> {
-    await this.client.setex(`cache:${key}`, ttlSeconds, JSON.stringify(value));
-  }
-
-  /**
-   * Get a cached value. Returns null if expired or missing.
-   */
-  async cacheGet<T = unknown>(key: string): Promise<T | null> {
-    const raw = await this.client.get(`cache:${key}`);
-    if (!raw) return null;
-    return JSON.parse(raw) as T;
-  }
-
-  /**
-   * Delete a cached value.
-   */
-  async cacheDel(key: string): Promise<void> {
-    await this.client.del(`cache:${key}`);
   }
 
   /** Expose the base client for direct commands if needed. */

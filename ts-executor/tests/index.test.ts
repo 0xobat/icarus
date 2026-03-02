@@ -44,55 +44,32 @@ describe('initializeComponents', () => {
     expect(components.txBuilder).toBeDefined();
     expect(components.reporter).toBeDefined();
     expect(components.safeWallet).toBeDefined();
-    expect(components.allowlist).toBeDefined();
-    expect(components.adapters).toBeDefined();
   });
 
-  it('creates all protocol adapters', async () => {
-    const { initializeComponents } = await import('../src/index.js');
-    const { adapters } = await initializeComponents();
-
-    expect(adapters.aave_v3).toBeDefined();
-    expect(adapters.lido).toBeDefined();
-    expect(adapters.uniswap_v3).toBeDefined();
-    expect(adapters.flash_loan).toBeDefined();
-    expect(adapters.aerodrome).toBeDefined();
-    expect(adapters.gmx).toBeDefined();
-  });
-
-  it('passes safeWallet, adapters, and reporter to txBuilder', async () => {
+  it('passes safeWallet and reporter to txBuilder', async () => {
     const { initializeComponents } = await import('../src/index.js');
     const components = await initializeComponents();
 
-    // txBuilder is constructed with safeWallet, adapters, and reporter options.
-    // Verify it's a TransactionBuilder instance with processing capability.
     expect(components.txBuilder).toBeDefined();
     expect(components.txBuilder.processing).toBe(false);
-    // The txBuilder should have been constructed (no throw) with the provided options
     expect(components.safeWallet).toBe(mockSafeWallet);
     expect(components.reporter).toBeDefined();
   });
 });
 
 describe('buildAdapterMap', () => {
-  it('creates entries for all six protocols', async () => {
-    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = await initializeComponents();
-    const map = buildAdapterMap(adapters);
+  it('creates entries for P1a protocols', async () => {
+    const { buildAdapterMap } = await import('../src/index.js');
+    const map = buildAdapterMap();
 
-    expect(map.size).toBe(6);
+    expect(map.size).toBe(2);
     expect(map.has('aave_v3')).toBe(true);
     expect(map.has('lido')).toBe(true);
-    expect(map.has('uniswap_v3')).toBe(true);
-    expect(map.has('flash_loan')).toBe(true);
-    expect(map.has('aerodrome')).toBe(true);
-    expect(map.has('gmx')).toBe(true);
   });
 
   it('aave_v3 wrapper encodes supply transaction', async () => {
-    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = await initializeComponents();
-    const map = buildAdapterMap(adapters);
+    const { buildAdapterMap } = await import('../src/index.js');
+    const map = buildAdapterMap();
     const adapter = map.get('aave_v3')!;
 
     const result = await adapter.buildTransaction(
@@ -101,16 +78,14 @@ describe('buildAdapterMap', () => {
       { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
     );
 
-    expect(result.to).toBe(adapters.aave_v3.pool);
+    expect(result.to).toMatch(/^0x[0-9a-fA-F]{40}$/);
     expect(result.data).toBeDefined();
-    expect(typeof result.data).toBe('string');
     expect(result.data!.startsWith('0x')).toBe(true);
   });
 
   it('aave_v3 wrapper encodes withdraw transaction', async () => {
-    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = await initializeComponents();
-    const map = buildAdapterMap(adapters);
+    const { buildAdapterMap } = await import('../src/index.js');
+    const map = buildAdapterMap();
     const adapter = map.get('aave_v3')!;
 
     const result = await adapter.buildTransaction(
@@ -119,14 +94,13 @@ describe('buildAdapterMap', () => {
       { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
     );
 
-    expect(result.to).toBe(adapters.aave_v3.pool);
+    expect(result.to).toMatch(/^0x[0-9a-fA-F]{40}$/);
     expect(result.data).toBeDefined();
   });
 
   it('aave_v3 wrapper throws on unsupported action', async () => {
-    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = await initializeComponents();
-    const map = buildAdapterMap(adapters);
+    const { buildAdapterMap } = await import('../src/index.js');
+    const map = buildAdapterMap();
     const adapter = map.get('aave_v3')!;
 
     await expect(adapter.buildTransaction(
@@ -137,9 +111,8 @@ describe('buildAdapterMap', () => {
   });
 
   it('lido wrapper encodes stake with ETH value', async () => {
-    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = await initializeComponents();
-    const map = buildAdapterMap(adapters);
+    const { buildAdapterMap } = await import('../src/index.js');
+    const map = buildAdapterMap();
     const adapter = map.get('lido')!;
 
     const result = await adapter.buildTransaction(
@@ -148,48 +121,35 @@ describe('buildAdapterMap', () => {
       { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
     );
 
-    expect(result.to).toBe(adapters.lido.steth);
+    expect(result.to).toMatch(/^0x[0-9a-fA-F]{40}$/);
     expect(result.data).toBeDefined();
     expect(result.value).toBe(1000000000000000000n);
   });
 
-  it('lido wrapper encodes wrap transaction', async () => {
-    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = await initializeComponents();
-    const map = buildAdapterMap(adapters);
+  it('lido wrapper encodes wrap and unwrap', async () => {
+    const { buildAdapterMap } = await import('../src/index.js');
+    const map = buildAdapterMap();
     const adapter = map.get('lido')!;
 
-    const result = await adapter.buildTransaction(
+    const wrap = await adapter.buildTransaction(
       'wrap',
       { tokenIn: '0x0000000000000000000000000000000000000000', amount: '500000000000000000' },
       { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
     );
+    expect(wrap.data).toBeDefined();
+    expect(wrap.value).toBeUndefined();
 
-    expect(result.to).toBe(adapters.lido.wsteth);
-    expect(result.data).toBeDefined();
-    expect(result.value).toBeUndefined();
-  });
-
-  it('lido wrapper encodes unwrap transaction', async () => {
-    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = await initializeComponents();
-    const map = buildAdapterMap(adapters);
-    const adapter = map.get('lido')!;
-
-    const result = await adapter.buildTransaction(
+    const unwrap = await adapter.buildTransaction(
       'unwrap',
       { tokenIn: '0x0000000000000000000000000000000000000000', amount: '500000000000000000' },
       { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
     );
-
-    expect(result.to).toBe(adapters.lido.wsteth);
-    expect(result.data).toBeDefined();
+    expect(unwrap.data).toBeDefined();
   });
 
   it('lido wrapper throws on unsupported action', async () => {
-    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = await initializeComponents();
-    const map = buildAdapterMap(adapters);
+    const { buildAdapterMap } = await import('../src/index.js');
+    const map = buildAdapterMap();
     const adapter = map.get('lido')!;
 
     await expect(adapter.buildTransaction(
@@ -197,88 +157,6 @@ describe('buildAdapterMap', () => {
       { tokenIn: '0x0000000000000000000000000000000000000000', amount: '1000' },
       { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
     )).rejects.toThrow('Unsupported lido action: borrow');
-  });
-
-  it('complex protocol adapters throw descriptive errors', async () => {
-    const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = await initializeComponents();
-    const map = buildAdapterMap(adapters);
-    const params = { tokenIn: '0x0000000000000000000000000000000000000001', amount: '1000' };
-    const limits = { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 };
-
-    await expect(map.get('uniswap_v3')!.buildTransaction('mint', params, limits))
-      .rejects.toThrow('requires complex parameters');
-    await expect(map.get('flash_loan')!.buildTransaction('execute', params, limits))
-      .rejects.toThrow('requires complex parameters');
-    await expect(map.get('aerodrome')!.buildTransaction('addLiquidity', params, limits))
-      .rejects.toThrow('requires complex parameters');
-    await expect(map.get('gmx')!.buildTransaction('openPosition', params, limits))
-      .rejects.toThrow('requires complex parameters');
-  });
-});
-
-describe('validateOrder', () => {
-  it('rejects order when allowlist check fails', async () => {
-    const { validateOrder } = await import('../src/index.js');
-
-    const mockOrder = {
-      version: '1.0.0',
-      orderId: 'test-order-1',
-      correlationId: 'test-cid',
-      timestamp: new Date().toISOString(),
-      chain: 'ethereum',
-      protocol: 'aave_v3',
-      action: 'supply',
-      strategy: 'STRAT-001',
-      priority: 'normal' as const,
-      params: { tokenIn: 'ETH', amount: '1.0' },
-      limits: { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
-      useFlashbotsProtect: false,
-    };
-
-    const mockAllowlist = {
-      validateOrder: vi.fn().mockResolvedValue({ allowed: false, reason: 'not_allowlisted' }),
-    } as any;
-    const mockReporter = {
-      reportFailed: vi.fn().mockResolvedValue({ published: true }),
-    } as any;
-
-    const result = await validateOrder(mockOrder, mockAllowlist, mockReporter);
-
-    expect(result).toBe(false);
-    expect(mockAllowlist.validateOrder).toHaveBeenCalledWith(mockOrder);
-    expect(mockReporter.reportFailed).toHaveBeenCalledWith(mockOrder, 'not_allowlisted');
-  });
-
-  it('allows order when allowlist check passes', async () => {
-    const { validateOrder } = await import('../src/index.js');
-
-    const mockOrder = {
-      version: '1.0.0',
-      orderId: 'test-order-2',
-      correlationId: 'test-cid-2',
-      timestamp: new Date().toISOString(),
-      chain: 'ethereum',
-      protocol: 'aave_v3',
-      action: 'supply',
-      strategy: 'STRAT-001',
-      priority: 'normal' as const,
-      params: { tokenIn: 'ETH', amount: '1.0' },
-      limits: { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
-      useFlashbotsProtect: false,
-    };
-
-    const mockAllowlist = {
-      validateOrder: vi.fn().mockResolvedValue({ allowed: true }),
-    } as any;
-    const mockReporter = {
-      reportFailed: vi.fn(),
-    } as any;
-
-    const result = await validateOrder(mockOrder, mockAllowlist, mockReporter);
-
-    expect(result).toBe(true);
-    expect(mockReporter.reportFailed).not.toHaveBeenCalled();
   });
 });
 

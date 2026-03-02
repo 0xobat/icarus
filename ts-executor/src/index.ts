@@ -8,13 +8,8 @@ import { L2ListenerManager } from './listeners/l2-listener.js';
 import { TransactionBuilder, type ExecutionOrder, type ProtocolAdapter } from './execution/transaction-builder.js';
 import { EventReporter } from './execution/event-reporter.js';
 import { SafeWalletManager } from './wallet/safe-wallet.js';
-import { ContractAllowlist } from './security/contract-allowlist.js';
-import { AaveV3Adapter } from './execution/aave-v3-adapter.js';
-import { LidoAdapter } from './execution/lido-adapter.js';
-import { UniswapV3Adapter } from './execution/uniswap-v3-adapter.js';
-import { FlashLoanExecutor } from './execution/flash-loan-executor.js';
-import { AerodromeAdapter } from './execution/aerodrome-adapter.js';
-import { GmxAdapter } from './execution/gmx-adapter.js';
+import * as aave from './execution/aave-v3-adapter.js';
+import * as lido from './execution/lido-adapter.js';
 
 const SERVICE_NAME = 'ts-executor';
 
@@ -30,44 +25,10 @@ function log(event: string, message: string, extra?: Record<string, unknown>): v
 }
 
 /**
- * Protocol adapter registry — maps protocol names to their adapters.
- * Each adapter handles protocol-specific transaction construction.
+ * Build protocol adapter map from encode-only modules.
+ * Maps protocol names to ProtocolAdapter interface for TransactionBuilder.
  */
-interface ProtocolAdapters {
-  aave_v3: AaveV3Adapter;
-  lido: LidoAdapter;
-  uniswap_v3: UniswapV3Adapter;
-  flash_loan: FlashLoanExecutor;
-  aerodrome: AerodromeAdapter;
-  gmx: GmxAdapter;
-}
-
-/**
- * Validate an order against the contract allowlist before execution.
- * Returns true if execution should proceed, false if rejected.
- */
-async function validateOrder(
-  order: ExecutionOrder,
-  allowlist: ContractAllowlist,
-  reporter: EventReporter,
-): Promise<boolean> {
-  const check = await allowlist.validateOrder(order);
-  if (!check.allowed) {
-    log('order_rejected', `Allowlist rejected: ${check.reason}`, {
-      correlationId: order.correlationId,
-    });
-    await reporter.reportFailed(order, check.reason ?? 'allowlist_rejected');
-    return false;
-  }
-  return true;
-}
-
-/**
- * Build a ProtocolAdapter map from raw protocol adapters.
- * Wraps each adapter's encode methods to conform to the ProtocolAdapter interface,
- * which returns `{ to, data, value }` without submitting transactions.
- */
-function buildAdapterMap(adapters: ProtocolAdapters): Map<string, ProtocolAdapter> {
+function buildAdapterMap(): Map<string, ProtocolAdapter> {
   const map = new Map<string, ProtocolAdapter>();
 
   map.set('aave_v3', {
@@ -77,9 +38,9 @@ function buildAdapterMap(adapters: ProtocolAdapters): Map<string, ProtocolAdapte
       const recipient = (params.recipient ?? params.tokenIn) as Address;
       switch (action) {
         case 'supply':
-          return { to: adapters.aave_v3.pool, data: adapters.aave_v3.encodeSupply(asset, amount, recipient) };
+          return { to: aave.AAVE_V3_POOL, data: aave.encodeSupply(asset, amount, recipient) };
         case 'withdraw':
-          return { to: adapters.aave_v3.pool, data: adapters.aave_v3.encodeWithdraw(asset, amount, recipient) };
+          return { to: aave.AAVE_V3_POOL, data: aave.encodeWithdraw(asset, amount, recipient) };
         default:
           throw new Error(`Unsupported aave_v3 action: ${action}`);
       }
@@ -91,38 +52,14 @@ function buildAdapterMap(adapters: ProtocolAdapters): Map<string, ProtocolAdapte
       const amount = BigInt(params.amount);
       switch (action) {
         case 'stake':
-          return { to: adapters.lido.steth, data: adapters.lido.encodeStake(), value: amount };
+          return { to: lido.STETH_ADDRESS, data: lido.encodeStake(), value: amount };
         case 'wrap':
-          return { to: adapters.lido.wsteth, data: adapters.lido.encodeWrap(amount) };
+          return { to: lido.WSTETH_ADDRESS, data: lido.encodeWrap(amount) };
         case 'unwrap':
-          return { to: adapters.lido.wsteth, data: adapters.lido.encodeUnwrap(amount) };
+          return { to: lido.WSTETH_ADDRESS, data: lido.encodeUnwrap(amount) };
         default:
           throw new Error(`Unsupported lido action: ${action}`);
       }
-    },
-  });
-
-  map.set('uniswap_v3', {
-    async buildTransaction(action) {
-      throw new Error(`uniswap_v3 action '${action}' requires complex parameters; use ABI registry`);
-    },
-  });
-
-  map.set('flash_loan', {
-    async buildTransaction(action) {
-      throw new Error(`flash_loan action '${action}' requires complex parameters; use ABI registry`);
-    },
-  });
-
-  map.set('aerodrome', {
-    async buildTransaction(action) {
-      throw new Error(`aerodrome action '${action}' requires complex parameters; use ABI registry`);
-    },
-  });
-
-  map.set('gmx', {
-    async buildTransaction(action) {
-      throw new Error(`gmx action '${action}' requires complex parameters; use ABI registry`);
     },
   });
 
@@ -138,8 +75,6 @@ async function initializeComponents(): Promise<{
   txBuilder: TransactionBuilder;
   reporter: EventReporter;
   safeWallet: SafeWalletManager;
-  allowlist: ContractAllowlist;
-  adapters: ProtocolAdapters;
 }> {
   const redis = new RedisManager();
   const reporter = new EventReporter();
@@ -155,22 +90,11 @@ async function initializeComponents(): Promise<{
     onLog: log,
   });
 
-  const allowlist = new ContractAllowlist();
-
   const safeWallet = await SafeWalletManager.create({
     onLog: log,
   });
 
-  const adapters: ProtocolAdapters = {
-    aave_v3: new AaveV3Adapter(),
-    lido: new LidoAdapter(),
-    uniswap_v3: new UniswapV3Adapter(),
-    flash_loan: new FlashLoanExecutor(),
-    aerodrome: new AerodromeAdapter(),
-    gmx: new GmxAdapter(),
-  };
-
-  const adapterMap = buildAdapterMap(adapters);
+  const adapterMap = buildAdapterMap();
 
   const txBuilder = new TransactionBuilder({
     safeWallet,
@@ -181,7 +105,7 @@ async function initializeComponents(): Promise<{
 
   return {
     redis, wsManager, publisher, l2Manager, txBuilder,
-    reporter, safeWallet, allowlist, adapters,
+    reporter, safeWallet,
   };
 }
 
@@ -237,8 +161,7 @@ async function main(): Promise<void> {
   });
 }
 
-export { main, initializeComponents, buildAdapterMap, validateOrder, log };
-export type { ProtocolAdapters };
+export { main, initializeComponents, buildAdapterMap, log };
 
 if (!process.env.VITEST) {
   main().catch((err) => {
