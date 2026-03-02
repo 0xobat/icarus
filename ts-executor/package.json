@@ -12,6 +12,7 @@
     "lint": "eslint src/"
   },
   "dependencies": {
+    "@safe-global/protocol-kit": "^5.1.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "dotenv": "^16.4.7",
