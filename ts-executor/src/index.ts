@@ -5,7 +5,7 @@ import { RedisManager } from './redis/client.js';
 import { AlchemyWebSocketManager } from './listeners/websocket-manager.js';
 import { MarketEventPublisher } from './listeners/market-event-publisher.js';
 import { L2ListenerManager } from './listeners/l2-listener.js';
-import { TransactionBuilder, type ExecutionOrder, type ProtocolAdapter } from './execution/transaction-builder.js';
+import { TransactionBuilder, type ProtocolAdapter } from './execution/transaction-builder.js';
 import { EventReporter } from './execution/event-reporter.js';
 import { SafeWalletManager } from './wallet/safe-wallet.js';
 import * as aave from './execution/aave-v3-adapter.js';
