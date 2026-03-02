@@ -213,8 +213,8 @@ icarus/
 - Max 40% in any single protocol
 - Max 60% in any single asset (excluding stablecoins)
 - Min 15% in stablecoins/liquid reserves at all times
-- Smart contract allowlist enforced at TS executor level
-- Flashbots Protect for all swap transactions
+- Safe guard allowlist enforced at wallet level
+- Flashbots Protect for swap transactions (P1b+)
 
 ### Risk Matrix
 
@@ -223,7 +223,7 @@ icarus/
 | Smart contract exploit | Critical | Allowlist, TVL monitoring, protocol diversification  |
 | Oracle manipulation    | High     | Multi-source prices, reject >2% deviation, TWAP      |
 | Liquidity shock        | High     | Pre-trade depth checks, position sizing to liquidity |
-| Key compromise         | Critical | Smart wallet spending caps, hot/cold split           |
+| Key compromise         | Critical | Safe spending caps, 1-of-2 multisig (agent + human recovery) |
 | Chain halt / reorg     | Medium   | Finality-aware TX confirmation, state reconciliation |
 | Strategy crowding      | Medium   | Yield compression monitoring, automatic rotation     |
 | AI hallucination       | High     | Risk gate validates all AI decisions, schema enforcement, position size limits |
@@ -281,7 +281,7 @@ How a lending rotation flows through the system:
 4. **Claude API** receives insight data + strategy specs, reasons about optimal action, returns structured decision
 5. **Python Risk Gate** validates decision against circuit breakers, exposure limits, contract allowlist
 6. **Python** publishes approved order to `execution:orders` (token, amount, slippage, gas ceiling, deadline)
-7. **TS Executor** constructs TX via viem, routes through Flashbots Protect, submits
+7. **TS Executor** constructs TX via viem, submits via Safe wallet (Flashbots routing added in P1b for swaps)
 8. **TS Reporter** publishes result to `execution:results` (hash, status, fill price, gas)
 9. **Python** updates portfolio state, logs performance, feeds result back into next cycle's insights
 
