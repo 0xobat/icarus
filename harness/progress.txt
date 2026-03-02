@@ -313,3 +313,44 @@ Final commit: bab5f5b
 verify.sh: PASS
 Remaining 5 features: P2 (TEST-002), P3 (CHAIN-001, CHAIN-002, CHAIN-003), P4 (DEPLOY-001)
 Next: P2 — TEST-002 historical stress testing with real market data
+
+--- Session 2026-03-01-02 ---
+Agent: Claude Opus 4.6 (lead + 3 parallel agents)
+Worked on: Refactor ts-executor wallet layer from EOA/ERC-4337 to Safe 1-of-2 multisig
+
+Motivation: Per ethskills.com, Safe 1-of-2 is recommended for AI agents (agent hot key + human
+recovery), battle-tested ($100B+ secured), native batch via MultiSend. ERC-4337 "still early."
+
+Wave 1 (2 agents, parallel worktrees):
+  agent-safe: SafeWalletManager (new file)
+    - Created safe-wallet.ts wrapping @safe-global/protocol-kit
+    - 1-of-2 Safe: agent EOA owner #1, human recovery owner #2, threshold=1
+    - executeTransaction(), executeBatch() (MultiSend), spending limits, allowlist
+    - Exported SafeWalletLike interface for TransactionBuilder consumption
+    - 19 new tests
+    - Commit: 798ccfb
+
+  agent-txb: TransactionBuilder refactor
+    - Removed: NonceManager, privateKeyToAccount, walletClient, EOA execution path
+    - Added: SafeWalletLike interface, safeWallet.executeTransaction() execution
+    - Pre-execution: safeWallet.validateOrder() for allowlist + spending checks
+    - Post-success: safeWallet.recordSpend() for daily tracking
+    - Flashbots removed (Safe txs don't need separate MEV protection path)
+    - 33 tests (removed 11 EOA-specific, added new Safe validation tests)
+    - Commit: 29cbca4
+
+Wave 2 (1 agent, after Wave 1 merge):
+  agent-wire: Wire index.ts + cleanup
+    - initializeComponents() now async, creates SafeWalletManager.create()
+    - TransactionBuilder receives safeWallet instead of privateKey
+    - Deleted smart-wallet.ts + smart-wallet.test.ts (31 tests removed)
+    - Replaced SmartWalletManager imports in 6 adapter files with transitional aliases
+    - Commit: fef4abe
+
+Final state: 57/62 features passing, 1,643 tests (312 TS + 1,331 Python)
+Baseline commit: 53112e2
+Final commit: fef4abe
+verify.sh: PASS
+Note: Adapter SmartWalletManager aliases are transitional (@deprecated) — future cleanup
+Remaining 5 features: P2 (TEST-002), P3 (CHAIN-001, CHAIN-002, CHAIN-003), P4 (DEPLOY-001)
+Next: P2 — TEST-002 historical stress testing with real market data
