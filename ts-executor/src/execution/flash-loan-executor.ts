@@ -24,7 +24,9 @@ import {
   parseAbiParameters,
 } from 'viem';
 import { sepolia } from 'viem/chains';
-import { type SmartWalletManager } from '../wallet/smart-wallet.js';
+/** @deprecated Transitional — adapters no longer own wallet execution. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SmartWalletManager = any;
 
 // ── ABIs ──────────────────────────────────────────
 

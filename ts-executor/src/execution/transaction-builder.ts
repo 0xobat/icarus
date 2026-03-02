@@ -108,14 +108,6 @@ export interface TransactionBuilderOptions {
   reporter?: EventReporter;
   /** Override public client (for testing). */
   publicClient?: PublicClient;
-  /** @deprecated No longer used. Safe wallet owns the key. */
-  privateKey?: unknown;
-  /** @deprecated No longer used. Safe SDK handles submission. */
-  walletClient?: unknown;
-  /** @deprecated No longer used. Adapter routing handles encoding. */
-  abiRegistry?: unknown;
-  /** @deprecated Flashbots not supported with Safe wallet. */
-  flashbots?: unknown;
 }
 
 // ── Transaction Builder ──────────────────────────────

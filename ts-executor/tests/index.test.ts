@@ -1,6 +1,21 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { CHANNELS } from '../src/redis/client.js';
 
+const mockSafeWallet = {
+  address: '0x' + '0'.repeat(40) as `0x${string}`,
+  signerAddress: '0x' + 'a'.repeat(40) as `0x${string}`,
+  validateOrder: vi.fn().mockReturnValue({ allowed: true }),
+  recordSpend: vi.fn(),
+  executeTransaction: vi.fn(),
+  executeBatch: vi.fn(),
+};
+
+vi.mock('../src/wallet/safe-wallet.js', () => ({
+  SafeWalletManager: {
+    create: vi.fn().mockResolvedValue(mockSafeWallet),
+  },
+}));
+
 beforeAll(() => {
   vi.stubEnv('WALLET_PRIVATE_KEY', '0x' + 'a'.repeat(64));
 });
@@ -20,7 +35,7 @@ describe('ts-executor', () => {
 describe('initializeComponents', () => {
   it('creates all required service components', async () => {
     const { initializeComponents } = await import('../src/index.js');
-    const components = initializeComponents();
+    const components = await initializeComponents();
 
     expect(components.redis).toBeDefined();
     expect(components.wsManager).toBeDefined();
@@ -28,15 +43,14 @@ describe('initializeComponents', () => {
     expect(components.l2Manager).toBeDefined();
     expect(components.txBuilder).toBeDefined();
     expect(components.reporter).toBeDefined();
-    expect(components.flashbots).toBeDefined();
-    expect(components.wallet).toBeDefined();
+    expect(components.safeWallet).toBeDefined();
     expect(components.allowlist).toBeDefined();
     expect(components.adapters).toBeDefined();
   });
 
   it('creates all protocol adapters', async () => {
     const { initializeComponents } = await import('../src/index.js');
-    const { adapters } = initializeComponents();
+    const { adapters } = await initializeComponents();
 
     expect(adapters.aave_v3).toBeDefined();
     expect(adapters.lido).toBeDefined();
@@ -46,16 +60,16 @@ describe('initializeComponents', () => {
     expect(adapters.gmx).toBeDefined();
   });
 
-  it('passes adapters, flashbots, and reporter to txBuilder', async () => {
+  it('passes safeWallet, adapters, and reporter to txBuilder', async () => {
     const { initializeComponents } = await import('../src/index.js');
-    const components = initializeComponents();
+    const components = await initializeComponents();
 
-    // txBuilder is constructed with adapters, flashbots, and reporter options.
+    // txBuilder is constructed with safeWallet, adapters, and reporter options.
     // Verify it's a TransactionBuilder instance with processing capability.
     expect(components.txBuilder).toBeDefined();
     expect(components.txBuilder.processing).toBe(false);
     // The txBuilder should have been constructed (no throw) with the provided options
-    expect(components.flashbots).toBeDefined();
+    expect(components.safeWallet).toBe(mockSafeWallet);
     expect(components.reporter).toBeDefined();
   });
 });
@@ -63,7 +77,7 @@ describe('initializeComponents', () => {
 describe('buildAdapterMap', () => {
   it('creates entries for all six protocols', async () => {
     const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = initializeComponents();
+    const { adapters } = await initializeComponents();
     const map = buildAdapterMap(adapters);
 
     expect(map.size).toBe(6);
@@ -77,7 +91,7 @@ describe('buildAdapterMap', () => {
 
   it('aave_v3 wrapper encodes supply transaction', async () => {
     const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = initializeComponents();
+    const { adapters } = await initializeComponents();
     const map = buildAdapterMap(adapters);
     const adapter = map.get('aave_v3')!;
 
@@ -95,7 +109,7 @@ describe('buildAdapterMap', () => {
 
   it('aave_v3 wrapper encodes withdraw transaction', async () => {
     const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = initializeComponents();
+    const { adapters } = await initializeComponents();
     const map = buildAdapterMap(adapters);
     const adapter = map.get('aave_v3')!;
 
@@ -111,7 +125,7 @@ describe('buildAdapterMap', () => {
 
   it('aave_v3 wrapper throws on unsupported action', async () => {
     const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = initializeComponents();
+    const { adapters } = await initializeComponents();
     const map = buildAdapterMap(adapters);
     const adapter = map.get('aave_v3')!;
 
@@ -124,7 +138,7 @@ describe('buildAdapterMap', () => {
 
   it('lido wrapper encodes stake with ETH value', async () => {
     const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = initializeComponents();
+    const { adapters } = await initializeComponents();
     const map = buildAdapterMap(adapters);
     const adapter = map.get('lido')!;
 
@@ -141,7 +155,7 @@ describe('buildAdapterMap', () => {
 
   it('lido wrapper encodes wrap transaction', async () => {
     const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = initializeComponents();
+    const { adapters } = await initializeComponents();
     const map = buildAdapterMap(adapters);
     const adapter = map.get('lido')!;
 
@@ -158,7 +172,7 @@ describe('buildAdapterMap', () => {
 
   it('lido wrapper encodes unwrap transaction', async () => {
     const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = initializeComponents();
+    const { adapters } = await initializeComponents();
     const map = buildAdapterMap(adapters);
     const adapter = map.get('lido')!;
 
@@ -174,7 +188,7 @@ describe('buildAdapterMap', () => {
 
   it('lido wrapper throws on unsupported action', async () => {
     const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = initializeComponents();
+    const { adapters } = await initializeComponents();
     const map = buildAdapterMap(adapters);
     const adapter = map.get('lido')!;
 
@@ -187,7 +201,7 @@ describe('buildAdapterMap', () => {
 
   it('complex protocol adapters throw descriptive errors', async () => {
     const { initializeComponents, buildAdapterMap } = await import('../src/index.js');
-    const { adapters } = initializeComponents();
+    const { adapters } = await initializeComponents();
     const map = buildAdapterMap(adapters);
     const params = { tokenIn: '0x0000000000000000000000000000000000000001', amount: '1000' };
     const limits = { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 };

@@ -7,8 +7,7 @@ import { MarketEventPublisher } from './listeners/market-event-publisher.js';
 import { L2ListenerManager } from './listeners/l2-listener.js';
 import { TransactionBuilder, type ExecutionOrder, type ProtocolAdapter } from './execution/transaction-builder.js';
 import { EventReporter } from './execution/event-reporter.js';
-import { FlashbotsProtectManager } from './execution/flashbots-protect.js';
-import { SmartWalletManager } from './wallet/smart-wallet.js';
+import { SafeWalletManager } from './wallet/safe-wallet.js';
 import { ContractAllowlist } from './security/contract-allowlist.js';
 import { AaveV3Adapter } from './execution/aave-v3-adapter.js';
 import { LidoAdapter } from './execution/lido-adapter.js';
@@ -131,18 +130,17 @@ function buildAdapterMap(adapters: ProtocolAdapters): Map<string, ProtocolAdapte
 }
 
 /** Initialize all service components and return them. */
-function initializeComponents(): {
+async function initializeComponents(): Promise<{
   redis: RedisManager;
   wsManager: AlchemyWebSocketManager;
   publisher: MarketEventPublisher;
   l2Manager: L2ListenerManager;
   txBuilder: TransactionBuilder;
   reporter: EventReporter;
-  flashbots: FlashbotsProtectManager;
-  wallet: SmartWalletManager;
+  safeWallet: SafeWalletManager;
   allowlist: ContractAllowlist;
   adapters: ProtocolAdapters;
-} {
+}> {
   const redis = new RedisManager();
   const reporter = new EventReporter();
   const publisher = new MarketEventPublisher({ onLog: log });
@@ -157,9 +155,11 @@ function initializeComponents(): {
     onLog: log,
   });
 
-  const flashbots = new FlashbotsProtectManager();
-  const wallet = new SmartWalletManager();
   const allowlist = new ContractAllowlist();
+
+  const safeWallet = await SafeWalletManager.create({
+    onLog: log,
+  });
 
   const adapters: ProtocolAdapters = {
     aave_v3: new AaveV3Adapter(),
@@ -173,15 +173,15 @@ function initializeComponents(): {
   const adapterMap = buildAdapterMap(adapters);
 
   const txBuilder = new TransactionBuilder({
+    safeWallet,
     adapters: adapterMap,
-    flashbots,
     reporter,
     onLog: log,
   });
 
   return {
     redis, wsManager, publisher, l2Manager, txBuilder,
-    reporter, flashbots, wallet, allowlist, adapters,
+    reporter, safeWallet, allowlist, adapters,
   };
 }
 
@@ -192,7 +192,7 @@ async function main(): Promise<void> {
   const {
     redis, wsManager, publisher, l2Manager, txBuilder,
     reporter,
-  } = initializeComponents();
+  } = await initializeComponents();
 
   // Connect Redis and attach services
   await redis.connect();
