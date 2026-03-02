@@ -304,11 +304,29 @@ The project is successful when the agent consistently generates returns above th
 
 ## 10. Phases
 
-### P1 — Build Full System
+### P1a — Core Loop (Tier 1 Strategies, Ethereum Sepolia)
 
-All infrastructure, strategies, AI decision engine, risk management, monitoring, and L2 support for Ethereum + Arbitrum + Base. The bot is feature-complete and running on Sepolia testnet.
+Infrastructure, Tier 1 strategies, AI decision engine, risk management, monitoring, and portfolio management on Ethereum Sepolia. The core decision-to-execution loop is validated end-to-end.
 
-Includes: infrastructure (Redis, PostgreSQL, Docker, main loop), all chain listeners (Ethereum + L2), all protocol adapters (Aave, Uniswap V3, Lido, GMX, Aerodrome, flash loans), all 6 strategies, Claude AI engine (runtime reasoning + code-gen + insight synthesis), full risk management suite, portfolio rebalancing, Discord alerts, performance dashboard, anomaly detection, human-in-the-loop gates, tax/P&L reporting, and ML gas prediction.
+Includes: infrastructure (Redis, PostgreSQL, Docker, main loop), Ethereum chain listeners (Alchemy WS), Safe 1-of-2 multisig wallet, TransactionBuilder + encode-only protocol modules (Aave V3, Lido), Tier 1 strategies (Aave lending optimization, Lido liquid staking), Claude AI engine (runtime reasoning + code-gen + insight synthesis), full risk management suite (circuit breakers, exposure limits, Safe guard allowlist, oracle guards), portfolio management (allocator, position tracker, rebalancer), Discord alerts, performance dashboard, anomaly detection, human-in-the-loop gates, tax/P&L reporting, ML gas prediction, agent harness (state persistence, startup recovery, diagnostic mode), Sepolia integration tests.
+
+**Gate:** End-to-end Aave supply/withdraw cycle executes on Sepolia through the full pipeline (market event → strategy evaluation → risk gate → order → TX → result).
+
+### P1b — Tier 2 Expansion (Uniswap V3, Yield Farming)
+
+Add Tier 2 strategies and MEV protection for swap-based operations.
+
+Includes: Uniswap V3 encode module, concentrated liquidity strategy, yield farming strategy, Flashbots Protect RPC routing in TransactionBuilder for swap transactions.
+
+**Gate:** Uniswap V3 LP position managed end-to-end on Sepolia.
+
+### P1c — Tier 3 + L2 (Flash Loans, GMX, Aerodrome)
+
+Add L2 chain support and Tier 3 high-risk strategies.
+
+Includes: L2 chain listeners (Arbitrum, Base), flash loan encode module, GMX encode module, Aerodrome encode module, flash loan arbitrage strategy, lending rate arbitrage strategy, L2 gas estimation (L1 data posting costs).
+
+**Gate:** Flash loan arbitrage executes on Sepolia. L2 listeners receiving and publishing events.
 
 ### P2 — Historical Stress Testing
 
