@@ -354,3 +354,45 @@ verify.sh: PASS
 Note: Adapter SmartWalletManager aliases are transitional (@deprecated) — future cleanup
 Remaining 5 features: P2 (TEST-002), P3 (CHAIN-001, CHAIN-002, CHAIN-003), P4 (DEPLOY-001)
 Next: P2 — TEST-002 historical stress testing with real market data
+
+--- Session 2026-03-01-03 ---
+Agent: Claude Opus 4.6
+Worked on: PRD revision & ts-executor simplification
+
+Motivation: PRD was out of sync with codebase (still referenced ERC-4337, Flashbots not wired,
+4 dead adapters). ethskills.com guidance: Safe 1-of-2 for agents, composition over creation,
+Flashbots for swaps only. Monolithic P1 scope unrealistic — only Tier 1 strategies wired E2E.
+
+Changes:
+  1. PRD updated (docs/prd.md):
+     - Architecture diagram: Safe Wallet + Protocol Encoders (was ERC-4337 + Flashbots + Adapters)
+     - Key decisions: Safe 1-of-2 Multisig, Flashbots RPC (P1b), Safe guard allowlist
+     - Tech stack: Safe{Core} SDK, Flashbots Protect RPC (P1b+)
+     - Risk/exposure: Safe spending caps, Safe guard allowlist at wallet level
+     - Event flow: submits via Safe wallet (Flashbots in P1b)
+     - Phases: P1 split into P1a (Tier 1 core), P1b (Tier 2 + Flashbots), P1c (Tier 3 + L2)
+     Commits: 9cb6c40, fa4580d, ea1d012
+
+  2. features.json updated:
+     - EXEC-002, RISK-006 descriptions rewritten for Safe
+     - 4 features moved to P1b (EXEC-003, EXEC-005, STRAT-003, STRAT-004)
+     - 6 features moved to P1c (EXEC-007, EXEC-009, LISTEN-003, DATA-005, STRAT-005, STRAT-006)
+     - All moved features reset to passes: false (were unreachable dead code)
+     Commit: 12d4588
+
+  3. ts-executor simplified (62% reduction):
+     - Deleted: uniswap-v3-adapter, flash-loan-executor, gmx-adapter, aerodrome-adapter,
+       flashbots-protect, contract-allowlist (6 source + 6 test files)
+     - Rewrote: aave-v3-adapter.ts (402->48 lines), lido-adapter.ts (572->63 lines)
+       as encode-only modules (pure functions, no classes)
+     - Simplified: index.ts (removed dead wiring, validateOrder, ProtocolAdapters interface)
+     - Removed: unused Redis methods (streamRead, streamTrim, cacheSet, cacheGet, cacheDel)
+     - 7,398 lines deleted, 175 lines added
+     Commits: 43d376a, 46cced8
+
+Final state: 47/62 features passing (10 moved to P1b/P1c with passes reset)
+Tests: 1,495 total (164 TS + 1,331 Python), all passing
+verify.sh: PASS
+Baseline commit: 54b1aeb
+Final commit: 46cced8
+Next: P1a complete. P1b begins with Uniswap V3 encode module + Flashbots RPC routing.
