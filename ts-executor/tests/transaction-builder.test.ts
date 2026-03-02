@@ -1,17 +1,45 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   TransactionBuilder,
-  NonceManager,
+  type SafeWalletLike,
   type ExecutionOrder,
   type TransactionBuilderOptions,
   type ProtocolAdapter,
 } from '../src/execution/transaction-builder.js';
-import type { FlashbotsProtectManager, FlashbotsResult } from '../src/execution/flashbots-protect.js';
 import type { EventReporter } from '../src/execution/event-reporter.js';
+import type { Address } from 'viem';
 
 // ── Test Helpers ──────────────────────────────────
 
-const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'; // Hardhat account #0
+function createMockSafeWallet(overrides?: Partial<SafeWalletLike>): SafeWalletLike {
+  return {
+    address: '0x1111111111111111111111111111111111111111' as Address,
+    signerAddress: '0x2222222222222222222222222222222222222222' as Address,
+    executeTransaction: vi.fn().mockResolvedValue({
+      hash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' as `0x${string}`,
+      receipt: {
+        status: 'success',
+        blockNumber: 12345n,
+        gasUsed: 100000n,
+        effectiveGasPrice: 30000000000n,
+        transactionHash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+      },
+    }),
+    executeBatch: vi.fn().mockResolvedValue({
+      hash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' as `0x${string}`,
+      receipt: {
+        status: 'success',
+        blockNumber: 12345n,
+        gasUsed: 42000n,
+        effectiveGasPrice: 30000000000n,
+        transactionHash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+      },
+    }),
+    validateOrder: vi.fn().mockReturnValue({ allowed: true }),
+    recordSpend: vi.fn(),
+    ...overrides,
+  };
+}
 
 function makeOrder(overrides: Partial<ExecutionOrder> = {}): ExecutionOrder {
   return {
@@ -51,95 +79,15 @@ function mockPublicClient(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
-function mockWalletClient(overrides: Record<string, unknown> = {}) {
-  return {
-    sendTransaction: vi.fn().mockResolvedValue('0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890'),
-    chain: { id: 11155111, name: 'Sepolia' },
-    ...overrides,
-  } as any;
-}
-
 function createBuilder(opts: Partial<TransactionBuilderOptions> = {}) {
   return new TransactionBuilder({
-    privateKey: TEST_PRIVATE_KEY,
+    safeWallet: createMockSafeWallet(),
     publicClient: mockPublicClient(),
-    walletClient: mockWalletClient(),
     initialRetryDelayMs: 10, // Fast retries for tests
     onLog: () => {},
     ...opts,
   });
 }
-
-// ── NonceManager Tests ──────────────────────────────
-
-describe('NonceManager', () => {
-  it('syncs nonce from chain on first call', async () => {
-    const client = mockPublicClient({ getTransactionCount: vi.fn().mockResolvedValue(10) });
-    const account = { address: '0x1234' } as any;
-    const nm = new NonceManager(client, account);
-
-    const nonce = await nm.getNextNonce();
-    expect(nonce).toBe(10);
-    expect(client.getTransactionCount).toHaveBeenCalled();
-  });
-
-  it('increments nonce locally without re-fetching', async () => {
-    const client = mockPublicClient({ getTransactionCount: vi.fn().mockResolvedValue(5) });
-    const account = { address: '0x1234' } as any;
-    const nm = new NonceManager(client, account);
-
-    const n1 = await nm.getNextNonce();
-    const n2 = await nm.getNextNonce();
-    const n3 = await nm.getNextNonce();
-
-    expect(n1).toBe(5);
-    expect(n2).toBe(6);
-    expect(n3).toBe(7);
-    // Only called once for initial sync
-    expect(client.getTransactionCount).toHaveBeenCalledTimes(1);
-  });
-
-  it('tracks pending nonces', async () => {
-    const client = mockPublicClient({ getTransactionCount: vi.fn().mockResolvedValue(0) });
-    const account = { address: '0x1234' } as any;
-    const nm = new NonceManager(client, account);
-
-    await nm.getNextNonce();
-    await nm.getNextNonce();
-    expect(nm.pending).toBe(2);
-
-    nm.confirmNonce(0);
-    expect(nm.pending).toBe(1);
-
-    nm.confirmNonce(1);
-    expect(nm.pending).toBe(0);
-  });
-
-  it('resyncs after all pending nonces released', async () => {
-    const client = mockPublicClient({ getTransactionCount: vi.fn().mockResolvedValue(0) });
-    const account = { address: '0x1234' } as any;
-    const nm = new NonceManager(client, account);
-
-    const n = await nm.getNextNonce();
-    nm.releaseNonce(n);
-
-    // Next call should resync since all pending cleared
-    client.getTransactionCount.mockResolvedValue(1);
-    const next = await nm.getNextNonce();
-    expect(next).toBe(1);
-    expect(client.getTransactionCount).toHaveBeenCalledTimes(2);
-  });
-
-  it('can force sync', async () => {
-    const client = mockPublicClient({ getTransactionCount: vi.fn().mockResolvedValue(10) });
-    const account = { address: '0x1234' } as any;
-    const nm = new NonceManager(client, account);
-
-    await nm.sync();
-    const n = await nm.getNextNonce();
-    expect(n).toBe(10);
-  });
-});
 
 // ── TransactionBuilder Tests ──────────────────────────
 
@@ -152,12 +100,14 @@ describe('TransactionBuilder', () => {
     vi.useRealTimers();
   });
 
-  it('throws when WALLET_PRIVATE_KEY is not set', () => {
-    expect(() => new TransactionBuilder({
-      privateKey: '',
+  it('throws when safeWallet is not provided and order is handled', async () => {
+    vi.useRealTimers();
+
+    const builder = new TransactionBuilder({
       publicClient: mockPublicClient(),
-      walletClient: mockWalletClient(),
-    })).toThrow('WALLET_PRIVATE_KEY is not configured');
+    });
+    const order = makeOrder();
+    await expect(builder.handleOrder(order)).rejects.toThrow('safeWallet is required');
   });
 
   it('creates successfully with valid config', () => {
@@ -238,12 +188,10 @@ describe('TransactionBuilder', () => {
       vi.useRealTimers(); // Need real timers for async flow
 
       const logs: Array<{ event: string; extra?: Record<string, unknown> }> = [];
-      const pubClient = mockPublicClient();
-      const walClient = mockWalletClient();
+      const safeWallet = createMockSafeWallet();
 
       const builder = createBuilder({
-        publicClient: pubClient,
-        walletClient: walClient,
+        safeWallet,
         onLog: (event, _msg, extra) => logs.push({ event, extra }),
       });
 
@@ -258,23 +206,26 @@ describe('TransactionBuilder', () => {
       expect(result.gasUsed).toBe('100000');
       expect(result.version).toBe('1.0.0');
 
-      // Verify wallet was called
-      expect(walClient.sendTransaction).toHaveBeenCalledTimes(1);
+      // Verify Safe wallet was called
+      expect(safeWallet.executeTransaction).toHaveBeenCalledTimes(1);
     });
 
     it('handles reverted transaction', async () => {
       vi.useRealTimers();
 
-      const pubClient = mockPublicClient({
-        waitForTransactionReceipt: vi.fn().mockResolvedValue({
-          status: 'reverted',
-          blockNumber: BigInt(12345),
-          gasUsed: BigInt(50000),
-          effectiveGasPrice: BigInt('30000000000'),
+      const safeWallet = createMockSafeWallet({
+        executeTransaction: vi.fn().mockResolvedValue({
+          hash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' as `0x${string}`,
+          receipt: {
+            status: 'reverted',
+            blockNumber: 12345n,
+            gasUsed: 50000n,
+            effectiveGasPrice: 30000000000n,
+          },
         }),
       });
 
-      const builder = createBuilder({ publicClient: pubClient });
+      const builder = createBuilder({ safeWallet });
       const order = makeOrder();
       const result = await builder.handleOrder(order);
 
@@ -300,23 +251,181 @@ describe('TransactionBuilder', () => {
     });
   });
 
+  describe('Safe wallet validation', () => {
+    it('calls validateOrder before execution', async () => {
+      vi.useRealTimers();
+
+      const safeWallet = createMockSafeWallet();
+      const builder = createBuilder({ safeWallet });
+
+      const order = makeOrder();
+      await builder.handleOrder(order);
+
+      expect(safeWallet.validateOrder).toHaveBeenCalledTimes(1);
+      expect(safeWallet.validateOrder).toHaveBeenCalledWith(
+        order.params.tokenIn as Address,
+        BigInt(order.params.amount),
+      );
+    });
+
+    it('rejects order when validateOrder returns not allowed', async () => {
+      vi.useRealTimers();
+
+      const safeWallet = createMockSafeWallet({
+        validateOrder: vi.fn().mockReturnValue({ allowed: false, reason: 'target not on allowlist' }),
+      });
+      const builder = createBuilder({ safeWallet });
+
+      const order = makeOrder();
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('failed');
+      expect(result.error).toContain('target not on allowlist');
+      // executeTransaction should NOT have been called
+      expect(safeWallet.executeTransaction).not.toHaveBeenCalled();
+    });
+
+    it('calls recordSpend on successful execution', async () => {
+      vi.useRealTimers();
+
+      const safeWallet = createMockSafeWallet();
+      const builder = createBuilder({ safeWallet });
+
+      const order = makeOrder();
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('confirmed');
+      expect(safeWallet.recordSpend).toHaveBeenCalledTimes(1);
+      expect(safeWallet.recordSpend).toHaveBeenCalledWith(BigInt(order.params.amount));
+    });
+
+    it('does not call recordSpend on failed execution', async () => {
+      vi.useRealTimers();
+
+      const safeWallet = createMockSafeWallet({
+        executeTransaction: vi.fn().mockRejectedValue(new Error('network error')),
+      });
+      const builder = createBuilder({ safeWallet, maxRetries: 0, initialRetryDelayMs: 1 });
+
+      const order = makeOrder();
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('failed');
+      expect(safeWallet.recordSpend).not.toHaveBeenCalled();
+    });
+
+    it('does not call recordSpend on reverted execution', async () => {
+      vi.useRealTimers();
+
+      const safeWallet = createMockSafeWallet({
+        executeTransaction: vi.fn().mockResolvedValue({
+          hash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' as `0x${string}`,
+          receipt: {
+            status: 'reverted',
+            blockNumber: 12345n,
+            gasUsed: 50000n,
+            effectiveGasPrice: 30000000000n,
+          },
+        }),
+      });
+      const builder = createBuilder({ safeWallet });
+
+      const order = makeOrder();
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('reverted');
+      expect(safeWallet.recordSpend).not.toHaveBeenCalled();
+    });
+
+    it('validates order via adapter target when adapter exists', async () => {
+      vi.useRealTimers();
+
+      const mockAdapter: ProtocolAdapter = {
+        buildTransaction: vi.fn().mockResolvedValue({
+          to: '0xAavePoolAddress1234567890abcdef12345678' as `0x${string}`,
+          data: '0xdeadbeef' as `0x${string}`,
+          value: BigInt(0),
+        }),
+      };
+
+      const adapters = new Map<string, ProtocolAdapter>();
+      adapters.set('aave_v3', mockAdapter);
+
+      const safeWallet = createMockSafeWallet();
+      const builder = createBuilder({ adapters, safeWallet });
+
+      const order = makeOrder({ protocol: 'aave_v3', action: 'supply' });
+      await builder.handleOrder(order);
+
+      // validateOrder should be called with the adapter's target, not tokenIn
+      expect(safeWallet.validateOrder).toHaveBeenCalledWith(
+        '0xAavePoolAddress1234567890abcdef12345678',
+        BigInt(order.params.amount),
+      );
+    });
+  });
+
+  describe('Flashbots compatibility', () => {
+    it('logs warning and proceeds normally when useFlashbotsProtect is set', async () => {
+      vi.useRealTimers();
+
+      const logs: Array<{ event: string; extra?: Record<string, unknown> }> = [];
+      const safeWallet = createMockSafeWallet();
+      const builder = createBuilder({
+        safeWallet,
+        onLog: (event, _msg, extra) => logs.push({ event, extra }),
+      });
+
+      const order = makeOrder({ useFlashbotsProtect: true });
+      const result = await builder.handleOrder(order);
+
+      expect(result.status).toBe('confirmed');
+      const flashbotsWarning = logs.find((l) => l.event === 'exec_flashbots_unsupported');
+      expect(flashbotsWarning).toBeDefined();
+      expect(safeWallet.executeTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not log Flashbots warning when useFlashbotsProtect is false', async () => {
+      vi.useRealTimers();
+
+      const logs: Array<{ event: string; extra?: Record<string, unknown> }> = [];
+      const builder = createBuilder({
+        onLog: (event, _msg, extra) => logs.push({ event, extra }),
+      });
+
+      const order = makeOrder({ useFlashbotsProtect: false });
+      await builder.handleOrder(order);
+
+      const flashbotsWarning = logs.find((l) => l.event === 'exec_flashbots_unsupported');
+      expect(flashbotsWarning).toBeUndefined();
+    });
+  });
+
   describe('retry logic', () => {
     it('retries on transient failure and succeeds', async () => {
       vi.useRealTimers();
 
       let callCount = 0;
-      const walClient = mockWalletClient({
-        sendTransaction: vi.fn().mockImplementation(() => {
+      const safeWallet = createMockSafeWallet({
+        executeTransaction: vi.fn().mockImplementation(() => {
           callCount++;
           if (callCount === 1) {
             return Promise.reject(new Error('connection timeout'));
           }
-          return Promise.resolve('0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890');
+          return Promise.resolve({
+            hash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' as `0x${string}`,
+            receipt: {
+              status: 'success',
+              blockNumber: 12345n,
+              gasUsed: 100000n,
+              effectiveGasPrice: 30000000000n,
+            },
+          });
         }),
       });
 
       const builder = createBuilder({
-        walletClient: walClient,
+        safeWallet,
         initialRetryDelayMs: 1,
       });
 
@@ -325,18 +434,18 @@ describe('TransactionBuilder', () => {
 
       expect(result.status).toBe('confirmed');
       expect(result.retryCount).toBe(1);
-      expect(walClient.sendTransaction).toHaveBeenCalledTimes(2);
+      expect(safeWallet.executeTransaction).toHaveBeenCalledTimes(2);
     });
 
     it('gives up after max retries', async () => {
       vi.useRealTimers();
 
-      const walClient = mockWalletClient({
-        sendTransaction: vi.fn().mockRejectedValue(new Error('network error')),
+      const safeWallet = createMockSafeWallet({
+        executeTransaction: vi.fn().mockRejectedValue(new Error('network error')),
       });
 
       const builder = createBuilder({
-        walletClient: walClient,
+        safeWallet,
         maxRetries: 2,
         initialRetryDelayMs: 1,
       });
@@ -348,18 +457,18 @@ describe('TransactionBuilder', () => {
       expect(result.error).toBe('network error');
       expect(result.retryCount).toBe(2);
       // 1 initial + 2 retries = 3 calls
-      expect(walClient.sendTransaction).toHaveBeenCalledTimes(3);
+      expect(safeWallet.executeTransaction).toHaveBeenCalledTimes(3);
     });
 
     it('does not retry non-retryable errors', async () => {
       vi.useRealTimers();
 
-      const walClient = mockWalletClient({
-        sendTransaction: vi.fn().mockRejectedValue(new Error('insufficient funds for gas')),
+      const safeWallet = createMockSafeWallet({
+        executeTransaction: vi.fn().mockRejectedValue(new Error('insufficient funds for gas')),
       });
 
       const builder = createBuilder({
-        walletClient: walClient,
+        safeWallet,
         maxRetries: 3,
         initialRetryDelayMs: 1,
       });
@@ -370,7 +479,7 @@ describe('TransactionBuilder', () => {
       expect(result.status).toBe('failed');
       expect(result.error).toContain('insufficient funds');
       // Only called once — no retries
-      expect(walClient.sendTransaction).toHaveBeenCalledTimes(1);
+      expect(safeWallet.executeTransaction).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -438,11 +547,10 @@ describe('TransactionBuilder', () => {
       const sent = logs.find((l) => l.event === 'exec_tx_sent');
       expect(sent).toBeDefined();
       expect(sent!.extra?.txHash).toBeDefined();
-      expect(sent!.extra?.nonce).toBeDefined();
     });
   });
 
-  // ── Issue #2: Protocol Adapter Routing ──────────────────
+  // ── Protocol Adapter Routing ──────────────────
 
   describe('adapter routing', () => {
     it('routes order through matching protocol adapter', async () => {
@@ -459,20 +567,21 @@ describe('TransactionBuilder', () => {
       const adapters = new Map<string, ProtocolAdapter>();
       adapters.set('aave_v3', mockAdapter);
 
-      const walClient = mockWalletClient();
-      const builder = createBuilder({ adapters, walletClient: walClient });
+      const safeWallet = createMockSafeWallet();
+      const builder = createBuilder({ adapters, safeWallet });
 
       const order = makeOrder({ protocol: 'aave_v3', action: 'supply' });
       const result = await builder.handleOrder(order);
 
       expect(result.status).toBe('confirmed');
+      // buildTransaction called twice: once for resolveTarget, once for buildTransactionData
       expect(mockAdapter.buildTransaction).toHaveBeenCalledWith(
         'supply',
         order.params,
         order.limits,
       );
-      // Verify walletClient received the adapter's output
-      expect(walClient.sendTransaction).toHaveBeenCalledWith(
+      // Verify Safe wallet received the adapter's output
+      expect(safeWallet.executeTransaction).toHaveBeenCalledWith(
         expect.objectContaining({
           to: '0xAavePoolAddress1234567890abcdef12345678',
           data: '0xdeadbeef',
@@ -488,15 +597,15 @@ describe('TransactionBuilder', () => {
         buildTransaction: vi.fn().mockResolvedValue({ to: '0x00' as `0x${string}` }),
       });
 
-      const walClient = mockWalletClient();
-      const builder = createBuilder({ adapters, walletClient: walClient });
+      const safeWallet = createMockSafeWallet();
+      const builder = createBuilder({ adapters, safeWallet });
 
       const order = makeOrder({ protocol: 'unknown_protocol' });
       const result = await builder.handleOrder(order);
 
       expect(result.status).toBe('confirmed');
       // Should use raw transfer fallback (value = BigInt(amount))
-      expect(walClient.sendTransaction).toHaveBeenCalledWith(
+      expect(safeWallet.executeTransaction).toHaveBeenCalledWith(
         expect.objectContaining({
           to: order.params.tokenIn,
           value: BigInt(order.params.amount),
@@ -538,127 +647,7 @@ describe('TransactionBuilder', () => {
     });
   });
 
-  // ── Issue #3: Flashbots Protect Integration ──────────────
-
-  describe('flashbots integration', () => {
-    function mockFlashbots(overrides: Partial<FlashbotsProtectManager> = {}): FlashbotsProtectManager {
-      return {
-        sendTransaction: vi.fn().mockResolvedValue({
-          txHash: '0xfb1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd' as `0x${string}`,
-          receipt: {
-            status: 'success',
-            blockNumber: BigInt(99999),
-            gasUsed: BigInt(80000),
-            effectiveGasPrice: BigInt('25000000000'),
-            transactionHash: '0xfb1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd',
-          },
-          usedFlashbots: true,
-          latencyMs: 500,
-          status: 'INCLUDED',
-        } satisfies FlashbotsResult),
-        ...overrides,
-      } as unknown as FlashbotsProtectManager;
-    }
-
-    it('routes through Flashbots when useFlashbotsProtect=true', async () => {
-      vi.useRealTimers();
-
-      const fb = mockFlashbots();
-      const walClient = mockWalletClient();
-      const builder = createBuilder({ flashbots: fb, walletClient: walClient });
-
-      const order = makeOrder({ useFlashbotsProtect: true });
-      const result = await builder.handleOrder(order);
-
-      expect(result.status).toBe('confirmed');
-      expect(result.txHash).toBe('0xfb1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd');
-      expect(result.blockNumber).toBe(99999);
-      expect(result.gasUsed).toBe('80000');
-      expect(fb.sendTransaction).toHaveBeenCalledTimes(1);
-      // walletClient should NOT have been called
-      expect(walClient.sendTransaction).not.toHaveBeenCalled();
-    });
-
-    it('uses walletClient when useFlashbotsProtect=false', async () => {
-      vi.useRealTimers();
-
-      const fb = mockFlashbots();
-      const walClient = mockWalletClient();
-      const builder = createBuilder({ flashbots: fb, walletClient: walClient });
-
-      const order = makeOrder({ useFlashbotsProtect: false });
-      const result = await builder.handleOrder(order);
-
-      expect(result.status).toBe('confirmed');
-      expect(walClient.sendTransaction).toHaveBeenCalledTimes(1);
-      expect(fb.sendTransaction).not.toHaveBeenCalled();
-    });
-
-    it('uses walletClient when flashbots not configured', async () => {
-      vi.useRealTimers();
-
-      const walClient = mockWalletClient();
-      const builder = createBuilder({ walletClient: walClient });
-
-      const order = makeOrder({ useFlashbotsProtect: true });
-      const result = await builder.handleOrder(order);
-
-      expect(result.status).toBe('confirmed');
-      expect(walClient.sendTransaction).toHaveBeenCalledTimes(1);
-    });
-
-    it('maps Flashbots reverted receipt to reverted result', async () => {
-      vi.useRealTimers();
-
-      const fb = mockFlashbots({
-        sendTransaction: vi.fn().mockResolvedValue({
-          txHash: '0xfbrev234567890abcdef1234567890abcdef1234567890abcdef1234567890ab' as `0x${string}`,
-          receipt: {
-            status: 'reverted',
-            blockNumber: BigInt(88888),
-            gasUsed: BigInt(21000),
-            effectiveGasPrice: BigInt('20000000000'),
-            transactionHash: '0xfbrev234567890abcdef1234567890abcdef1234567890abcdef1234567890ab',
-          },
-          usedFlashbots: true,
-          latencyMs: 300,
-          status: 'INCLUDED',
-        } satisfies FlashbotsResult),
-      } as unknown as Partial<FlashbotsProtectManager>);
-
-      const builder = createBuilder({ flashbots: fb });
-
-      const order = makeOrder({ useFlashbotsProtect: true });
-      const result = await builder.handleOrder(order);
-
-      expect(result.status).toBe('reverted');
-      expect(result.blockNumber).toBe(88888);
-    });
-
-    it('returns timeout when Flashbots has no receipt', async () => {
-      vi.useRealTimers();
-
-      const fb = mockFlashbots({
-        sendTransaction: vi.fn().mockResolvedValue({
-          txHash: '0xfbpend34567890abcdef1234567890abcdef1234567890abcdef1234567890ab' as `0x${string}`,
-          receipt: null,
-          usedFlashbots: true,
-          latencyMs: 120000,
-          status: 'PENDING',
-        } satisfies FlashbotsResult),
-      } as unknown as Partial<FlashbotsProtectManager>);
-
-      const builder = createBuilder({ flashbots: fb, maxRetries: 0 });
-
-      const order = makeOrder({ useFlashbotsProtect: true });
-      const result = await builder.handleOrder(order);
-
-      expect(result.status).toBe('timeout');
-      expect(result.txHash).toBe('0xfbpend34567890abcdef1234567890abcdef1234567890abcdef1234567890ab');
-    });
-  });
-
-  // ── Issue #5: Consolidated Result Publishing ──────────────
+  // ── Consolidated Result Publishing ──────────────
 
   describe('reporter delegation', () => {
     function mockReporter(): EventReporter {
@@ -715,17 +704,20 @@ describe('TransactionBuilder', () => {
     it('delegates reverted result to reporter.reportReverted', async () => {
       vi.useRealTimers();
 
-      const pubClient = mockPublicClient({
-        waitForTransactionReceipt: vi.fn().mockResolvedValue({
-          status: 'reverted',
-          blockNumber: BigInt(12345),
-          gasUsed: BigInt(50000),
-          effectiveGasPrice: BigInt('30000000000'),
+      const safeWallet = createMockSafeWallet({
+        executeTransaction: vi.fn().mockResolvedValue({
+          hash: '0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890' as `0x${string}`,
+          receipt: {
+            status: 'reverted',
+            blockNumber: 12345n,
+            gasUsed: 50000n,
+            effectiveGasPrice: 30000000000n,
+          },
         }),
       });
 
       const reporter = mockReporter();
-      const builder = createBuilder({ publicClient: pubClient, reporter });
+      const builder = createBuilder({ safeWallet, reporter });
 
       const order = makeOrder();
       const result = await builder.handleOrder(order);

@@ -2,31 +2,40 @@
  * EXEC-001: viem transaction builder.
  *
  * Consumes orders from execution:orders, constructs and submits
- * Ethereum transactions via viem, enforces gas/slippage/deadline
+ * Ethereum transactions via Safe wallet, enforces gas/slippage/deadline
  * parameters, and publishes results to execution:results.
  */
 
 import {
   createPublicClient,
-  createWalletClient,
   http,
   type PublicClient,
-  type WalletClient,
   type TransactionReceipt,
-  type Account,
   type Chain,
   type Address,
   type Hex,
-  encodeFunctionData,
-  type Abi,
 } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 import { type RedisManager, CHANNELS } from '../redis/client.js';
-import type { FlashbotsProtectManager, FlashbotsResult } from './flashbots-protect.js';
 import type { EventReporter } from './event-reporter.js';
 
 // ── Types ──────────────────────────────────────────
+
+/** Interface for Safe wallet operations used by TransactionBuilder. */
+export interface SafeWalletLike {
+  readonly address: Address;
+  readonly signerAddress: Address;
+  executeTransaction(tx: {
+    to: Address; value?: bigint; data?: Hex; operation?: number;
+  }): Promise<{ hash: `0x${string}`; receipt: TransactionReceipt }>;
+  executeBatch(txs: Array<{
+    to: Address; value?: bigint; data?: Hex; operation?: number;
+  }>): Promise<{ hash: `0x${string}`; receipt: TransactionReceipt }>;
+  validateOrder(target: Address, amountWei: bigint): {
+    allowed: boolean; reason?: string;
+  };
+  recordSpend(amountWei: bigint): void;
+}
 
 export interface ExecutionOrder {
   version: string;
@@ -79,13 +88,13 @@ export interface ProtocolAdapter {
 }
 
 export interface TransactionBuilderOptions {
-  /** Private key for signing. Defaults to env WALLET_PRIVATE_KEY. */
-  privateKey?: string;
-  /** RPC URL. Defaults to env ALCHEMY_SEPOLIA_HTTP_URL or public sepolia. */
+  /** Safe wallet for transaction execution. Required at runtime. */
+  safeWallet?: SafeWalletLike;
+  /** RPC URL for read-only operations. Defaults to env ALCHEMY_SEPOLIA_HTTP_URL. */
   rpcUrl?: string;
   /** viem chain. Defaults to sepolia. */
   chain?: Chain;
-  /** Max retry attempts for failed TXs. Defaults to 3. */
+  /** Max retry attempts. Defaults to 3. */
   maxRetries?: number;
   /** Initial retry delay in ms. Defaults to 1000. */
   initialRetryDelayMs?: number;
@@ -93,103 +102,47 @@ export interface TransactionBuilderOptions {
   confirmationTimeoutMs?: number;
   /** Structured log callback. */
   onLog?: (event: string, message: string, extra?: Record<string, unknown>) => void;
-  /** Protocol ABI registry for encoding calls. */
-  abiRegistry?: Map<string, Abi>;
-  /** Override public client (for testing). */
-  publicClient?: PublicClient;
-  /** Override wallet client (for testing). */
-  walletClient?: WalletClient;
   /** Protocol adapter registry for order routing. */
   adapters?: Map<string, ProtocolAdapter>;
-  /** Flashbots Protect manager for MEV protection. */
-  flashbots?: FlashbotsProtectManager;
   /** Event reporter for consolidated result publishing. */
   reporter?: EventReporter;
-}
-
-// ── Nonce Manager ──────────────────────────────────
-
-/** Tracks and manages transaction nonces to prevent conflicts. */
-export class NonceManager {
-  private currentNonce: number | null = null;
-  private pendingNonces = new Set<number>();
-  private readonly publicClient: PublicClient;
-  private readonly account: Account;
-
-  constructor(publicClient: PublicClient, account: Account) {
-    this.publicClient = publicClient;
-    this.account = account;
-  }
-
-  /** Get the next available nonce, syncing from chain if needed. */
-  async getNextNonce(): Promise<number> {
-    if (this.currentNonce === null) {
-      await this.sync();
-    }
-    const nonce = this.currentNonce!;
-    this.pendingNonces.add(nonce);
-    this.currentNonce = nonce + 1;
-    return nonce;
-  }
-
-  /** Mark a nonce as confirmed (TX included in block). */
-  confirmNonce(nonce: number): void {
-    this.pendingNonces.delete(nonce);
-  }
-
-  /** Mark a nonce as failed and check if it creates a gap. */
-  releaseNonce(nonce: number): void {
-    this.pendingNonces.delete(nonce);
-    // If this was the lowest pending nonce and there's a gap,
-    // we may need to resync
-    if (this.pendingNonces.size === 0) {
-      // All pending cleared — resync on next call
-      this.currentNonce = null;
-    }
-  }
-
-  /** Sync nonce from chain state. */
-  async sync(): Promise<void> {
-    const onChainNonce = await this.publicClient.getTransactionCount({
-      address: this.account.address,
-      blockTag: 'pending',
-    });
-    this.currentNonce = onChainNonce;
-    this.pendingNonces.clear();
-  }
-
-  /** Get the count of pending nonces. */
-  get pending(): number {
-    return this.pendingNonces.size;
-  }
+  /** Override public client (for testing). */
+  publicClient?: PublicClient;
+  /** @deprecated No longer used. Safe wallet owns the key. */
+  privateKey?: unknown;
+  /** @deprecated No longer used. Safe SDK handles submission. */
+  walletClient?: unknown;
+  /** @deprecated No longer used. Adapter routing handles encoding. */
+  abiRegistry?: unknown;
+  /** @deprecated Flashbots not supported with Safe wallet. */
+  flashbots?: unknown;
 }
 
 // ── Transaction Builder ──────────────────────────────
 
-/** Builds and submits Ethereum transactions from execution orders. */
+/** Builds and submits Ethereum transactions from execution orders via Safe wallet. */
 export class TransactionBuilder {
   private readonly publicClient: PublicClient;
-  private readonly walletClient: WalletClient;
-  private readonly account: Account;
-  private readonly nonceManager: NonceManager;
+  private readonly _safeWallet: SafeWalletLike | null;
   private readonly maxRetries: number;
   private readonly initialRetryDelayMs: number;
   private readonly confirmationTimeoutMs: number;
   private readonly log: (event: string, message: string, extra?: Record<string, unknown>) => void;
-  private readonly abiRegistry: Map<string, Abi>;
   private readonly adapters: Map<string, ProtocolAdapter>;
-  private readonly flashbots: FlashbotsProtectManager | null;
   private readonly reporter: EventReporter | null;
   private redis: RedisManager | null = null;
   private _processing = false;
 
-  constructor(opts: TransactionBuilderOptions = {}) {
-    const privateKey = opts.privateKey ?? process.env.WALLET_PRIVATE_KEY;
-    if (!privateKey) {
-      throw new Error('WALLET_PRIVATE_KEY is not configured');
+  /** Safe wallet accessor. Throws if not configured. */
+  private get safeWallet(): SafeWalletLike {
+    if (!this._safeWallet) {
+      throw new Error('safeWallet is required');
     }
+    return this._safeWallet;
+  }
 
-    this.account = privateKeyToAccount(privateKey as `0x${string}`);
+  constructor(opts: TransactionBuilderOptions = {}) {
+    this._safeWallet = opts.safeWallet ?? null;
     const chain = opts.chain ?? sepolia;
     const rpcUrl = opts.rpcUrl ?? process.env.ALCHEMY_SEPOLIA_HTTP_URL;
 
@@ -198,20 +151,11 @@ export class TransactionBuilder {
       transport: http(rpcUrl),
     });
 
-    this.walletClient = opts.walletClient ?? createWalletClient({
-      account: this.account,
-      chain,
-      transport: http(rpcUrl),
-    });
-
-    this.nonceManager = new NonceManager(this.publicClient, this.account);
     this.maxRetries = opts.maxRetries ?? 3;
     this.initialRetryDelayMs = opts.initialRetryDelayMs ?? 1_000;
     this.confirmationTimeoutMs = opts.confirmationTimeoutMs ?? 120_000;
     this.log = opts.onLog ?? (() => {});
-    this.abiRegistry = opts.abiRegistry ?? new Map();
     this.adapters = opts.adapters ?? new Map();
-    this.flashbots = opts.flashbots ?? null;
     this.reporter = opts.reporter ?? null;
   }
 
@@ -246,7 +190,7 @@ export class TransactionBuilder {
     });
 
     try {
-      // 1. Pre-flight checks
+      // 1. Pre-flight checks (deadline, gas ceiling)
       const rejection = await this.preflight(order);
       if (rejection) {
         const result = this.buildResult(order, 'failed', { error: rejection });
@@ -254,9 +198,27 @@ export class TransactionBuilder {
         return result;
       }
 
-      // 2. Execute with retries
+      // 2. Allowlist + spending limit check via Safe wallet
+      const target = await this.resolveTarget(order);
+      const amount = BigInt(order.params.amount);
+      const validation = this.safeWallet.validateOrder(target, amount);
+      if (!validation.allowed) {
+        const result = this.buildResult(order, 'failed', {
+          error: `Order validation failed: ${validation.reason ?? 'not allowed'}`,
+        });
+        await this.emitResult(order, result);
+        return result;
+      }
+
+      // 3. Execute with retries
       const result = await this.executeWithRetry(order);
       await this.emitResult(order, result);
+
+      // 4. Record spend on success
+      if (result.status === 'confirmed') {
+        this.safeWallet.recordSpend(BigInt(order.params.amount));
+      }
+
       return result;
     } finally {
       this._processing = false;
@@ -345,130 +307,60 @@ export class TransactionBuilder {
     });
   }
 
-  /** Execute a single transaction attempt. */
+  /** Execute a single transaction attempt via Safe wallet. */
   private async executeSingle(order: ExecutionOrder, attempt: number): Promise<ExecutionResult> {
-    const nonce = await this.nonceManager.getNextNonce();
+    // Build transaction data via adapter routing
+    const txData = await this.buildTransactionData(order);
 
-    try {
-      // Build transaction data (adapter routing or fallback)
-      const txData = await this.buildTransactionData(order);
-
-      // Route through Flashbots Protect if requested and available
-      if (order.useFlashbotsProtect && this.flashbots) {
-        return await this.executeViaFlashbots(order, txData, nonce, attempt);
-      }
-
-      // Send transaction via standard walletClient
-      const hash = await this.walletClient.sendTransaction({
-        to: txData.to,
-        data: txData.data,
-        value: txData.value,
-        nonce,
-        account: this.account,
-        chain: this.walletClient.chain,
-      });
-
-      this.log('exec_tx_sent', 'Transaction submitted', {
+    // Warn if Flashbots was requested — not supported with Safe wallet
+    if (order.useFlashbotsProtect) {
+      this.log('exec_flashbots_unsupported', 'Flashbots Protect not supported with Safe wallet, proceeding with normal execution', {
         orderId: order.orderId,
-        txHash: hash,
-        nonce,
-        attempt,
       });
-
-      // Wait for confirmation with timeout
-      const receipt = await this.waitForReceipt(hash);
-
-      if (receipt.status === 'success') {
-        this.nonceManager.confirmNonce(nonce);
-        return this.buildResult(order, 'confirmed', {
-          txHash: hash,
-          blockNumber: Number(receipt.blockNumber),
-          gasUsed: receipt.gasUsed.toString(),
-          effectiveGasPrice: receipt.effectiveGasPrice.toString(),
-          retryCount: attempt,
-        });
-      } else {
-        // Transaction reverted
-        this.nonceManager.confirmNonce(nonce); // Reverted TXs still consume nonce
-        const revertReason = await this.getRevertReason(hash);
-        return this.buildResult(order, 'reverted', {
-          txHash: hash,
-          blockNumber: Number(receipt.blockNumber),
-          gasUsed: receipt.gasUsed.toString(),
-          effectiveGasPrice: receipt.effectiveGasPrice.toString(),
-          revertReason,
-          retryCount: attempt,
-        });
-      }
-    } catch (err) {
-      this.nonceManager.releaseNonce(nonce);
-      throw err;
     }
-  }
 
-  /** Execute a transaction via Flashbots Protect. */
-  private async executeViaFlashbots(
-    order: ExecutionOrder,
-    txData: { to: `0x${string}`; data?: `0x${string}`; value?: bigint },
-    nonce: number,
-    attempt: number,
-  ): Promise<ExecutionResult> {
-    const fbResult: FlashbotsResult = await this.flashbots!.sendTransaction(
-      {
-        to: txData.to,
-        data: txData.data,
-        value: txData.value,
-        nonce,
-        account: this.account,
-        chain: this.walletClient.chain,
-      },
-      true,
-    );
-
-    this.log('exec_tx_sent', 'Transaction submitted via Flashbots', {
-      orderId: order.orderId,
-      txHash: fbResult.txHash,
-      nonce,
-      attempt,
-      usedFlashbots: fbResult.usedFlashbots,
-      latencyMs: fbResult.latencyMs,
+    // Execute through Safe wallet
+    const { hash, receipt } = await this.safeWallet.executeTransaction({
+      to: txData.to,
+      value: txData.value,
+      data: txData.data,
     });
 
-    if (fbResult.status === 'FAILED') {
-      this.nonceManager.releaseNonce(nonce);
-      throw new Error('Flashbots transaction failed');
-    }
+    this.log('exec_tx_sent', 'Transaction submitted via Safe wallet', {
+      orderId: order.orderId,
+      txHash: hash,
+      attempt,
+    });
 
-    if (!fbResult.receipt) {
-      // Pending / timeout — no receipt yet
-      this.nonceManager.releaseNonce(nonce);
-      return this.buildResult(order, 'timeout', {
-        txHash: fbResult.txHash,
-        retryCount: attempt,
-      });
-    }
-
-    if (fbResult.receipt.status === 'success') {
-      this.nonceManager.confirmNonce(nonce);
+    if (receipt.status === 'success') {
       return this.buildResult(order, 'confirmed', {
-        txHash: fbResult.txHash,
-        blockNumber: Number(fbResult.receipt.blockNumber),
-        gasUsed: fbResult.receipt.gasUsed.toString(),
-        effectiveGasPrice: fbResult.receipt.effectiveGasPrice.toString(),
+        txHash: hash,
+        blockNumber: Number(receipt.blockNumber),
+        gasUsed: receipt.gasUsed.toString(),
+        effectiveGasPrice: receipt.effectiveGasPrice.toString(),
         retryCount: attempt,
       });
     } else {
-      this.nonceManager.confirmNonce(nonce);
-      const revertReason = await this.getRevertReason(fbResult.txHash);
+      const revertReason = await this.getRevertReason(hash);
       return this.buildResult(order, 'reverted', {
-        txHash: fbResult.txHash,
-        blockNumber: Number(fbResult.receipt.blockNumber),
-        gasUsed: fbResult.receipt.gasUsed.toString(),
-        effectiveGasPrice: fbResult.receipt.effectiveGasPrice.toString(),
+        txHash: hash,
+        blockNumber: Number(receipt.blockNumber),
+        gasUsed: receipt.gasUsed.toString(),
+        effectiveGasPrice: receipt.effectiveGasPrice.toString(),
         revertReason,
         retryCount: attempt,
       });
     }
+  }
+
+  /** Resolve the target address for order validation. */
+  private async resolveTarget(order: ExecutionOrder): Promise<Address> {
+    const adapter = this.adapters.get(order.protocol);
+    if (adapter) {
+      const txData = await adapter.buildTransaction(order.action, order.params, order.limits);
+      return txData.to;
+    }
+    return order.params.tokenIn as Address;
   }
 
   /** Build the transaction calldata from an order via adapter or fallback. */
@@ -495,36 +387,11 @@ export class TransactionBuilder {
       };
     }
 
-    // 2. Try ABI registry
-    const abiKey = `${protocol}:${action}`;
-    const abi = this.abiRegistry.get(abiKey);
-
-    if (abi) {
-      const data = encodeFunctionData({
-        abi,
-        functionName: action,
-        args: [params.tokenIn, BigInt(params.amount)],
-      });
-      return {
-        to: params.tokenIn as `0x${string}`,
-        data,
-      };
-    }
-
-    // 3. Fallback: raw transfer
+    // 2. Fallback: raw transfer
     return {
       to: params.tokenIn as `0x${string}`,
       value: BigInt(params.amount),
     };
-  }
-
-  /** Wait for a transaction receipt with timeout. */
-  private async waitForReceipt(hash: `0x${string}`): Promise<TransactionReceipt> {
-    const receipt = await this.publicClient.waitForTransactionReceipt({
-      hash,
-      timeout: this.confirmationTimeoutMs,
-    });
-    return receipt;
   }
 
   /** Attempt to decode the revert reason from a failed TX. */
@@ -562,7 +429,6 @@ export class TransactionBuilder {
       'nonce too low',
       'already known',
       'deadline expired',
-      'WALLET_PRIVATE_KEY',
     ];
     const lowerError = error.toLowerCase();
     return nonRetryable.some((pattern) => lowerError.includes(pattern.toLowerCase()));
