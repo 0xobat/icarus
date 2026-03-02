@@ -113,10 +113,8 @@ Claude reads this file and generates a Python class per strategy. Each class fol
 │  Chain Listener ── TX Builder ── Event Reporter    │
 │  (Alchemy WS)     (viem)        (results)         │
 │                                                    │
-│  Smart Wallet ── Flashbots ── Protocol Adapters    │
-│  (ERC-4337)      (MEV protection) (Aave, Uni)     │
-│                                                    │
-│  Contract Allowlist                                │
+│  Safe Wallet ── Protocol Encoders                  │
+│  (1-of-2 multisig) (Aave V3, Lido)               │
 └────────────────────────────────────────────────────┘
 ```
 
@@ -139,9 +137,9 @@ For simple, well-defined situations (e.g. "APY on market A is higher than market
 | -------------- | ------------------------------------------ | ---------------------------------------------------------------- |
 | Decision Engine| Claude API                                 | AI reasoning over synthesized data, not hardcoded rules          |
 | Strategy Def   | Markdown (`strategy.md`) → generated code  | Human-readable specs, Claude generates implementations           |
-| Wallet         | Alchemy Smart Wallet (Account Abstraction) | On-chain spending limits, programmable guardrails                |
+| Wallet         | Safe 1-of-2 Multisig (Safe{Core} SDK)      | ethskills: battle-tested ($100B+ secured), agent EOA + human recovery |
 | State Recovery | TTL-based pruning on Redis Streams         | Bounded storage, sufficient replay window for crash recovery     |
-| MEV Protection | Flashbots Protect                          | Private mempool routing prevents frontrunning/sandwich attacks   |
+| MEV Protection | Flashbots Protect RPC (P1b)                | Private mempool routing for swaps; not needed for P1a supply/withdraw |
 | Deployment     | Rolling release via Railway                | Always running, strategies hot-reloaded on update                |
 | Testnet First  | Sepolia until validated                    | Validate all strategies before real capital                      |
 
@@ -156,9 +154,8 @@ icarus/
 ├── ts-executor/                   # TypeScript service — chain interaction
 │   └── src/
 │       ├── listeners/             # Alchemy WebSocket handlers
-│       ├── execution/             # TX builder, Flashbots, protocol adapters
-│       ├── wallet/                # Smart wallet (ERC-4337)
-│       ├── security/              # Contract allowlist
+│       ├── execution/             # TX builder, protocol encoders (Aave, Lido)
+│       ├── wallet/                # Safe 1-of-2 multisig
 │       ├── redis/                 # Redis client
 │       ├── validation/            # Schema validation
 │       └── index.ts
@@ -193,8 +190,8 @@ icarus/
 | Data Processing        | Python — pandas, numpy                     |
 | Database               | PostgreSQL (trade history, audit trail)    |
 | Deployment             | Docker Compose → Railway                   |
-| Wallet                 | Alchemy Smart Wallet (Account Abstraction) |
-| MEV Protection         | Flashbots Protect                          |
+| Wallet                 | Safe 1-of-2 Multisig (Safe{Core} SDK)      |
+| MEV Protection         | Flashbots Protect RPC (P1b+)               |
 | Monitoring             | Structured JSON logs + Discord alerts      |
 
 ---
