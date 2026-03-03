@@ -31,22 +31,9 @@ interface MetaTransactionData {
 /** Safe operation types — Call = 0, DelegateCall = 1. */
 const OperationType = { Call: 0, DelegateCall: 1 } as const;
 
-// ── Interface ──────────────────────────────────────
-
-export interface SafeWalletLike {
-  readonly address: Address;
-  readonly signerAddress: Address;
-  executeTransaction(tx: {
-    to: Address; value?: bigint; data?: Hex; operation?: number;
-  }): Promise<{ hash: `0x${string}`; receipt: TransactionReceipt }>;
-  executeBatch(txs: Array<{
-    to: Address; value?: bigint; data?: Hex; operation?: number;
-  }>): Promise<{ hash: `0x${string}`; receipt: TransactionReceipt }>;
-  validateOrder(target: Address, amountWei: bigint): {
-    allowed: boolean; reason?: string;
-  };
-  recordSpend(amountWei: bigint): void;
-}
+// Re-export the canonical SafeWalletLike interface from TransactionBuilder
+export type { SafeWalletLike } from '../execution/transaction-builder.js';
+import type { SafeWalletLike } from '../execution/transaction-builder.js';
 
 // ── Options ──────────────────────────────────────
 
