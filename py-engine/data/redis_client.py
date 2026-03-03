@@ -50,6 +50,7 @@ class RedisManager:
         self._handlers: dict[str, list[Callable[[dict[str, Any]], None]]] = {}
         self._sub_thread: threading.Thread | None = None
         self._connected = False
+        self._stream_max_len = int(os.environ.get("STREAM_MAX_LENGTH", "10000"))
 
     @property
     def connected(self) -> bool:
@@ -101,7 +102,7 @@ class RedisManager:
         payload = json.dumps(data)
         self.client.publish(channel, payload)
         # Also write to stream for durability
-        self.client.xadd(f"stream:{channel}", {"data": payload})
+        self.client.xadd(f"stream:{channel}", {"data": payload}, maxlen=self._stream_max_len, approximate=True)
 
     def subscribe(
         self,
