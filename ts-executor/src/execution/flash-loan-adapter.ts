@@ -5,7 +5,7 @@
  * ABI definitions + encode functions only. TransactionBuilder handles execution.
  */
 
-import { type Address, type Hex, encodeFunctionData, parseAbi } from 'viem';
+import { type Address, type Hex, encodeFunctionData, encodeAbiParameters, parseAbi, parseAbiParameters } from 'viem';
 
 // ── ABIs ──────────────────────────────────────
 
@@ -132,4 +132,88 @@ export function calculateFlashLoanFee(amount: bigint): bigint {
 export function estimateFlashLoanGas(callbackGasEstimate: bigint): bigint {
   const FLASH_LOAN_BASE_GAS = 300_000n;
   return FLASH_LOAN_BASE_GAS + callbackGasEstimate;
+}
+
+// ── Profit Calculation ──────────────────────────────────────
+
+export interface ProfitCalculation {
+  /** Revenue from the arbitrage trade. */
+  grossProfit: bigint;
+  /** Flash loan fee paid to Aave. */
+  flashLoanFee: bigint;
+  /** Estimated gas cost in Wei. */
+  gasCostWei: bigint;
+  /** Estimated slippage cost in Wei. */
+  slippageCostWei: bigint;
+  /** Net profit after all costs. */
+  netProfit: bigint;
+  /** Whether the trade is profitable. */
+  profitable: boolean;
+}
+
+/**
+ * Calculate net profit for a flash loan arbitrage, accounting for
+ * flash loan fee, gas cost, and slippage.
+ * @param params - Profit calculation inputs.
+ * @param params.grossProfit - Expected revenue from the arb.
+ * @param params.borrowAmount - Amount borrowed via flash loan.
+ * @param params.gasCostWei - Estimated gas cost (from estimateFlashLoanGas * gasPrice).
+ * @param params.slippageBps - Expected slippage in basis points.
+ * @param params.tradeAmount - Total amount traded (for slippage calculation).
+ */
+export function calculateProfit(params: {
+  grossProfit: bigint;
+  borrowAmount: bigint;
+  gasCostWei: bigint;
+  slippageBps: bigint;
+  tradeAmount: bigint;
+}): ProfitCalculation {
+  const flashLoanFee = calculateFlashLoanFee(params.borrowAmount);
+  const slippageCostWei = (params.tradeAmount * params.slippageBps) / 10_000n;
+  const netProfit = params.grossProfit - flashLoanFee - params.gasCostWei - slippageCostWei;
+
+  return {
+    grossProfit: params.grossProfit,
+    flashLoanFee,
+    gasCostWei: params.gasCostWei,
+    slippageCostWei,
+    netProfit,
+    profitable: netProfit > 0n,
+  };
+}
+
+// ── Arbitrage Callback Params ──────────────────────────────────────
+
+export interface ArbitrageCallbackData {
+  /** DEX A router address (buy side). */
+  dexARouter: Address;
+  /** DEX B router address (sell side). */
+  dexBRouter: Address;
+  /** Intermediate token (the one we arb through). */
+  tokenIntermediate: Address;
+  /** Minimum profit in Wei — TX reverts if not met on-chain. */
+  minProfitWei: bigint;
+  /** Encoded swap calldata for DEX A (buy). */
+  swapAData: Hex;
+  /** Encoded swap calldata for DEX B (sell). */
+  swapBData: Hex;
+}
+
+/**
+ * Encode arbitrage callback parameters for the flash loan receiver contract.
+ * The on-chain contract decodes these params and executes multi-step swap logic:
+ * buy on DEX A, sell on DEX B, check profit >= minProfitWei or revert.
+ */
+export function encodeArbitrageParams(data: ArbitrageCallbackData): Hex {
+  return encodeAbiParameters(
+    parseAbiParameters('address, address, address, uint256, bytes, bytes'),
+    [
+      data.dexARouter,
+      data.dexBRouter,
+      data.tokenIntermediate,
+      data.minProfitWei,
+      data.swapAData,
+      data.swapBData,
+    ],
+  );
 }

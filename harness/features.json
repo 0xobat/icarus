@@ -188,7 +188,7 @@
       "Configurable per-transaction: some strategies can opt out of private routing",
       "Latency overhead of Flashbots routing logged and monitored"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-004",
@@ -220,7 +220,7 @@
       "Pool state queries return: current price, active tick, liquidity at each tick range, 24h volume",
       "All swaps routed through Flashbots Protect"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-006",
@@ -251,7 +251,7 @@
       "Profit calculation accounts for: flash loan fee, gas cost, slippage",
       "Routed through Flashbots Protect"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-009",

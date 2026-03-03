@@ -170,3 +170,50 @@ export function encodeBurn(tokenId: bigint): Hex {
     args: [tokenId],
   });
 }
+
+// ── Pool State Query Encoders ──────────────────────────────────────
+
+/**
+ * Encode a slot0 query to retrieve current price and active tick.
+ * Returns sqrtPriceX96, tick, observationIndex, cardinality, etc.
+ */
+export function encodeSlot0Query(): Hex {
+  return encodeFunctionData({ abi: POOL_ABI, functionName: 'slot0' });
+}
+
+/** Encode a liquidity query to retrieve pool's current active liquidity. */
+export function encodeLiquidityQuery(): Hex {
+  return encodeFunctionData({ abi: POOL_ABI, functionName: 'liquidity' });
+}
+
+/**
+ * Encode a ticks query for a specific tick index.
+ * Returns liquidityGross, liquidityNet, fee growth data.
+ */
+export function encodeTickQuery(tick: number): Hex {
+  return encodeFunctionData({ abi: POOL_ABI, functionName: 'ticks', args: [tick] });
+}
+
+/** Encode a fee query to retrieve the pool's fee tier. */
+export function encodeFeeQuery(): Hex {
+  return encodeFunctionData({ abi: POOL_ABI, functionName: 'fee' });
+}
+
+/** Encode a token0 query. */
+export function encodeToken0Query(): Hex {
+  return encodeFunctionData({ abi: POOL_ABI, functionName: 'token0' });
+}
+
+/** Encode a token1 query. */
+export function encodeToken1Query(): Hex {
+  return encodeFunctionData({ abi: POOL_ABI, functionName: 'token1' });
+}
+
+/** Encode a getPool query on the Factory to find a pool address. */
+export function encodeGetPool(tokenA: Address, tokenB: Address, fee: number): Hex {
+  return encodeFunctionData({
+    abi: FACTORY_ABI,
+    functionName: 'getPool',
+    args: [tokenA, tokenB, fee],
+  });
+}

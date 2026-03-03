@@ -12,13 +12,21 @@ import { type Address, decodeFunctionData } from 'viem';
 import {
   FACTORY_ABI,
   FACTORY_ADDRESS,
+  POOL_ABI,
   POSITION_MANAGER_ABI,
   POSITION_MANAGER_ADDRESS,
   encodeBurn,
   encodeCollect,
   encodeDecreaseLiquidity,
+  encodeGetPool,
+  encodeFeeQuery,
   encodeIncreaseLiquidity,
+  encodeLiquidityQuery,
   encodeMint,
+  encodeSlot0Query,
+  encodeTickQuery,
+  encodeToken0Query,
+  encodeToken1Query,
   type MintParams,
   type IncreaseLiquidityParams,
   type DecreaseLiquidityParams,
@@ -263,5 +271,71 @@ describe('Uniswap V3 selector uniqueness', () => {
   it('ABIs are importable and non-empty', () => {
     expect(POSITION_MANAGER_ABI.length).toBeGreaterThan(0);
     expect(FACTORY_ABI.length).toBeGreaterThan(0);
+    expect(POOL_ABI.length).toBeGreaterThan(0);
+  });
+});
+
+// ── Pool State Queries ──────────────────────────────────────
+
+describe('Uniswap V3 pool state queries', () => {
+  it('encodeSlot0Query produces valid calldata with correct selector', () => {
+    const calldata = encodeSlot0Query();
+    expect(calldata).toMatch(/^0x[0-9a-f]+$/i);
+    // slot0() selector: 0x3850c7bd
+    expect(calldata.slice(0, 10)).toBe('0x3850c7bd');
+  });
+
+  it('encodeLiquidityQuery produces valid calldata with correct selector', () => {
+    const calldata = encodeLiquidityQuery();
+    expect(calldata).toMatch(/^0x[0-9a-f]+$/i);
+    // liquidity() selector: 0x1a686502
+    expect(calldata.slice(0, 10)).toBe('0x1a686502');
+  });
+
+  it('encodeTickQuery encodes the tick parameter', () => {
+    const calldata = encodeTickQuery(-887220);
+    expect(calldata).toMatch(/^0x[0-9a-f]+$/i);
+    // ticks(int24) selector: 0xf30dba93
+    expect(calldata.slice(0, 10)).toBe('0xf30dba93');
+    // Different tick values produce different calldata
+    const calldata2 = encodeTickQuery(887220);
+    expect(calldata).not.toBe(calldata2);
+  });
+
+  it('encodeFeeQuery produces valid calldata', () => {
+    const calldata = encodeFeeQuery();
+    expect(calldata).toMatch(/^0x[0-9a-f]+$/i);
+    // fee() selector: 0xddca3f43
+    expect(calldata.slice(0, 10)).toBe('0xddca3f43');
+  });
+
+  it('encodeToken0Query and encodeToken1Query produce distinct selectors', () => {
+    const token0 = encodeToken0Query();
+    const token1 = encodeToken1Query();
+    expect(token0).toMatch(/^0x[0-9a-f]+$/i);
+    expect(token1).toMatch(/^0x[0-9a-f]+$/i);
+    expect(token0.slice(0, 10)).not.toBe(token1.slice(0, 10));
+  });
+
+  it('encodeGetPool encodes factory query with token addresses and fee', () => {
+    const calldata = encodeGetPool(TOKEN_A, TOKEN_B, 3000);
+    const decoded = decodeFunctionData({ abi: FACTORY_ABI, data: calldata });
+    expect(decoded.functionName).toBe('getPool');
+    expect(decoded.args[0]).toBe(TOKEN_A);
+    expect(decoded.args[1]).toBe(TOKEN_B);
+    expect(decoded.args[2]).toBe(3000);
+  });
+
+  it('all pool query selectors are unique', () => {
+    const selectors = [
+      encodeSlot0Query().slice(0, 10),
+      encodeLiquidityQuery().slice(0, 10),
+      encodeTickQuery(0).slice(0, 10),
+      encodeFeeQuery().slice(0, 10),
+      encodeToken0Query().slice(0, 10),
+      encodeToken1Query().slice(0, 10),
+    ];
+    const unique = new Set(selectors);
+    expect(unique.size).toBe(selectors.length);
   });
 });
