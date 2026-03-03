@@ -164,11 +164,11 @@
     "phase": "P1",
     "subsystem": "ts-executor",
     "category": "security",
-    "description": "Safe 1-of-2 multisig wallet — battle-tested wallet with Safe guard allowlist, spending caps, and dual-owner recovery (agent EOA + human cold wallet, threshold=1)",
+    "description": "Safe 1-of-2 multisig wallet — battle-tested wallet with application-level contract allowlist, spending caps, and dual-owner recovery (agent EOA + human cold wallet, threshold=1)",
     "steps": [
       "Safe 1-of-2 deployed and configured on Sepolia testnet",
-      "On-chain spending limits enforced (daily and per-transaction caps)",
-      "Safe guard allowlist restricts interactions to approved protocol contracts only",
+      "Application-level spending limits enforced (daily and per-transaction caps via env vars SPENDING_CAP_PER_TX_WEI, SPENDING_CAP_DAILY_WEI)",
+      "Application-level allowlist (Set<Address> in SafeWalletManager) restricts interactions to approved protocol contracts only; on-chain Safe guard deferred to mainnet",
       "Wallet balance and nonce queryable on demand",
       "Agent EOA (owner 1) executes transactions autonomously; human cold wallet (owner 2) for recovery",
       "Private key stored securely via environment variable, never in code"
@@ -795,12 +795,12 @@
     "phase": "P1",
     "subsystem": "risk-management",
     "category": "security",
-    "description": "Safe guard allowlist — Safe guard contract validates target addresses for all transactions; single mechanism replacing standalone allowlist module",
+    "description": "Application-level contract allowlist — SafeWalletManager.validateOrder() validates target addresses before every transaction; on-chain Safe guard deferred to mainnet",
     "steps": [
-      "Allowlist maintained as Safe guard contract configuration",
-      "Safe wallet validates target contract address via guard before every transaction",
+      "Allowlist maintained as in-memory Set<Address> in SafeWalletManager, configured at initialization",
+      "SafeWalletManager.validateOrder() checks target address before every transaction",
       "Non-allowlisted contracts rejected with error published to execution:results",
-      "Allowlist updates require Safe owner transaction (intentional friction)",
+      "Allowlist configured at wallet startup from environment/code; on-chain friction deferred to mainnet deployment",
       "Allowlist includes Aave V3, Lido, and their periphery contracts for P1a",
       "Separate allowlists per chain added in P1c (Arbitrum, Base)"
     ],

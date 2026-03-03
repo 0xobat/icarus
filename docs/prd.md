@@ -213,7 +213,7 @@ icarus/
 - Max 40% in any single protocol
 - Max 60% in any single asset (excluding stablecoins)
 - Min 15% in stablecoins/liquid reserves at all times
-- Safe guard allowlist enforced at wallet level
+- Application-level contract allowlist enforced at wallet level (SafeWalletManager.validateOrder()); on-chain Safe guard deferred to mainnet
 - Flashbots Protect for swap transactions (P1b+)
 
 ### Risk Matrix
@@ -308,7 +308,7 @@ The project is successful when the agent consistently generates returns above th
 
 Infrastructure, Tier 1 strategies, AI decision engine, risk management, monitoring, and portfolio management on Ethereum Sepolia. The core decision-to-execution loop is validated end-to-end.
 
-Includes: infrastructure (Redis, PostgreSQL, Docker, main loop), Ethereum chain listeners (Alchemy WS), Safe 1-of-2 multisig wallet, TransactionBuilder + encode-only protocol modules (Aave V3, Lido), Tier 1 strategies (Aave lending optimization, Lido liquid staking), Claude AI engine (runtime reasoning + code-gen + insight synthesis), full risk management suite (circuit breakers, exposure limits, Safe guard allowlist, oracle guards), portfolio management (allocator, position tracker, rebalancer), Discord alerts, performance dashboard, anomaly detection, human-in-the-loop gates, tax/P&L reporting, ML gas prediction, agent harness (state persistence, startup recovery, diagnostic mode), Sepolia integration tests.
+Includes: infrastructure (Redis, PostgreSQL, Docker, main loop), Ethereum chain listeners (Alchemy WS), Safe 1-of-2 multisig wallet, TransactionBuilder + encode-only protocol modules (Aave V3, Lido), Tier 1 strategies (Aave lending optimization, Lido liquid staking), Claude AI engine (runtime reasoning + code-gen + insight synthesis), full risk management suite (circuit breakers, exposure limits, application-level contract allowlist, oracle guards), portfolio management (allocator, position tracker, rebalancer), Discord alerts, performance dashboard, anomaly detection, human-in-the-loop gates, tax/P&L reporting, ML gas prediction, agent harness (state persistence, startup recovery, diagnostic mode), Sepolia integration tests.
 
 **Gate:** End-to-end Aave supply/withdraw cycle executes on Sepolia through the full pipeline (market event → strategy evaluation → risk gate → order → TX → result).
 
