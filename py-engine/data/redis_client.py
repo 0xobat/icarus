@@ -102,7 +102,10 @@ class RedisManager:
         payload = json.dumps(data)
         self.client.publish(channel, payload)
         # Also write to stream for durability
-        self.client.xadd(f"stream:{channel}", {"data": payload}, maxlen=self._stream_max_len, approximate=True)
+        self.client.xadd(
+            f"stream:{channel}", {"data": payload},
+            maxlen=self._stream_max_len, approximate=True,
+        )
 
     def subscribe(
         self,
