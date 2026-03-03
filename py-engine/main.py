@@ -19,7 +19,7 @@ from ai.decision_engine import Decision, DecisionAction, DecisionEngine
 from ai.insight_synthesis import InsightSynthesizer
 from data.gas_monitor import GasMonitor
 from data.price_feed import PriceFeedManager
-from data.redis_client import RedisManager
+from data.redis_client import CHANNELS, RedisManager
 from db.database import DatabaseConfig, DatabaseManager
 from db.repository import DatabaseRepository
 from harness.state_manager import StateManager
@@ -103,6 +103,7 @@ class DecisionLoop:
 
         self._adjustment_made = False
         self._cycle_count = 0
+        self._trim_interval = int(os.environ.get("STREAM_TRIM_INTERVAL_CYCLES", "100"))
 
     def run_cycle(self, event: dict[str, Any]) -> list[dict[str, Any]]:
         """Execute one decision cycle for a market event.
@@ -184,7 +185,20 @@ class DecisionLoop:
         # 6. Record decision for future insight synthesis
         self.synthesizer.record_decision(decision.to_dict())
 
+        # Periodic stream maintenance
+        if self._cycle_count % self._trim_interval == 0:
+            self._trim_streams()
+
         return orders
+
+    def _trim_streams(self) -> None:
+        """Trim all Redis streams to configured max length."""
+        max_len = self.redis._stream_max_len
+        for channel in (CHANNELS["MARKET_EVENTS"], CHANNELS["EXECUTION_ORDERS"], CHANNELS["EXECUTION_RESULTS"]):
+            try:
+                self.redis.stream_trim(channel, max_len)
+            except Exception:
+                _logger.debug("Stream trim failed for %s", channel)
 
     def _decide(self, snapshot: dict[str, Any]) -> Decision:
         """Choose between deterministic fast-path and Claude API.
