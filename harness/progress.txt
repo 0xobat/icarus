@@ -396,3 +396,41 @@ verify.sh: PASS
 Baseline commit: 54b1aeb
 Final commit: 46cced8
 Next: P1a complete. P1b begins with Uniswap V3 encode module + Flashbots RPC routing.
+
+--- Session 2026-03-02-01 ---
+Agent: Claude Opus 4.6
+Worked on: P1a gap fixes — three honest gaps between feature claims and reality
+
+Motivation: P1a review found 3 gaps:
+  1. Redis streams grow unbounded (INFRA-002 claimed TTL-based pruning)
+  2. Feature descriptions say "Safe guard contract" but implementation is application-level
+  3. P1a gate requires Sepolia pipeline validation but E2E tests are mocked
+
+Changes:
+  Gap 1 — Redis stream bounding:
+    - ts-executor: Added MAXLEN ~ to xadd in RedisManager.publish() (STREAM_MAX_LENGTH env, default 10000)
+    - py-engine: Added maxlen+approximate to xadd in RedisManager.publish()
+    - py-engine: Added periodic stream trim in DecisionLoop (every 100 cycles via STREAM_TRIM_INTERVAL_CYCLES)
+    - .env.example: Added STREAM_MAX_LENGTH, STREAM_TRIM_INTERVAL_CYCLES
+    - features.json: INFRA-002 step 2 updated from "TTL-based pruning" to "MAXLEN pruning"
+    Commits: 30a0a4a, dbdb076, 3e8a66f, 906f790, 79afcec
+
+  Gap 2 — Feature description accuracy:
+    - features.json: EXEC-002 description/steps updated to "application-level allowlist"
+    - features.json: RISK-006 description/steps updated to "SafeWalletManager.validateOrder()"
+    - docs/prd.md: Lines 216, 311 updated from "Safe guard allowlist" to "application-level contract allowlist"
+    Commit: 2d1b6d6
+
+  Gap 3 — Calldata validation tests:
+    - Created ts-executor/tests/calldata-validation.test.ts: 16 encode/decode roundtrip tests
+      (Aave supply/withdraw, Lido stake/wrap/unwrap, address verification, selector uniqueness)
+    - Created ts-executor/tests/sepolia-live.test.ts: 5 skip-by-default Sepolia live tests
+      (contract existence, getReserveData, calldata acceptance — runs when ALCHEMY_SEPOLIA_HTTP_URL set)
+    Commits: 74dd997, f6eb4c8
+
+Final state: 47/62 features passing (unchanged — descriptions updated, no new feature passes)
+Tests: 1,516 total (185 TS [180 pass + 5 skip] + 1,331 Python), all passing
+verify.sh: PASS
+Baseline commit: adb396d (dev)
+Branch: fix/p1a-gaps (8 commits)
+Next: Merge to dev, then begin P1b (Uniswap V3 encode module + Flashbots RPC routing)
