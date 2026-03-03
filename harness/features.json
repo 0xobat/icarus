@@ -23,7 +23,7 @@
     "description": "Redis communication layer — Redis 7+ as sole inter-service channel with three primary channels: market:events (TS→Python), execution:orders (Python→TS), execution:results (TS→Python), plus cache layer for prices, gas, and pool states",
     "steps": [
       "Pub/sub messaging works bidirectionally between Python and TS services",
-      "Redis Streams configured with TTL-based pruning (configurable expiry window)",
+      "Redis Streams bounded with approximate MAXLEN pruning on every write (STREAM_MAX_LENGTH env var, default 10000) plus periodic explicit trim in decision loop",
       "Cache layer operational for prices, gas, and pool states with configurable TTLs",
       "Both services validate all messages against shared JSON schemas before processing",
       "Schema violations are rejected with structured error logs, not silently consumed",
