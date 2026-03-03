@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { L2ListenerManager, type L2ListenerOptions } from '../src/listeners/l2-listener.js';
 import { resetSequence, type MarketEvent } from '../src/listeners/event-normalizer.js';
 
@@ -380,6 +380,52 @@ describe('L2ListenerManager', () => {
       const manager = new L2ListenerManager(opts);
 
       expect(manager.isConnected('arbitrum')).toBe(false);
+    });
+  });
+
+  describe('env var enable/disable', () => {
+    const origArb = process.env.LISTEN_ARBITRUM_ENABLED;
+    const origBase = process.env.LISTEN_BASE_ENABLED;
+
+    afterEach(() => {
+      if (origArb === undefined) delete process.env.LISTEN_ARBITRUM_ENABLED;
+      else process.env.LISTEN_ARBITRUM_ENABLED = origArb;
+      if (origBase === undefined) delete process.env.LISTEN_BASE_ENABLED;
+      else process.env.LISTEN_BASE_ENABLED = origBase;
+    });
+
+    it('disables Arbitrum when LISTEN_ARBITRUM_ENABLED=false', () => {
+      process.env.LISTEN_ARBITRUM_ENABLED = 'false';
+      const manager = new L2ListenerManager({
+        onEvent: vi.fn(),
+        onLog: vi.fn(),
+        base: { enabled: false },
+      });
+
+      expect(manager.enabledChains).not.toContain('arbitrum');
+    });
+
+    it('disables Base when LISTEN_BASE_ENABLED=false', () => {
+      process.env.LISTEN_BASE_ENABLED = 'false';
+      const manager = new L2ListenerManager({
+        onEvent: vi.fn(),
+        onLog: vi.fn(),
+        arbitrum: { enabled: false },
+      });
+
+      expect(manager.enabledChains).not.toContain('base');
+    });
+
+    it('enables chains by default when env vars not set', () => {
+      delete process.env.LISTEN_ARBITRUM_ENABLED;
+      delete process.env.LISTEN_BASE_ENABLED;
+      const manager = new L2ListenerManager({
+        onEvent: vi.fn(),
+        onLog: vi.fn(),
+      });
+
+      expect(manager.enabledChains).toContain('arbitrum');
+      expect(manager.enabledChains).toContain('base');
     });
   });
 });

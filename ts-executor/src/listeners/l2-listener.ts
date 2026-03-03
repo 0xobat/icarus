@@ -124,7 +124,7 @@ const DEFAULT_AERODROME_ROUTER: `0x${string}` = '0xcF77a3Ba9A5CA399B7c97c74d54e5
 function defaultArbitrumConfig(overrides?: Partial<L2ChainConfig>): L2ChainConfig {
   return {
     chain: 'arbitrum',
-    enabled: overrides?.enabled ?? true,
+    enabled: overrides?.enabled ?? (process.env.LISTEN_ARBITRUM_ENABLED !== 'false'),
     wsUrl: overrides?.wsUrl ?? process.env.ALCHEMY_ARBITRUM_WS_URL,
     httpUrl: overrides?.httpUrl ?? process.env.ALCHEMY_ARBITRUM_HTTP_URL,
     blockTimeMs: overrides?.blockTimeMs ?? 250,
@@ -144,7 +144,7 @@ function defaultArbitrumConfig(overrides?: Partial<L2ChainConfig>): L2ChainConfi
 function defaultBaseConfig(overrides?: Partial<L2ChainConfig>): L2ChainConfig {
   return {
     chain: 'base',
-    enabled: overrides?.enabled ?? true,
+    enabled: overrides?.enabled ?? (process.env.LISTEN_BASE_ENABLED !== 'false'),
     wsUrl: overrides?.wsUrl ?? process.env.ALCHEMY_BASE_WS_URL,
     httpUrl: overrides?.httpUrl ?? process.env.ALCHEMY_BASE_HTTP_URL,
     blockTimeMs: overrides?.blockTimeMs ?? 2000,

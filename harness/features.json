@@ -140,7 +140,7 @@
       "Listener handles L2-specific quirks (faster block times, different finality guarantees)",
       "Can be enabled/disabled per-chain via configuration"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-001",
