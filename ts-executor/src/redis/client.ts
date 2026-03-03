@@ -65,11 +65,13 @@ export class RedisManager {
   private client: Redis;
   private handlers = new Map<Channel, ((data: Record<string, unknown>) => void)[]>();
   private _connected = false;
+  private readonly streamMaxLen: number;
 
   constructor(private opts: RedisClientOptions = {}) {
     this.pub = createBaseClient(opts);
     this.sub = createBaseClient(opts);
     this.client = createBaseClient(opts);
+    this.streamMaxLen = parseInt(process.env.STREAM_MAX_LENGTH ?? '10000', 10);
   }
 
   /** Check if the Redis clients are connected. */
@@ -113,7 +115,9 @@ export class RedisManager {
     const payload = JSON.stringify(data);
     await this.pub.publish(channel, payload);
     // Also write to stream for durability
-    await this.client.xadd(`stream:${channel}`, '*', 'data', payload);
+    await this.client.xadd(
+      `stream:${channel}`, 'MAXLEN', '~', String(this.streamMaxLen), '*', 'data', payload,
+    );
   }
 
   /**
