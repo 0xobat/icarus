@@ -153,6 +153,48 @@ class PriceFeedManager:
         """
         return token.upper() in L2_TOKEN_MAPPINGS
 
+    # ── L2 price fetching ────────────────────────────────
+
+    def fetch_l2_prices(self) -> dict[str, dict[str, Any]]:
+        """Fetch prices for L2-specific tokens via CoinGecko.
+
+        Uses CoinGecko IDs from L2_TOKEN_MAPPINGS to fetch prices for
+        tokens like ARB, GMX, AERO, OP. Returns the same normalized format
+        as fetch_prices() with an additional 'chain' field.
+
+        Returns:
+            Dict of token -> {price_usd, timestamp, sources, chain, deviation}.
+        """
+        results: dict[str, dict[str, Any]] = {}
+        now_epoch = time.time()
+
+        l2_cg_ids = {token: info["coingecko_id"] for token, info in L2_TOKEN_MAPPINGS.items()}
+        ids = ",".join(l2_cg_ids.values())
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
+
+        try:
+            data = self._fetch_fn(url)
+            now = datetime.now(UTC).isoformat()
+            id_to_token = {cg_id: token for token, cg_id in l2_cg_ids.items()}
+
+            for cg_id, prices in data.items():
+                token = id_to_token.get(cg_id)
+                if token and "usd" in prices:
+                    price_usd = float(prices["usd"])
+                    self._cache_price(token, price_usd, now)
+                    self._record_price_history(token, price_usd, now_epoch)
+                    results[token] = {
+                        "price_usd": price_usd,
+                        "timestamp": now,
+                        "sources": ["coingecko"],
+                        "chain": L2_TOKEN_MAPPINGS[token]["chain"],
+                        "deviation": 0.0,
+                    }
+        except Exception as e:
+            _log("price_source_error", f"L2 price fetch failed: {e}", source="coingecko_l2")
+
+        return results
+
     # ── Source fetchers ──────────────────────────────────
 
     def _fetch_coingecko(self) -> dict[str, PriceResult]:

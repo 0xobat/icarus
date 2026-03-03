@@ -62,9 +62,9 @@ describe('buildAdapterMap', () => {
     const { buildAdapterMap } = await import('../src/index.js');
     const map = buildAdapterMap();
 
-    expect(map.size).toBe(2);
     expect(map.has('aave_v3')).toBe(true);
     expect(map.has('lido')).toBe(true);
+    expect(map.has('uniswap_v3')).toBe(true);
   });
 
   it('aave_v3 wrapper encodes supply transaction', async () => {

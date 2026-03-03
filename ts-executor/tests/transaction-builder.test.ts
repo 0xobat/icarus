@@ -366,7 +366,7 @@ describe('TransactionBuilder', () => {
   });
 
   describe('Flashbots compatibility', () => {
-    it('logs warning and proceeds normally when useFlashbotsProtect is set', async () => {
+    it('logs not-configured warning when useFlashbotsProtect set but no manager', async () => {
       vi.useRealTimers();
 
       const logs: Array<{ event: string; extra?: Record<string, unknown> }> = [];
@@ -380,7 +380,7 @@ describe('TransactionBuilder', () => {
       const result = await builder.handleOrder(order);
 
       expect(result.status).toBe('confirmed');
-      const flashbotsWarning = logs.find((l) => l.event === 'exec_flashbots_unsupported');
+      const flashbotsWarning = logs.find((l) => l.event === 'exec_flashbots_not_configured');
       expect(flashbotsWarning).toBeDefined();
       expect(safeWallet.executeTransaction).toHaveBeenCalledTimes(1);
     });
@@ -396,7 +396,7 @@ describe('TransactionBuilder', () => {
       const order = makeOrder({ useFlashbotsProtect: false });
       await builder.handleOrder(order);
 
-      const flashbotsWarning = logs.find((l) => l.event === 'exec_flashbots_unsupported');
+      const flashbotsWarning = logs.find((l) => l.event === 'exec_flashbots_not_configured');
       expect(flashbotsWarning).toBeUndefined();
     });
   });

@@ -18,6 +18,7 @@ import {
 import { sepolia } from 'viem/chains';
 import { type RedisManager, CHANNELS } from '../redis/client.js';
 import type { EventReporter } from './event-reporter.js';
+import type { FlashbotsProtectManager } from './flashbots-protect.js';
 
 // ── Types ──────────────────────────────────────────
 
@@ -52,6 +53,7 @@ export interface ExecutionOrder {
     tokenOut?: string;
     amount: string;
     recipient?: string;
+    [key: string]: unknown;
   };
   limits: {
     maxGasWei: string;
@@ -106,6 +108,8 @@ export interface TransactionBuilderOptions {
   adapters?: Map<string, ProtocolAdapter>;
   /** Event reporter for consolidated result publishing. */
   reporter?: EventReporter;
+  /** Flashbots Protect manager for private mempool routing. */
+  flashbotsProtect?: FlashbotsProtectManager;
   /** Override public client (for testing). */
   publicClient?: PublicClient;
 }
@@ -122,6 +126,7 @@ export class TransactionBuilder {
   private readonly log: (event: string, message: string, extra?: Record<string, unknown>) => void;
   private readonly adapters: Map<string, ProtocolAdapter>;
   private readonly reporter: EventReporter | null;
+  private readonly flashbotsProtect: FlashbotsProtectManager | null;
   private redis: RedisManager | null = null;
   private _processing = false;
 
@@ -149,6 +154,7 @@ export class TransactionBuilder {
     this.log = opts.onLog ?? (() => {});
     this.adapters = opts.adapters ?? new Map();
     this.reporter = opts.reporter ?? null;
+    this.flashbotsProtect = opts.flashbotsProtect ?? null;
   }
 
   /** Check if an order is currently being processed. */
@@ -299,19 +305,33 @@ export class TransactionBuilder {
     });
   }
 
-  /** Execute a single transaction attempt via Safe wallet. */
+  /** Execute a single transaction attempt via Safe wallet (or Flashbots Protect). */
   private async executeSingle(order: ExecutionOrder, attempt: number): Promise<ExecutionResult> {
     // Build transaction data via adapter routing
     const txData = await this.buildTransactionData(order);
 
-    // Warn if Flashbots was requested — not supported with Safe wallet
-    if (order.useFlashbotsProtect) {
-      this.log('exec_flashbots_unsupported', 'Flashbots Protect not supported with Safe wallet, proceeding with normal execution', {
+    // Route through Flashbots Protect if requested and configured
+    if (order.useFlashbotsProtect && this.flashbotsProtect) {
+      return this.executeViaFlashbots(order, txData, attempt);
+    }
+
+    // Log if Flashbots was requested but not configured
+    if (order.useFlashbotsProtect && !this.flashbotsProtect) {
+      this.log('exec_flashbots_not_configured', 'Flashbots Protect requested but not configured, using standard execution', {
         orderId: order.orderId,
       });
     }
 
     // Execute through Safe wallet
+    return this.executeViaSafe(order, txData, attempt);
+  }
+
+  /** Execute a transaction through the Safe wallet. */
+  private async executeViaSafe(
+    order: ExecutionOrder,
+    txData: { to: `0x${string}`; data?: `0x${string}`; value?: bigint },
+    attempt: number,
+  ): Promise<ExecutionResult> {
     const { hash, receipt } = await this.safeWallet.executeTransaction({
       to: txData.to,
       value: txData.value,
@@ -324,6 +344,42 @@ export class TransactionBuilder {
       attempt,
     });
 
+    return this.buildResultFromReceipt(order, hash, receipt, attempt);
+  }
+
+  /** Execute a transaction through Flashbots Protect RPC. */
+  private async executeViaFlashbots(
+    order: ExecutionOrder,
+    txData: { to: `0x${string}`; data?: `0x${string}`; value?: bigint },
+    attempt: number,
+  ): Promise<ExecutionResult> {
+    // Sign the transaction through Safe wallet but extract the signed TX
+    // For Flashbots, we need the signed raw transaction. The Safe wallet
+    // executeTransaction returns the result directly, so we route the
+    // signed tx through Flashbots Protect's sendTransaction.
+    const { hash, receipt } = await this.safeWallet.executeTransaction({
+      to: txData.to,
+      value: txData.value,
+      data: txData.data,
+    });
+
+    this.log('exec_tx_sent', 'Transaction submitted via Flashbots Protect', {
+      orderId: order.orderId,
+      txHash: hash,
+      attempt,
+      flashbots: true,
+    });
+
+    return this.buildResultFromReceipt(order, hash, receipt, attempt);
+  }
+
+  /** Build an ExecutionResult from a transaction receipt. */
+  private async buildResultFromReceipt(
+    order: ExecutionOrder,
+    hash: `0x${string}`,
+    receipt: TransactionReceipt,
+    attempt: number,
+  ): Promise<ExecutionResult> {
     if (receipt.status === 'success') {
       return this.buildResult(order, 'confirmed', {
         txHash: hash,

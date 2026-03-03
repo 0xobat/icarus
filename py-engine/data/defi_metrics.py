@@ -160,6 +160,8 @@ class GmxMetrics:
     tvl_usd: float
     volume_24h: float
     open_interest_usd: float
+    funding_rates: list[dict[str, Any]] = field(default_factory=list)
+    liquidation_levels: list[dict[str, Any]] = field(default_factory=list)
     protocol: str = "gmx"
     chain: str = "arbitrum"
     timestamp: str = ""
@@ -180,6 +182,8 @@ class AerodromeMetrics:
     tvl_usd: float
     volume_24h: float
     pools: list[dict[str, Any]] = field(default_factory=list)
+    reward_emissions_daily: float = 0.0
+    liquidity_depth: list[dict[str, Any]] = field(default_factory=list)
     protocol: str = "aerodrome"
     chain: str = "base"
     timestamp: str = ""
@@ -355,15 +359,35 @@ class DeFiMetricsCollector:
 
             volume_24h = 0.0
             open_interest = 0.0
+            funding_rates: list[dict[str, Any]] = []
+            liquidation_levels: list[dict[str, Any]] = []
             for pool in pools:
                 if pool.get("project") == "gmx" and pool.get("chain") == "Arbitrum":
-                    volume_24h += float(pool.get("volumeUsd1d", 0) or 0)
-                    open_interest += float(pool.get("tvlUsd", 0) or 0)
+                    symbol = pool.get("symbol", "")
+                    vol = float(pool.get("volumeUsd1d", 0) or 0)
+                    tvl = float(pool.get("tvlUsd", 0) or 0)
+                    apy = float(pool.get("apy", 0) or 0)
+
+                    volume_24h += vol
+                    open_interest += tvl
+
+                    funding_rates.append({
+                        "market": symbol,
+                        "rate": apy / 365.0 if apy else 0.0,
+                        "apy": apy,
+                    })
+                    liquidation_levels.append({
+                        "market": symbol,
+                        "tvl_usd": tvl,
+                        "depth_ratio": tvl / tvl_usd if tvl_usd > 0 else 0.0,
+                    })
 
             result = GmxMetrics(
                 tvl_usd=tvl_usd,
                 volume_24h=volume_24h,
                 open_interest_usd=open_interest,
+                funding_rates=funding_rates,
+                liquidation_levels=liquidation_levels,
             )
             self._cache_set("gmx", "metrics", result.to_dict(), self._rate_ttl)
             return result
@@ -381,6 +405,8 @@ class DeFiMetricsCollector:
                     tvl_usd=cached.get("tvl_usd", 0),
                     volume_24h=cached.get("volume_24h", 0),
                     open_interest_usd=cached.get("open_interest_usd", 0),
+                    funding_rates=cached.get("funding_rates", []),
+                    liquidation_levels=cached.get("liquidation_levels", []),
                     timestamp=cached.get("timestamp", ""),
                 )
             return None
@@ -404,21 +430,40 @@ class DeFiMetricsCollector:
 
             volume_24h = 0.0
             pool_summaries: list[dict[str, Any]] = []
+            total_reward_emissions = 0.0
+            liquidity_depth: list[dict[str, Any]] = []
             for pool in all_pools:
                 if pool.get("project") == "aerodrome" and pool.get("chain") == "Base":
                     vol = float(pool.get("volumeUsd1d", 0) or 0)
+                    tvl = float(pool.get("tvlUsd", 0) or 0)
+                    apy = float(pool.get("apy", 0) or 0)
+                    symbol = pool.get("symbol", "")
+
                     volume_24h += vol
+
+                    # Estimate daily reward emissions from APY and TVL
+                    daily_rewards = (apy / 100.0 / 365.0) * tvl if apy and tvl else 0.0
+                    total_reward_emissions += daily_rewards
+
                     pool_summaries.append({
-                        "symbol": pool.get("symbol", ""),
-                        "tvl_usd": float(pool.get("tvlUsd", 0) or 0),
+                        "symbol": symbol,
+                        "tvl_usd": tvl,
                         "volume_24h": vol,
-                        "apy": float(pool.get("apy", 0) or 0),
+                        "apy": apy,
+                        "reward_apr": float(pool.get("apyReward", 0) or 0),
+                    })
+                    liquidity_depth.append({
+                        "pair": symbol,
+                        "tvl_usd": tvl,
+                        "volume_tvl_ratio": vol / tvl if tvl > 0 else 0.0,
                     })
 
             result = AerodromeMetrics(
                 tvl_usd=tvl_usd,
                 volume_24h=volume_24h,
                 pools=pool_summaries,
+                reward_emissions_daily=total_reward_emissions,
+                liquidity_depth=liquidity_depth,
             )
             self._cache_set("aerodrome", "metrics", result.to_dict(), self._rate_ttl)
             return result
@@ -440,6 +485,8 @@ class DeFiMetricsCollector:
                     tvl_usd=cached.get("tvl_usd", 0),
                     volume_24h=cached.get("volume_24h", 0),
                     pools=cached.get("pools", []),
+                    reward_emissions_daily=cached.get("reward_emissions_daily", 0),
+                    liquidity_depth=cached.get("liquidity_depth", []),
                     timestamp=cached.get("timestamp", ""),
                 )
             return None

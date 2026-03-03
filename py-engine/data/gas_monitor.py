@@ -46,6 +46,10 @@ L2_GAS_PARAMS: dict[str, dict[str, float]] = {
 
 SUPPORTED_L2_CHAINS = list(L2_GAS_PARAMS.keys())
 
+# Baseline L1 gas price (gwei) used to normalize L2 data posting cost scaling.
+# When L1 gas is above this, L2 data costs scale proportionally.
+L1_GAS_BASELINE_GWEI = 30.0
+
 
 @dataclass
 class L2GasEstimate:
@@ -299,6 +303,104 @@ class GasMonitor:
                 f"Unsupported L2 chain: {chain}. Supported: {SUPPORTED_L2_CHAINS}"
             )
         return params["l1_overhead_factor"]
+
+    # ── L2 gas update ────────────────────────────────────
+
+    def update_l2_gas(self, chain: str, gas_units: int = 21000) -> L2GasEstimate | None:
+        """Fetch and cache L2 gas estimate with dynamic L1 data posting costs.
+
+        Scales L1 data posting costs based on current L1 gas prices relative
+        to L1_GAS_BASELINE_GWEI. Caches the result in Redis.
+
+        Args:
+            chain: L2 chain identifier (e.g. "arbitrum", "base").
+            gas_units: Number of gas units for the transaction.
+
+        Returns:
+            L2GasEstimate with dynamically scaled costs, or None on failure.
+
+        Raises:
+            ValueError: If the chain is not a supported L2.
+        """
+        chain_lower = chain.lower()
+        params = L2_GAS_PARAMS.get(chain_lower)
+        if params is None:
+            raise ValueError(
+                f"Unsupported L2 chain: {chain}. Supported: {SUPPORTED_L2_CHAINS}"
+            )
+
+        try:
+            # Scale L1 data cost by current L1 gas relative to baseline
+            l1_prices = self.get_cached_prices()
+            l1_multiplier = (
+                l1_prices.standard / L1_GAS_BASELINE_GWEI if l1_prices else 1.0
+            )
+
+            l2_gas_gwei = params["base_l2_gas_gwei"] * gas_units
+            l1_data_cost_gwei = params["l1_data_cost_gwei"] * gas_units * l1_multiplier
+            total_gwei = l2_gas_gwei + l1_data_cost_gwei
+            total_cost_wei = int(total_gwei * 1e9)
+
+            estimate = L2GasEstimate(
+                l2_gas=l2_gas_gwei,
+                l1_data_cost=l1_data_cost_gwei,
+                total_cost_wei=total_cost_wei,
+                chain=chain_lower,
+            )
+
+            cache_key = f"gas:l2:{chain_lower}"
+            self._redis.cache_set(
+                cache_key,
+                {
+                    "l2_gas": estimate.l2_gas,
+                    "l1_data_cost": estimate.l1_data_cost,
+                    "total_cost_wei": estimate.total_cost_wei,
+                    "chain": estimate.chain,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+                self._ttl,
+            )
+
+            _log(
+                "l2_gas_updated",
+                f"L2 gas updated for {chain_lower}",
+                chain=chain_lower,
+                gas_units=gas_units,
+                l2_gas_gwei=round(l2_gas_gwei, 6),
+                l1_data_cost_gwei=round(l1_data_cost_gwei, 6),
+                total_cost_wei=total_cost_wei,
+                l1_multiplier=round(l1_multiplier, 4),
+            )
+
+            return estimate
+
+        except Exception as e:
+            _log(
+                "l2_gas_update_error",
+                f"L2 gas update failed for {chain}: {e}",
+                chain=chain_lower,
+            )
+            return None
+
+    def get_cached_l2_gas(self, chain: str) -> L2GasEstimate | None:
+        """Get cached L2 gas estimate for a chain.
+
+        Args:
+            chain: L2 chain identifier (e.g. "arbitrum", "base").
+
+        Returns:
+            Cached L2GasEstimate, or None if not cached.
+        """
+        cache_key = f"gas:l2:{chain.lower()}"
+        data = self._redis.cache_get(cache_key)
+        if data is None:
+            return None
+        return L2GasEstimate(
+            l2_gas=data["l2_gas"],
+            l1_data_cost=data["l1_data_cost"],
+            total_cost_wei=data["total_cost_wei"],
+            chain=data["chain"],
+        )
 
     # ── Spike detection ──────────────────────────────────
 
