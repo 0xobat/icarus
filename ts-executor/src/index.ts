@@ -14,6 +14,8 @@ import * as aave from './execution/aave-v3-adapter.js';
 import * as lido from './execution/lido-adapter.js';
 import * as flashLoan from './execution/flash-loan-adapter.js';
 import * as uniV3 from './execution/uniswap-v3-adapter.js';
+import * as gmx from './execution/gmx-adapter.js';
+import * as aerodrome from './execution/aerodrome-adapter.js';
 
 const SERVICE_NAME = 'ts-executor';
 
@@ -168,6 +170,123 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
         }
         default:
           throw new Error(`Unsupported flash_loan action: ${action}`);
+      }
+    },
+  });
+
+  map.set('gmx', {
+    async buildTransaction(action, params) {
+      const p = params as Record<string, string | undefined>;
+      const market = p.market as Address;
+      const collateralToken = (p.collateralToken ?? p.tokenIn) as Address;
+      const amount = BigInt(p.amount!);
+      const receiver = (p.recipient ?? p.receiver) as Address;
+      const executionFee = BigInt(p.executionFee ?? '100000000000000');
+      const acceptablePrice = BigInt(p.acceptablePrice ?? '0');
+      switch (action) {
+        case 'open_position':
+          return {
+            to: gmx.EXCHANGE_ROUTER,
+            data: gmx.encodeOpenPosition({
+              market,
+              collateralToken,
+              sizeDeltaUsd: BigInt(p.sizeDeltaUsd ?? amount.toString()),
+              collateralAmount: amount,
+              isLong: p.isLong === 'true',
+              acceptablePrice,
+              executionFee,
+              receiver,
+            }),
+            value: executionFee,
+          };
+        case 'close_position':
+          return {
+            to: gmx.EXCHANGE_ROUTER,
+            data: gmx.encodeClosePosition({
+              market,
+              collateralToken,
+              sizeDeltaUsd: BigInt(p.sizeDeltaUsd ?? amount.toString()),
+              collateralDeltaAmount: amount,
+              isLong: p.isLong === 'true',
+              acceptablePrice,
+              executionFee,
+              receiver,
+            }),
+            value: executionFee,
+          };
+        case 'adjust_margin':
+          return {
+            to: gmx.EXCHANGE_ROUTER,
+            data: gmx.encodeAdjustMargin({
+              market,
+              collateralToken,
+              collateralDeltaAmount: amount,
+              isDeposit: p.isDeposit === 'true',
+              isLong: p.isLong === 'true',
+              executionFee,
+              receiver,
+            }),
+            value: executionFee,
+          };
+        default:
+          throw new Error(`Unsupported gmx action: ${action}`);
+      }
+    },
+  });
+
+  map.set('aerodrome', {
+    async buildTransaction(action, params) {
+      const p = params as Record<string, string | undefined>;
+      const amount = BigInt(p.amount!);
+      const recipient = (p.recipient ?? p.tokenIn) as Address;
+      const deadline = BigInt(p.deadline ?? String(Math.floor(Date.now() / 1000) + 1800));
+      switch (action) {
+        case 'add_liquidity':
+          return {
+            to: aerodrome.ROUTER_ADDRESS,
+            data: aerodrome.encodeAddLiquidity({
+              tokenA: p.tokenIn as Address,
+              tokenB: p.tokenOut as Address,
+              stable: p.stable === 'true',
+              amountADesired: amount,
+              amountBDesired: BigInt(p.amountB ?? amount.toString()),
+              amountAMin: BigInt(p.amountAMin ?? '0'),
+              amountBMin: BigInt(p.amountBMin ?? '0'),
+              to: recipient,
+              deadline,
+            }),
+          };
+        case 'remove_liquidity':
+          return {
+            to: aerodrome.ROUTER_ADDRESS,
+            data: aerodrome.encodeRemoveLiquidity({
+              tokenA: p.tokenIn as Address,
+              tokenB: p.tokenOut as Address,
+              stable: p.stable === 'true',
+              liquidity: amount,
+              amountAMin: BigInt(p.amountAMin ?? '0'),
+              amountBMin: BigInt(p.amountBMin ?? '0'),
+              to: recipient,
+              deadline,
+            }),
+          };
+        case 'deposit':
+          return {
+            to: p.gauge as Address,
+            data: aerodrome.encodeGaugeDeposit(amount),
+          };
+        case 'withdraw':
+          return {
+            to: p.gauge as Address,
+            data: aerodrome.encodeGaugeWithdraw(amount),
+          };
+        case 'claim_rewards':
+          return {
+            to: p.gauge as Address,
+            data: aerodrome.encodeGetReward(recipient),
+          };
+        default:
+          throw new Error(`Unsupported aerodrome action: ${action}`);
       }
     },
   });

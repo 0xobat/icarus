@@ -265,7 +265,7 @@
       "Both adapters use same order schema and result reporting as Ethereum adapters",
       "L2 gas estimation accounts for L1 data posting costs (Arbitrum/Base specific)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-010",
