@@ -220,7 +220,7 @@ class TestCrossServiceValidation:
                 supply_apy=Decimal("0.045"),
                 available_liquidity=Decimal("1000000"),
                 utilization_rate=Decimal("0.80"),
-                chain="ethereum",
+                chain="base",
             ),
         ]
 

@@ -23,11 +23,11 @@ from validation.schema_validator import validate
 # ---------------------------------------------------------------------------
 
 def _make_market(
-    asset: str = "ETH",
+    asset: str = "USDC",
     supply_apy: str = "0.035",
     available_liquidity: str = "1000000",
     utilization_rate: str = "0.80",
-    chain: str = "ethereum",
+    chain: str = "base",
 ) -> AaveMarket:
     return AaveMarket(
         asset=asset,
@@ -44,7 +44,7 @@ def _make_market_event(correlation_id: str) -> dict[str, Any]:
         "version": "1.0.0",
         "timestamp": datetime.now(UTC).isoformat(),
         "sequence": 1,
-        "chain": "ethereum",
+        "chain": "base",
         "eventType": "rate_change",
         "protocol": "aave_v3",
         "blockNumber": 12345678,
@@ -131,8 +131,7 @@ class TestEndToEndFlow:
         # --- Step 2: Strategy evaluates markets (high APY opportunity) ---
         markets = [
             _make_market("USDC", "0.065"),  # high APY from the event
-            _make_market("ETH", "0.030"),
-            _make_market("DAI", "0.040"),
+            _make_market("USDbC", "0.030"),
         ]
         ranked = strat.evaluate(markets)
         assert ranked[0].asset == "USDC"
@@ -164,15 +163,15 @@ class TestEndToEndFlow:
 
         # --- Step 6: Position tracker records the new position ---
         pos = tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
+            chain="base",
             asset="USDC",
             entry_price="1",
             amount=order["params"]["amount"],
             protocol_data={"current_apy": "0.065", "correlation_id": correlation_id},
         )
-        positions = tracker.query(strategy="STRAT-001", protocol="aave")
+        positions = tracker.query(strategy="LEND-001", protocol="aave")
         assert len(positions) == 1
         assert positions[0].asset == "USDC"
         assert positions[0].status == "open"
@@ -223,7 +222,7 @@ class TestEndToEndFlow:
         redis.publish("execution:results", result)
 
         # No position should be recorded
-        assert len(tracker.query(strategy="STRAT-001")) == 0
+        assert len(tracker.query(strategy="LEND-001")) == 0
 
     def test_multiple_channels_message_flow(self) -> None:
         """Verify messages flow through correct Redis channels."""
@@ -262,9 +261,8 @@ class TestAaveSupplyWithdrawCycle:
         """Strategy identifies best market and generates supply order."""
         strat, alloc, tracker = _make_strategy(total_capital="10000")
         markets = [
-            _make_market("ETH", "0.030"),
+            _make_market("USDbC", "0.030"),
             _make_market("USDC", "0.042"),
-            _make_market("DAI", "0.038"),
         ]
         orders = strat.generate_orders(markets)
         assert len(orders) == 1
@@ -278,9 +276,9 @@ class TestAaveSupplyWithdrawCycle:
         # Step 1: Open initial position in USDC at 4.2% APY
         # Position $5000 of $20000 = 25% protocol exposure (< 40% max)
         tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
+            chain="base",
             asset="USDC",
             entry_price="1",
             amount="5000",
@@ -288,20 +286,19 @@ class TestAaveSupplyWithdrawCycle:
             protocol_data={"current_apy": "0.042"},
         )
 
-        # Step 2: A better market appears — DAI at 7% APY
+        # Step 2: A better market appears — USDbC at 7% APY
         # Net improvement = 7% - 4.2% = 2.8%, gas = 2*$10/$5000 = 0.4%
         # net = 2.8% - 0.4% = 2.4% > 0.5% threshold → should rotate
         new_markets = [
-            _make_market("ETH", "0.030"),
             _make_market("USDC", "0.042"),
-            _make_market("DAI", "0.070"),  # much better APY
+            _make_market("USDbC", "0.070"),  # much better APY
         ]
         orders = strat.generate_orders(new_markets)
         assert len(orders) == 2
         assert orders[0]["action"] == "withdraw"
         assert orders[0]["params"]["tokenIn"] == "USDC"
         assert orders[1]["action"] == "supply"
-        assert orders[1]["params"]["tokenIn"] == "DAI"
+        assert orders[1]["params"]["tokenIn"] == "USDbC"
 
         # Same correlation ID links both orders
         assert orders[0]["correlationId"] == orders[1]["correlationId"]
@@ -312,9 +309,9 @@ class TestAaveSupplyWithdrawCycle:
 
         # Current position: USDC at 4.2%
         tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
+            chain="base",
             asset="USDC",
             entry_price="1",
             amount="5000",
@@ -322,12 +319,11 @@ class TestAaveSupplyWithdrawCycle:
             protocol_data={"current_apy": "0.042"},
         )
 
-        # DAI at 4.5% — only 0.3% improvement before gas costs
+        # USDbC at 4.5% — only 0.3% improvement before gas costs
         # gas = 2*$10/$5000 = 0.4%, net = 0.3% - 0.4% = -0.1% < 0.5%
         markets = [
             _make_market("USDC", "0.042"),
-            _make_market("DAI", "0.045"),  # marginal improvement
-            _make_market("ETH", "0.030"),
+            _make_market("USDbC", "0.045"),  # marginal improvement
         ]
         orders = strat.generate_orders(markets)
         assert len(orders) == 0
@@ -336,22 +332,22 @@ class TestAaveSupplyWithdrawCycle:
         """Small positions have proportionally higher gas costs, blocking rotation."""
         strat, alloc, tracker = _make_strategy(total_capital="1000")
 
-        # Small position: $500 in ETH at 3%
+        # Small position: $500 in USDbC at 3%
         tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
-            asset="ETH",
-            entry_price="2000",
-            amount="0.25",
-            position_id="aave-eth",
+            chain="base",
+            asset="USDbC",
+            entry_price="1",
+            amount="500",
+            position_id="aave-usdbc",
             protocol_data={"current_apy": "0.030"},
         )
 
         # USDC at 5% — diff = 2%, but gas = 2*$10/$500 = 4%
         # net = 2% - 4% = -2% < 0.5% → no rotation
         markets = [
-            _make_market("ETH", "0.030"),
+            _make_market("USDbC", "0.030"),
             _make_market("USDC", "0.050"),
         ]
         orders = strat.generate_orders(markets)
@@ -362,19 +358,19 @@ class TestAaveSupplyWithdrawCycle:
         strat, alloc, tracker = _make_strategy(total_capital="10000")
 
         tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
-            asset="ETH",
-            entry_price="2000",
-            amount="1.5",
-            position_id="aave-eth",
+            chain="base",
+            asset="USDbC",
+            entry_price="1",
+            amount="3000",
+            position_id="aave-usdbc",
             protocol_data={"current_apy": "0.020"},
         )
 
         # USDC at 6.5% — significant improvement
         markets = [
-            _make_market("ETH", "0.020"),
+            _make_market("USDbC", "0.020"),
             _make_market("USDC", "0.065"),
         ]
         orders = strat.generate_orders(markets)
@@ -382,7 +378,7 @@ class TestAaveSupplyWithdrawCycle:
 
         history = strat.get_performance_history()
         assert len(history) == 1
-        assert history[0]["asset"] == "ETH"
+        assert history[0]["asset"] == "USDbC"
         assert history[0]["apy_at_entry"] == "0.020"
         assert history[0]["exit_time"] is not None
 
@@ -393,7 +389,7 @@ class TestAaveSupplyWithdrawCycle:
         # --- Phase 1: Initial supply ---
         initial_markets = [
             _make_market("USDC", "0.042"),
-            _make_market("ETH", "0.030"),
+            _make_market("USDbC", "0.030"),
         ]
         orders = strat.generate_orders(initial_markets)
         assert len(orders) == 1
@@ -412,9 +408,9 @@ class TestAaveSupplyWithdrawCycle:
 
         # Record position after confirmed supply
         tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
+            chain="base",
             asset=supply_asset,
             entry_price="1",
             amount=supply_amount,
@@ -425,15 +421,14 @@ class TestAaveSupplyWithdrawCycle:
         # --- Phase 2: Better market appears → rotation ---
         better_markets = [
             _make_market("USDC", "0.042"),
-            _make_market("DAI", "0.075"),  # much higher APY
-            _make_market("ETH", "0.030"),
+            _make_market("USDbC", "0.075"),  # much higher APY
         ]
         rotation_orders = strat.generate_orders(better_markets)
         assert len(rotation_orders) == 2
         assert rotation_orders[0]["action"] == "withdraw"
         assert rotation_orders[0]["params"]["tokenIn"] == "USDC"
         assert rotation_orders[1]["action"] == "supply"
-        assert rotation_orders[1]["params"]["tokenIn"] == "DAI"
+        assert rotation_orders[1]["params"]["tokenIn"] == "USDbC"
 
         # Validate both rotation orders against schema
         for ro in rotation_orders:
@@ -449,10 +444,10 @@ class TestAaveSupplyWithdrawCycle:
         # Close old position, open new one
         tracker.close_position("aave-pos-1")
         tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
-            asset="DAI",
+            chain="base",
+            asset="USDbC",
             entry_price="1",
             amount=supply_amount,
             position_id="aave-pos-2",
@@ -460,13 +455,13 @@ class TestAaveSupplyWithdrawCycle:
         )
 
         # Verify tracker state
-        open_positions = tracker.query(strategy="STRAT-001", protocol="aave")
+        open_positions = tracker.query(strategy="LEND-001", protocol="aave")
         assert len(open_positions) == 1
-        assert open_positions[0].asset == "DAI"
+        assert open_positions[0].asset == "USDbC"
         assert open_positions[0].id == "aave-pos-2"
 
         closed = tracker.query(
-            strategy="STRAT-001", protocol="aave", include_closed=True,
+            strategy="LEND-001", protocol="aave", include_closed=True,
         )
         assert len(closed) == 2  # 1 open + 1 closed
 
@@ -475,9 +470,9 @@ class TestAaveSupplyWithdrawCycle:
         strat, alloc, tracker = _make_strategy(total_capital="10000")
 
         tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
+            chain="base",
             asset="USDC",
             entry_price="1",
             amount="5000",
@@ -487,8 +482,7 @@ class TestAaveSupplyWithdrawCycle:
 
         markets = [
             _make_market("USDC", "0.042"),
-            _make_market("ETH", "0.030"),
-            _make_market("DAI", "0.038"),
+            _make_market("USDbC", "0.030"),
         ]
         orders = strat.generate_orders(markets)
         assert len(orders) == 0
@@ -500,13 +494,13 @@ class TestAaveSupplyWithdrawCycle:
         strat, alloc, tracker = _make_strategy(total_capital="20000")
 
         tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
-            asset="ETH",
-            entry_price="2000",
-            amount="2.5",
-            position_id="aave-eth",
+            chain="base",
+            asset="USDbC",
+            entry_price="1",
+            amount="5000",
+            position_id="aave-usdbc",
             protocol_data={"current_apy": "0.030"},
         )
 
@@ -518,7 +512,7 @@ class TestAaveSupplyWithdrawCycle:
 
         # At boundary: should_rotate returns True when net == threshold
         markets_at_boundary = [
-            _make_market("ETH", "0.030"),
+            _make_market("USDbC", "0.030"),
             _make_market("USDC", "0.039"),
         ]
         orders = strat.generate_orders(markets_at_boundary)
@@ -528,17 +522,17 @@ class TestAaveSupplyWithdrawCycle:
         # Just below: best = 3.89%
         strat2, _, tracker2 = _make_strategy(total_capital="20000")
         tracker2.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
-            asset="ETH",
-            entry_price="2000",
-            amount="2.5",
-            position_id="aave-eth2",
+            chain="base",
+            asset="USDbC",
+            entry_price="1",
+            amount="5000",
+            position_id="aave-usdbc2",
             protocol_data={"current_apy": "0.030"},
         )
         markets_below = [
-            _make_market("ETH", "0.030"),
+            _make_market("USDbC", "0.030"),
             _make_market("USDC", "0.0389"),
         ]
         orders2 = strat2.generate_orders(markets_below)
@@ -559,17 +553,17 @@ class TestAaveSupplyWithdrawCycle:
         # Rotation (need existing position first)
         strat2, _, tracker2 = _make_strategy(total_capital="10000")
         tracker2.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
-            asset="ETH",
-            entry_price="2000",
-            amount="1.5",
-            position_id="aave-eth",
+            chain="base",
+            asset="USDbC",
+            entry_price="1",
+            amount="3000",
+            position_id="aave-usdbc",
             protocol_data={"current_apy": "0.020"},
         )
         rotation_orders = strat2.generate_orders(
-            [_make_market("ETH", "0.020"), _make_market("USDC", "0.065")],
+            [_make_market("USDbC", "0.020"), _make_market("USDC", "0.065")],
         )
         for order in rotation_orders:
             valid, errors = validate("execution-orders", order)
@@ -581,9 +575,9 @@ class TestAaveSupplyWithdrawCycle:
 
         # Open a position, then simulate confirmed close via execution result
         tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
+            chain="base",
             asset="USDC",
             entry_price="1",
             amount="5000",
@@ -604,10 +598,10 @@ class TestAaveSupplyWithdrawCycle:
 
         # Open another, test failed does not close
         tracker.open_position(
-            strategy="STRAT-001",
+            strategy="LEND-001",
             protocol="aave",
-            chain="ethereum",
-            asset="DAI",
+            chain="base",
+            asset="USDbC",
             entry_price="1",
             amount="3000",
             position_id="pos-2",

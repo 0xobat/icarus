@@ -7,7 +7,6 @@ from decimal import Decimal
 from portfolio.allocator import AllocatorConfig, PortfolioAllocator
 from portfolio.position_tracker import PositionTracker
 from strategies.aave_lending import (
-    ALLOWED_CHAINS,
     WHITELISTED_ASSETS,
     AaveLendingConfig,
     AaveLendingStrategy,

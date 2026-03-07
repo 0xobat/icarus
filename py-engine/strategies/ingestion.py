@@ -316,7 +316,7 @@ def parse_strategy_md(content: str) -> list[StrategySpec]:
             tier=tier,
             risk_profile=risk_profile,
             protocols=protocols,
-            chains=chains or ["ethereum"],
+            chains=chains or ["base"],
             entry_conditions=entry_conditions,
             exit_conditions=exit_conditions,
             constraints=constraints,

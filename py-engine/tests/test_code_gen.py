@@ -35,7 +35,7 @@ def _make_spec(
         tier=tier,
         risk_profile=kwargs.get("risk_profile", "low"),
         protocols=kwargs.get("protocols", ["aave"]),
-        chains=kwargs.get("chains", ["ethereum"]),
+        chains=kwargs.get("chains", ["base"]),
         entry_conditions=kwargs.get("entry_conditions", ["APR > 3%"]),
         exit_conditions=kwargs.get("exit_conditions", ["APR < 2%"]),
         constraints=kwargs.get("constraints", ["Max 40% in protocol"]),
@@ -299,10 +299,10 @@ class TestGenerateChanged:
             md = """## Test Strategy
 **Tier: 1** | **Risk Profile: Low Risk**
 
-ID: STRAT-TEST
+ID: LEND-999
 
 **Protocols:** Aave
-**Chains:** Ethereum
+**Chains:** Base
 
 **Entry Conditions:**
 - APR > 3%
@@ -312,7 +312,7 @@ ID: STRAT-TEST
 """
             results = gen.generate_changed(ingestor, md)
             assert len(results) >= 1
-            assert any(r.strategy_id == "STRAT-TEST" for r in results)
+            assert any(r.strategy_id == "LEND-999" for r in results)
 
     def test_unchanged_not_regenerated(self) -> None:
         client = _mock_client(VALID_GENERATED_CODE)
@@ -324,10 +324,10 @@ ID: STRAT-TEST
             md = """## Test Strategy
 **Tier: 1** | **Risk Profile: Low Risk**
 
-ID: STRAT-TEST
+ID: LEND-999
 
 **Protocols:** Aave
-**Chains:** Ethereum
+**Chains:** Base
 
 **Entry Conditions:**
 - APR > 3%
@@ -356,10 +356,10 @@ ID: STRAT-TEST
             md = """## New Strategy
 **Tier: 1** | **Risk Profile: Low Risk**
 
-ID: STRAT-NEW
+ID: LEND-998
 
 **Protocols:** Aave
-**Chains:** Ethereum
+**Chains:** Base
 
 **Entry Conditions:**
 - APR > 3%
