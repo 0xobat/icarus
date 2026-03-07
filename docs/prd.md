@@ -56,10 +56,10 @@ Claude reads this file and generates a Python class per strategy. Each class fol
 
 ### Chain Support
 
-| Chain                | Protocols                  | Environment     |
-| -------------------- | -------------------------- | --------------- |
-| Ethereum Mainnet     | Aave, Uniswap V3, Lido    | Sepolia testnet |
-| L2s (Arbitrum, Base) | Aave, GMX, Aerodrome      | L2 testnets     |
+| Chain                | Protocols              | Environment     |
+| -------------------- | ---------------------- | --------------- |
+| Ethereum Mainnet     | Aave, Uniswap V3, Lido | Sepolia testnet |
+| L2s (Arbitrum, Base) | Aave, GMX, Aerodrome   | L2 testnets     |
 
 ---
 
@@ -75,16 +75,16 @@ Claude reads this file and generates a Python class per strategy. Each class fol
                         strategy.md
                             │
                       ┌─────▼─────┐
-                      │  Claude    │  (compile time)
-                      │  code-gen  │
+                      │  Claude   │  (compile time)
+                      │  code-gen │
                       └─────┬─────┘
                             │  generates
                             ▼
-┌──────────────────────────────────────────────────┐
-│                  PYTHON LAYER                     │
-│                                                   │
+┌────────────────────────────────────────────────────┐
+│                  PYTHON LAYER                      │
+│                                                    │
 │  Data Pipeline ──► Insight Synthesis ──► Claude API│
-│  (prices, gas,     (pandas, numpy)      (runtime  │
+│  (prices, gas,     (pandas, numpy)      (runtime   │
 │   protocol metrics)                      reasoning)│
 │                                              │     │
 │  Generated Strategy Classes ◄────────────────┘     │
@@ -95,11 +95,11 @@ Claude reads this file and generates a Python class per strategy. Each class fol
 │  (circuit breakers,                                │
 │   exposure limits)                                 │
 │                                                    │
-│  Portfolio Tracker ── Lifecycle Manager             │
+│  Portfolio Tracker ── Lifecycle Manager            │
 │  Monitoring ── State Recovery                      │
-└────────────────────────┬─────────────────────────┘
+└────────────────────────┬───────────────────────────┘
                          │
-                    ┌────▼─────────────────────────┐
+                    ┌────▼──────────────────────────┐
                     │            REDIS              │
                     │  market:events     (TS → Py)  │
                     │  execution:orders  (Py → TS)  │
@@ -107,14 +107,14 @@ Claude reads this file and generates a Python class per strategy. Each class fol
                     │  cache: prices, gas, pools    │
                     └────────────────────┬──────────┘
                                         │
-┌───────────────────────────────────────▼──────────┐
+┌───────────────────────────────────────▼────────────┐
 │                TYPESCRIPT LAYER                    │
 │                                                    │
 │  Chain Listener ── TX Builder ── Event Reporter    │
-│  (Alchemy WS)     (viem)        (results)         │
+│  (Alchemy WS)     (viem)        (results)          │
 │                                                    │
 │  Safe Wallet ── Protocol Encoders                  │
-│  (1-of-2 multisig) (Aave V3, Lido)               │
+│  (1-of-2 multisig) (Aave V3, Lido)                 │
 └────────────────────────────────────────────────────┘
 ```
 
@@ -133,15 +133,15 @@ For simple, well-defined situations (e.g. "APY on market A is higher than market
 
 ### Key Decisions
 
-| Decision       | Choice                                     | Rationale                                                        |
-| -------------- | ------------------------------------------ | ---------------------------------------------------------------- |
-| Decision Engine| Claude API                                 | AI reasoning over synthesized data, not hardcoded rules          |
-| Strategy Def   | Markdown (`strategy.md`) → generated code  | Human-readable specs, Claude generates implementations           |
-| Wallet         | Safe 1-of-2 Multisig (Safe{Core} SDK)      | ethskills: battle-tested ($100B+ secured), agent EOA + human recovery |
-| State Recovery | TTL-based pruning on Redis Streams         | Bounded storage, sufficient replay window for crash recovery     |
-| MEV Protection | Flashbots Protect RPC (P1b)                | Private mempool routing for swaps; not needed for P1a supply/withdraw |
-| Deployment     | Rolling release via Railway                | Always running, strategies hot-reloaded on update                |
-| Testnet First  | Sepolia until validated                    | Validate all strategies before real capital                      |
+| Decision        | Choice                                    | Rationale                                                             |
+| --------------- | ----------------------------------------- | --------------------------------------------------------------------- |
+| Decision Engine | Claude API                                | AI reasoning over synthesized data, not hardcoded rules               |
+| Strategy Def    | Markdown (`strategy.md`) → generated code | Human-readable specs, Claude generates implementations                |
+| Wallet          | Safe 1-of-2 Multisig (Safe{Core} SDK)     | ethskills: battle-tested ($100B+ secured), agent EOA + human recovery |
+| State Recovery  | TTL-based pruning on Redis Streams        | Bounded storage, sufficient replay window for crash recovery          |
+| MEV Protection  | Flashbots Protect RPC (P1b)               | Private mempool routing for swaps; not needed for P1a supply/withdraw |
+| Deployment      | Rolling release via Railway               | Always running, strategies hot-reloaded on update                     |
+| Testnet First   | Sepolia until validated                   | Validate all strategies before real capital                           |
 
 ---
 
@@ -180,19 +180,19 @@ icarus/
 
 ## 5. Tech Stack
 
-| Component              | Technology                                 |
-| ---------------------- | ------------------------------------------ |
-| Decision Engine        | Claude API (Anthropic)                     |
-| Strategy Code-Gen      | Claude API + strategy.md                   |
-| RPC Provider           | Alchemy (WebSockets + Enhanced APIs)       |
-| ETH Interactions       | viem (TypeScript)                          |
-| Message Broker / Cache | Redis 7+ (pub/sub + Streams)               |
-| Data Processing        | Python — pandas, numpy                     |
-| Database               | PostgreSQL (trade history, audit trail)    |
-| Deployment             | Docker Compose → Railway                   |
-| Wallet                 | Safe 1-of-2 Multisig (Safe{Core} SDK)      |
-| MEV Protection         | Flashbots Protect RPC (P1b+)               |
-| Monitoring             | Structured JSON logs + Discord alerts      |
+| Component              | Technology                              |
+| ---------------------- | --------------------------------------- |
+| Decision Engine        | Claude API (Anthropic)                  |
+| Strategy Code-Gen      | Claude API + strategy.md                |
+| RPC Provider           | Alchemy (WebSockets + Enhanced APIs)    |
+| ETH Interactions       | viem (TypeScript)                       |
+| Message Broker / Cache | Redis 7+ (pub/sub + Streams)            |
+| Data Processing        | Python — pandas, numpy                  |
+| Database               | PostgreSQL (trade history, audit trail) |
+| Deployment             | Docker Compose → Railway                |
+| Wallet                 | Safe 1-of-2 Multisig (Safe{Core} SDK)   |
+| MEV Protection         | Flashbots Protect RPC (P1b+)            |
+| Monitoring             | Structured JSON logs + Discord alerts   |
 
 ---
 
@@ -218,14 +218,14 @@ icarus/
 
 ### Risk Matrix
 
-| Risk                   | Severity | Mitigation                                           |
-| ---------------------- | -------- | ---------------------------------------------------- |
-| Smart contract exploit | Critical | Allowlist, TVL monitoring, protocol diversification  |
-| Oracle manipulation    | High     | Multi-source prices, reject >2% deviation, TWAP      |
-| Liquidity shock        | High     | Pre-trade depth checks, position sizing to liquidity |
-| Key compromise         | Critical | Safe spending caps, 1-of-2 multisig (agent + human recovery) |
-| Chain halt / reorg     | Medium   | Finality-aware TX confirmation, state reconciliation |
-| Strategy crowding      | Medium   | Yield compression monitoring, automatic rotation     |
+| Risk                   | Severity | Mitigation                                                                     |
+| ---------------------- | -------- | ------------------------------------------------------------------------------ |
+| Smart contract exploit | Critical | Allowlist, TVL monitoring, protocol diversification                            |
+| Oracle manipulation    | High     | Multi-source prices, reject >2% deviation, TWAP                                |
+| Liquidity shock        | High     | Pre-trade depth checks, position sizing to liquidity                           |
+| Key compromise         | Critical | Safe spending caps, 1-of-2 multisig (agent + human recovery)                   |
+| Chain halt / reorg     | Medium   | Finality-aware TX confirmation, state reconciliation                           |
+| Strategy crowding      | Medium   | Yield compression monitoring, automatic rotation                               |
 | AI hallucination       | High     | Risk gate validates all AI decisions, schema enforcement, position size limits |
 
 ---
