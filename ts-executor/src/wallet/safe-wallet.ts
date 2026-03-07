@@ -18,7 +18,16 @@ import {
 } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
-import Safe from '@safe-global/protocol-kit';
+import SafeDefault from '@safe-global/protocol-kit';
+
+// Handle CJS/ESM double-default: at runtime the default import may be
+// a namespace object whose `.default` holds the actual Safe class.
+const Safe = (
+  typeof (SafeDefault as unknown as Record<string, unknown>).init === 'function'
+    ? SafeDefault
+    : (SafeDefault as unknown as { default: typeof SafeDefault }).default
+) as typeof SafeDefault;
+type Safe = SafeDefault;
 
 // Protocol Kit MetaTransactionData shape (avoids direct @safe-global/types-kit dependency)
 interface MetaTransactionData {
