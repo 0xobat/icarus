@@ -16,13 +16,6 @@ SERVICE_NAME = "py-engine"
 # Tokens tracked by Alchemy (symbol used directly in API call)
 ALCHEMY_SYMBOLS: list[str] = ["USDC", "USDT", "DAI", "AERO"]
 
-# Legacy CoinGecko ID mapping (removed in Task 3)
-SUPPORTED_TOKENS: dict[str, str] = {
-    "USDC": "usd-coin",
-    "USDT": "tether",
-    "DAI": "dai",
-}
-
 # DeFi Llama fallback addresses
 DEFILLAMA_TOKEN_ADDRESSES: dict[str, str] = {
     "USDC": "coingecko:usd-coin",
@@ -36,13 +29,11 @@ L2_TOKEN_MAPPINGS: dict[str, dict[str, str]] = {
     "AERO": {
         "chain": "base",
         "contract": "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
-        "coingecko_id": "aerodrome-finance",  # Legacy: removed in Task 3
     },
 }
 
 # Defaults
 DEFAULT_PRICE_TTL_SECONDS = 30
-DEFAULT_DEVIATION_THRESHOLD = 0.02  # 2%
 TWAP_WINDOWS = {"5m": 300, "1h": 3600, "24h": 86400}
 TWAP_HISTORY_KEY_PREFIX = "price:history:"
 PRICE_CACHE_KEY_PREFIX = "price:"
@@ -88,23 +79,19 @@ class PriceResult:
 
 
 class PriceFeedManager:
-    """Multi-source price feed with caching, deviation guards, and TWAP."""
+    """Multi-source price feed with caching and TWAP."""
 
     def __init__(
         self,
         redis: RedisManager,
         *,
         ttl_seconds: int = DEFAULT_PRICE_TTL_SECONDS,
-        deviation_threshold: float = DEFAULT_DEVIATION_THRESHOLD,
-        tokens: dict[str, str] | None = None,
         fetch_fn: Any = None,
         alchemy_api_key: str | None = None,
         fetch_interval_seconds: int | None = None,
     ) -> None:
         self._redis = redis
         self._ttl = ttl_seconds
-        self._deviation_threshold = deviation_threshold
-        self._tokens = tokens or SUPPORTED_TOKENS
         self._fetch_fn = fetch_fn or _fetch_url
         self._alchemy_api_key = alchemy_api_key or os.environ.get("ALCHEMY_API_KEY") or os.environ.get("ALCHEMY_SEPOLIA_API_KEY")
         self._fetch_interval = fetch_interval_seconds or int(os.environ.get("PRICE_FETCH_INTERVAL_SECONDS", "30"))
@@ -138,70 +125,7 @@ class PriceFeedManager:
         """
         return token.upper() in L2_TOKEN_MAPPINGS
 
-    # ── L2 price fetching ────────────────────────────────
-
-    def fetch_l2_prices(self) -> dict[str, dict[str, Any]]:
-        """Fetch prices for L2-specific tokens via CoinGecko.
-
-        Uses CoinGecko IDs from L2_TOKEN_MAPPINGS to fetch prices for
-        tokens like ARB, GMX, AERO, OP. Returns the same normalized format
-        as fetch_prices() with an additional 'chain' field.
-
-        Returns:
-            Dict of token -> {price_usd, timestamp, sources, chain, deviation}.
-        """
-        results: dict[str, dict[str, Any]] = {}
-        now_epoch = time.time()
-
-        l2_cg_ids = {token: info["coingecko_id"] for token, info in L2_TOKEN_MAPPINGS.items()}
-        ids = ",".join(l2_cg_ids.values())
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
-
-        try:
-            data = self._fetch_fn(url)
-            now = datetime.now(UTC).isoformat()
-            id_to_token = {cg_id: token for token, cg_id in l2_cg_ids.items()}
-
-            for cg_id, prices in data.items():
-                token = id_to_token.get(cg_id)
-                if token and "usd" in prices:
-                    price_usd = float(prices["usd"])
-                    self._cache_price(token, price_usd, now)
-                    self._record_price_history(token, price_usd, now_epoch)
-                    results[token] = {
-                        "price_usd": price_usd,
-                        "timestamp": now,
-                        "sources": ["coingecko"],
-                        "chain": L2_TOKEN_MAPPINGS[token]["chain"],
-                        "deviation": 0.0,
-                    }
-        except Exception as e:
-            _log("price_source_error", f"L2 price fetch failed: {e}", source="coingecko_l2")
-
-        return results
-
     # ── Source fetchers ──────────────────────────────────
-
-    def _fetch_coingecko(self) -> dict[str, PriceResult]:
-        """Fetch prices from CoinGecko API."""
-        ids = ",".join(self._tokens.values())
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
-        now = datetime.now(UTC).isoformat()
-
-        data = self._fetch_fn(url)
-        results: dict[str, PriceResult] = {}
-        id_to_token = {v: k for k, v in self._tokens.items()}
-
-        for cg_id, prices in data.items():
-            token = id_to_token.get(cg_id)
-            if token and "usd" in prices:
-                results[token] = PriceResult(
-                    token=token,
-                    price_usd=float(prices["usd"]),
-                    source="coingecko",
-                    timestamp=now,
-                )
-        return results
 
     def _fetch_defillama(self) -> dict[str, PriceResult]:
         """Fetch prices from DeFi Llama API."""
@@ -253,31 +177,6 @@ class PriceFeedManager:
                     )
 
         return results
-
-    # ── Oracle manipulation guard ────────────────────────
-
-    def _check_deviation(
-        self, token: str, price_a: float, price_b: float
-    ) -> tuple[bool, float]:
-        """Check if two prices deviate beyond threshold. Returns (ok, deviation_pct)."""
-        if price_a == 0 and price_b == 0:
-            return True, 0.0
-        mid = (price_a + price_b) / 2
-        if mid == 0:
-            return False, 1.0
-        deviation = abs(price_a - price_b) / mid
-        ok = deviation <= self._deviation_threshold
-        if not ok:
-            _log(
-                "price_deviation_rejected",
-                f"Price deviation for {token} exceeds threshold",
-                token=token,
-                price_a=price_a,
-                price_b=price_b,
-                deviation=round(deviation, 6),
-                threshold=self._deviation_threshold,
-            )
-        return ok, deviation
 
     # ── Caching ──────────────────────────────────────────
 

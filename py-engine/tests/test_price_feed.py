@@ -12,7 +12,6 @@ from data.price_feed import (
     ALCHEMY_SYMBOLS,
     DEFILLAMA_TOKEN_ADDRESSES,
     PRICE_CACHE_KEY_PREFIX,
-    SUPPORTED_TOKENS,
     PriceFeedManager,
     PriceResult,
 )
@@ -69,17 +68,6 @@ def _make_mock_redis() -> MagicMock:
     return redis
 
 
-def _make_coingecko_response(prices: dict[str, float]) -> dict[str, Any]:
-    """Build a mock CoinGecko response."""
-    token_to_id = SUPPORTED_TOKENS
-    result: dict[str, Any] = {}
-    for token, price in prices.items():
-        cg_id = token_to_id.get(token)
-        if cg_id:
-            result[cg_id] = {"usd": price}
-    return result
-
-
 def _make_defillama_response(prices: dict[str, float]) -> dict[str, Any]:
     """Build a mock DeFi Llama response."""
     coins: dict[str, Any] = {}
@@ -108,42 +96,11 @@ def _make_alchemy_response(prices: dict[str, float]) -> dict[str, Any]:
 
 class TestPriceResult:
     def test_to_dict(self) -> None:
-        pr = PriceResult("USDC", 1.0, "coingecko", "2026-01-01T00:00:00+00:00")
+        pr = PriceResult("USDC", 1.0, "alchemy", "2026-01-01T00:00:00+00:00")
         d = pr.to_dict()
         assert d["token"] == "USDC"
         assert d["price_usd"] == 1.0
-        assert d["source"] == "coingecko"
-
-
-class TestOracleManipulationGuard:
-    def test_accepts_matching_prices(self) -> None:
-        redis = _make_mock_redis()
-        mgr = PriceFeedManager(redis)
-        ok, dev = mgr._check_deviation("USDC", 1.000, 1.005)
-        assert ok
-        assert dev < 0.02
-
-    def test_rejects_deviated_prices(self) -> None:
-        redis = _make_mock_redis()
-        mgr = PriceFeedManager(redis)
-        # 5% deviation
-        ok, dev = mgr._check_deviation("USDC", 1.000, 1.050)
-        assert not ok
-        assert dev > 0.02
-
-    def test_exactly_at_threshold(self) -> None:
-        redis = _make_mock_redis()
-        mgr = PriceFeedManager(redis)
-        # 2% deviation: midpoint = 1.01, diff = 0.02, 0.02/1.01 ≈ 0.0198 — just under
-        ok, _dev = mgr._check_deviation("USDC", 1.000, 1.020)
-        assert ok
-
-    def test_zero_prices(self) -> None:
-        redis = _make_mock_redis()
-        mgr = PriceFeedManager(redis)
-        ok, dev = mgr._check_deviation("USDC", 0.0, 0.0)
-        assert ok
-        assert dev == 0.0
+        assert d["source"] == "alchemy"
 
 
 class TestAlchemyFetch:
