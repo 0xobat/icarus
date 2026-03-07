@@ -192,66 +192,106 @@ class TestAlchemyFetch:
                 os.environ["ALCHEMY_SEPOLIA_API_KEY"] = old_sep
 
 
-class TestMultiSourceAggregation:
-    def test_both_sources_agree(self) -> None:
-        """When both sources agree within threshold, average is cached."""
+class TestFetchPricesFlow:
+    def test_alchemy_success_caches_and_returns(self) -> None:
+        """When Alchemy succeeds, prices are cached and returned."""
         redis = _make_mock_redis()
 
         def mock_fetch(url: str, timeout: int = 10) -> Any:
-            if "api.coingecko.com" in url:
-                return _make_coingecko_response({"USDC": 1.000, "USDT": 1.001})
-            return _make_defillama_response({"USDC": 1.002, "USDT": 1.000})
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response({"USDC": 1.0001, "USDT": 1.0})
+            raise ConnectionError("Should not call fallback")
 
-        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch)
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
         result = mgr.fetch_prices()
 
         assert "USDC" in result
-        assert result["USDC"]["price_usd"] == pytest.approx(1.001)
-        assert len(result["USDC"]["sources"]) == 2
-        assert "USDT" in result
+        assert result["USDC"]["price_usd"] == pytest.approx(1.0001)
+        assert result["USDC"]["sources"] == ["alchemy"]
         assert redis.cache_set.call_count >= 2
 
-    def test_deviation_rejects_token(self) -> None:
-        """Tokens with >2% deviation are rejected entirely."""
+    def test_alchemy_fail_falls_back_to_defillama(self) -> None:
+        """When Alchemy fails, DefiLlama is tried."""
         redis = _make_mock_redis()
+        call_log: list[str] = []
 
         def mock_fetch(url: str, timeout: int = 10) -> Any:
-            if "api.coingecko.com" in url:
-                return _make_coingecko_response({"USDC": 1.000})
-            return _make_defillama_response({"USDC": 1.200})  # 18% deviation
+            if "api.g.alchemy.com" in url:
+                call_log.append("alchemy")
+                raise ConnectionError("Alchemy down")
+            if "coins.llama.fi" in url:
+                call_log.append("defillama")
+                return _make_defillama_response({"USDC": 1.0, "DAI": 0.999})
+            raise ConnectionError("Unknown URL")
 
-        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch)
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
         result = mgr.fetch_prices()
 
-        assert "USDC" not in result
-
-    def test_single_source_fallback(self) -> None:
-        """When one source fails, use the remaining source."""
-        redis = _make_mock_redis()
-
-        def mock_fetch(url: str, timeout: int = 10) -> Any:
-            if "api.coingecko.com" in url:
-                return _make_coingecko_response({"USDC": 1.000})
-            raise ConnectionError("DeFi Llama down")
-
-        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch)
-        result = mgr.fetch_prices()
-
+        assert "alchemy" in call_log
+        assert "defillama" in call_log
         assert "USDC" in result
-        assert result["USDC"]["price_usd"] == 1.000
-        assert result["USDC"]["sources"] == ["coingecko"]
+        assert result["USDC"]["sources"] == ["defillama"]
 
-    def test_both_sources_fail(self) -> None:
-        """When both sources fail, return empty results."""
+    def test_both_fail_returns_empty(self) -> None:
+        """When both sources fail, return empty dict."""
         redis = _make_mock_redis()
 
         def mock_fetch(url: str, timeout: int = 10) -> Any:
             raise ConnectionError("Network down")
 
-        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch)
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
         result = mgr.fetch_prices()
 
         assert result == {}
+
+    def test_cache_freshness_skips_api_calls(self) -> None:
+        """When all prices are fresh (within fetch_interval), skip API calls."""
+        redis = _make_mock_redis()
+        api_called = False
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            nonlocal api_called
+            api_called = True
+            return _make_alchemy_response({"USDC": 1.0})
+
+        mgr = PriceFeedManager(
+            redis, fetch_fn=mock_fetch, alchemy_api_key="test-key",
+            fetch_interval_seconds=30,
+        )
+
+        # First call — should hit API
+        mgr.fetch_prices()
+        assert api_called
+
+        # Second call — should return cached (within 30s)
+        api_called = False
+        result = mgr.fetch_prices()
+        assert not api_called
+        assert "USDC" in result
+
+    def test_no_alchemy_key_tries_defillama_directly(self) -> None:
+        """When no Alchemy key is set, skip Alchemy and try DefiLlama."""
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            if "coins.llama.fi" in url:
+                return _make_defillama_response({"USDC": 1.0})
+            raise ConnectionError("Should not call Alchemy")
+
+        # Ensure env vars don't provide a key
+        import os
+        old_key = os.environ.pop("ALCHEMY_API_KEY", None)
+        old_sep = os.environ.pop("ALCHEMY_SEPOLIA_API_KEY", None)
+        try:
+            mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key=None)
+            mgr._alchemy_api_key = None  # force None in case env leaked
+            result = mgr.fetch_prices()
+            assert "USDC" in result
+        finally:
+            if old_key:
+                os.environ["ALCHEMY_API_KEY"] = old_key
+            if old_sep:
+                os.environ["ALCHEMY_SEPOLIA_API_KEY"] = old_sep
 
 
 class TestStalePriceDetection:
@@ -372,30 +412,25 @@ class TestTimestampsUTC:
         redis = _make_mock_redis()
 
         def mock_fetch(url: str, timeout: int = 10) -> Any:
-            if "api.coingecko.com" in url:
-                return _make_coingecko_response({"USDC": 1.000})
-            return _make_defillama_response({"USDC": 1.001})
+            return _make_alchemy_response({"USDC": 1.000})
 
-        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch)
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
         result = mgr.fetch_prices()
 
         assert "USDC" in result
         ts = result["USDC"]["timestamp"]
-        # UTC timestamps from datetime.now(UTC) end with +00:00
         assert "+00:00" in ts
 
 
 class TestCustomTokenList:
-    def test_accepts_custom_tokens(self) -> None:
+    def test_alchemy_fetches_all_configured_symbols(self) -> None:
         redis = _make_mock_redis()
-        custom_tokens = {"USDC": "usd-coin"}
 
         def mock_fetch(url: str, timeout: int = 10) -> Any:
-            if "api.coingecko.com" in url:
-                return {"usd-coin": {"usd": 1.0}}
-            return {"coins": {}}
+            return _make_alchemy_response({"USDC": 1.0, "AERO": 1.5})
 
-        mgr = PriceFeedManager(redis, tokens=custom_tokens, fetch_fn=mock_fetch)
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
         result = mgr.fetch_prices()
 
         assert "USDC" in result
+        assert "AERO" in result

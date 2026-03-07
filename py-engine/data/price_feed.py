@@ -340,69 +340,60 @@ class PriceFeedManager:
     # ── Main fetch cycle ─────────────────────────────────
 
     def fetch_prices(self) -> dict[str, dict[str, Any]]:
-        """Fetch from all sources, validate, cache, and return validated prices.
+        """Fetch prices: Alchemy primary, DefiLlama fallback, with cache-freshness check.
 
-        Returns a dict of token -> {price_usd, timestamp, sources} for validated prices.
-        Prices with >2% deviation between sources are rejected.
+        Returns a dict of token -> {price_usd, timestamp, sources}.
+        Skips API calls if prices were fetched within fetch_interval_seconds.
         """
-        results: dict[str, dict[str, Any]] = {}
         now_epoch = time.time()
 
-        # Fetch from both sources
-        source_a: dict[str, PriceResult] = {}
-        source_b: dict[str, PriceResult] = {}
+        # Cache-freshness check — if we fetched recently, return cached prices
+        if now_epoch - self._last_fetch_time < self._fetch_interval:
+            cached = self._get_all_cached_prices()
+            if cached:
+                return cached
 
-        try:
-            source_a = self._fetch_coingecko()
-        except Exception as e:
-            _log("price_source_error", f"CoinGecko fetch failed: {e}", source="coingecko")
+        results: dict[str, dict[str, Any]] = {}
+        source_results: dict[str, PriceResult] = {}
 
-        try:
-            source_b = self._fetch_defillama()
-        except Exception as e:
-            _log("price_source_error", f"DeFi Llama fetch failed: {e}", source="defillama")
+        # Primary: Alchemy
+        if self._alchemy_api_key:
+            try:
+                source_results = self._fetch_alchemy()
+            except Exception as e:
+                _log("price_source_error", f"Alchemy fetch failed: {e}", source="alchemy")
 
-        all_tokens = set(list(source_a.keys()) + list(source_b.keys()))
+        # Fallback: DefiLlama (only if Alchemy returned nothing)
+        if not source_results:
+            try:
+                source_results = self._fetch_defillama()
+            except Exception as e:
+                _log("price_source_error", f"DefiLlama fetch failed: {e}", source="defillama")
 
-        for token in all_tokens:
-            price_a_result = source_a.get(token)
-            price_b_result = source_b.get(token)
+        # Cache and return whatever we got
+        for token, pr in source_results.items():
+            self._cache_price(token, pr.price_usd, pr.timestamp)
+            self._record_price_history(token, pr.price_usd, now_epoch)
+            results[token] = {
+                "price_usd": pr.price_usd,
+                "timestamp": pr.timestamp,
+                "sources": [pr.source],
+            }
 
-            if price_a_result and price_b_result:
-                # Both sources available — check deviation
-                ok, deviation = self._check_deviation(
-                    token, price_a_result.price_usd, price_b_result.price_usd
-                )
-                if not ok:
-                    continue  # Reject this token's price
+        if results:
+            self._last_fetch_time = now_epoch
 
-                # Use average of both sources
-                avg_price = (price_a_result.price_usd + price_b_result.price_usd) / 2
-                timestamp = price_a_result.timestamp
+        return results
 
-                self._cache_price(token, avg_price, timestamp)
-                self._record_price_history(token, avg_price, now_epoch)
-
-                results[token] = {
-                    "price_usd": avg_price,
-                    "timestamp": timestamp,
-                    "sources": ["coingecko", "defillama"],
-                    "deviation": round(deviation, 6),
+    def _get_all_cached_prices(self) -> dict[str, dict[str, Any]]:
+        """Return all cached prices for known tokens."""
+        results: dict[str, dict[str, Any]] = {}
+        for symbol in ALCHEMY_SYMBOLS:
+            cached = self.get_cached_price(symbol)
+            if cached and not cached.get("stale", False):
+                results[symbol] = {
+                    "price_usd": cached["price_usd"],
+                    "timestamp": cached["timestamp"],
+                    "sources": ["cached"],
                 }
-
-            elif price_a_result or price_b_result:
-                # Only one source — use it but flag single-source
-                single = price_a_result or price_b_result
-                assert single is not None
-
-                self._cache_price(token, single.price_usd, single.timestamp)
-                self._record_price_history(token, single.price_usd, now_epoch)
-
-                results[token] = {
-                    "price_usd": single.price_usd,
-                    "timestamp": single.timestamp,
-                    "sources": [single.source],
-                    "deviation": 0.0,
-                }
-
         return results
