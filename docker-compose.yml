@@ -12,6 +12,22 @@ services:
       timeout: 5s
       retries: 3
 
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=icarus
+      - POSTGRES_PASSWORD=icarus
+      - POSTGRES_DB=icarus
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U icarus -d icarus"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   ts-executor:
     build:
       context: ./ts-executor
@@ -36,9 +52,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     env_file: .env
     environment:
       - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql+psycopg2://icarus:icarus@postgres:5432/icarus
     volumes:
       - ./py-engine:/app
       - ./shared:/app/shared
@@ -46,3 +65,4 @@ services:
 
 volumes:
   redis-data:
+  postgres-data:
