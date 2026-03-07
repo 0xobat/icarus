@@ -405,7 +405,8 @@ def _create_components() -> (
     redis = RedisManager(url=os.environ.get("REDIS_URL"))
     redis.connect()
 
-    db_config = DatabaseConfig(url=os.environ.get("DATABASE_URL"))
+    db_url = os.environ.get("DATABASE_URL")
+    db_config = DatabaseConfig(url=db_url) if db_url else DatabaseConfig()
     db_manager = DatabaseManager(config=db_config)
     db_manager.create_tables()
 
