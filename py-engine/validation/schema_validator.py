@@ -8,7 +8,10 @@ from typing import Any
 
 import jsonschema
 
-SCHEMA_DIR = Path(__file__).resolve().parent.parent.parent / "shared" / "schemas"
+# In Docker the shared/ volume is at /app/shared; locally it's two dirs above py-engine/.
+_docker_path = Path("/app/shared/schemas")
+_local_path = Path(__file__).resolve().parent.parent.parent / "shared" / "schemas"
+SCHEMA_DIR = _docker_path if _docker_path.is_dir() else _local_path
 
 SchemaName = str  # "market-events" | "execution-orders" | "execution-results"
 

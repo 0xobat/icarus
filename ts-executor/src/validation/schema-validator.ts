@@ -13,7 +13,15 @@ export interface ValidationResult {
 
 export type SchemaName = 'market-events' | 'execution-orders' | 'execution-results';
 
-const SCHEMA_DIR = resolve(__dirname, '../../../shared/schemas');
+// In Docker the shared/ volume is mounted at /app/shared; locally it's three dirs up.
+// Use SCHEMA_DIR env var if set, otherwise try both locations.
+const SCHEMA_DIR = process.env.SCHEMA_DIR
+  ?? ((() => {
+    const dockerPath = resolve('/app/shared/schemas');
+    const localPath = resolve(__dirname, '../../../shared/schemas');
+    try { readFileSync(resolve(dockerPath, 'market-events.schema.json')); return dockerPath; } catch { /* ignore */ }
+    return localPath;
+  })());
 
 const ajv = new Ajv({ allErrors: true, strict: false, validateSchema: false });
 addFormats(ajv);
