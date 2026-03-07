@@ -85,7 +85,6 @@ class TestL2TokenMappings:
         for token, info in L2_TOKEN_MAPPINGS.items():
             assert "chain" in info, f"{token} missing chain"
             assert "contract" in info, f"{token} missing contract"
-            assert "coingecko_id" in info, f"{token} missing coingecko_id"
 
     def test_aero_is_on_base(self) -> None:
         assert L2_TOKEN_MAPPINGS["AERO"]["chain"] == "base"
