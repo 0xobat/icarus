@@ -20,19 +20,11 @@ _logger = get_logger("strategy-ingestion", enable_file=False)
 # Known protocols and valid tier values
 # ---------------------------------------------------------------------------
 
-KNOWN_PROTOCOLS = frozenset({
-    "aave", "aave_v3", "uniswap", "uniswap_v3",
-    "lido", "compound", "curve", "balancer",
-    "maker", "sushiswap", "yearn", "convex",
-    "flashbots",
-})
+KNOWN_PROTOCOLS = frozenset({"aave", "aave_v3", "aerodrome"})
 
-KNOWN_CHAINS = frozenset({
-    "ethereum", "sepolia", "arbitrum", "base",
-    "optimism", "polygon",
-})
+KNOWN_CHAINS = frozenset({"base"})
 
-VALID_TIERS = frozenset({1, 2, 3})
+VALID_TIERS = frozenset({1})
 
 REQUIRED_SPEC_FIELDS = frozenset({
     "name", "id", "tier",
@@ -273,7 +265,7 @@ def parse_strategy_md(content: str) -> list[StrategySpec]:
             tier = 2
 
         # Extract strategy ID -- look for explicit ID pattern or generate
-        id_match = re.search(r"(?:ID|id|Strategy ID):\s*(\S+)", body)
+        id_match = re.search(r"(?:ID|Id|id)\s*:?\s*([A-Z]+-\d+)", body)
         strategy_id = id_match.group(1) if id_match else _normalize_id(header)
 
         # Extract sub-sections

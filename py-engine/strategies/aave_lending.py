@@ -1,8 +1,7 @@
-"""Aave V3 lending optimization — Tier 1 strategy (STRAT-001).
+"""Aave V3 lending supply — Tier 1 strategy (LEND-001).
 
-Rotates supplied assets across Aave V3 markets to capture highest
-risk-adjusted supply APY, only when net improvement exceeds threshold
-after gas costs.
+Supplies stablecoins to Aave V3 on Base. Rotates to highest supply APY
+market when the APY differential exceeds threshold after gas costs.
 """
 
 from __future__ import annotations
@@ -19,11 +18,14 @@ from portfolio.position_tracker import PositionTracker
 
 _logger = get_logger("aave-lending", enable_file=False)
 
-STRATEGY_ID = "STRAT-001"
+STRATEGY_ID = "LEND-001"
 STRATEGY_TIER = 1
 
-# Whitelisted assets for Aave V3 supply
-WHITELISTED_ASSETS = frozenset({"ETH", "WETH", "WBTC", "USDC", "USDT", "DAI"})
+# LEND-001 operates exclusively on Base
+ALLOWED_CHAINS = frozenset({"base"})
+
+# Whitelisted stablecoin assets for Aave V3 supply on Base
+WHITELISTED_ASSETS = frozenset({"USDC", "USDbC"})
 
 
 # ---------------------------------------------------------------------------
@@ -59,8 +61,11 @@ class AaveLendingConfig:
     """Strategy configuration."""
 
     min_apy_improvement: Decimal = Decimal("0.005")  # 0.5% APY
+    min_supply_apy: Decimal = Decimal("0.01")  # 1.0% floor
     estimated_gas_cost_usd: Decimal = Decimal("10")  # per TX (supply or withdraw)
+    gas_amortization_days: int = 14
     min_position_value_usd: Decimal = Decimal("100")
+    min_monthly_gain_usd: Decimal = Decimal("1")
     default_max_gas_wei: str = "500000000000000"  # 0.0005 ETH
     default_max_slippage_bps: int = 50
     default_deadline_seconds: int = 300
@@ -99,7 +104,8 @@ class AaveLendingStrategy:
         """
         eligible = [
             m for m in markets
-            if m.asset in WHITELISTED_ASSETS
+            if m.chain in ALLOWED_CHAINS
+            and m.asset in WHITELISTED_ASSETS
             and m.available_liquidity > 0
             and m.supply_apy > 0
         ]

@@ -1,4 +1,4 @@
-"""Tests for Aave lending optimization strategy — STRAT-001."""
+"""Tests for Aave lending supply strategy — LEND-001."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from decimal import Decimal
 from portfolio.allocator import AllocatorConfig, PortfolioAllocator
 from portfolio.position_tracker import PositionTracker
 from strategies.aave_lending import (
+    ALLOWED_CHAINS,
     WHITELISTED_ASSETS,
     AaveLendingConfig,
     AaveLendingStrategy,
@@ -18,11 +19,11 @@ from strategies.aave_lending import (
 # ---------------------------------------------------------------------------
 
 def _make_market(
-    asset: str = "ETH",
+    asset: str = "USDC",
     supply_apy: str = "0.035",
     available_liquidity: str = "1000000",
     utilization_rate: str = "0.80",
-    chain: str = "ethereum",
+    chain: str = "base",
 ) -> AaveMarket:
     return AaveMarket(
         asset=asset,
@@ -35,11 +36,8 @@ def _make_market(
 
 def _sample_markets() -> list[AaveMarket]:
     return [
-        _make_market("ETH", "0.035"),
         _make_market("USDC", "0.042"),
-        _make_market("DAI", "0.038"),
-        _make_market("WBTC", "0.025"),
-        _make_market("USDT", "0.040"),
+        _make_market("USDbC", "0.035"),
     ]
 
 
@@ -74,18 +72,18 @@ class TestMarketEvaluation:
     def test_filters_non_whitelisted(self) -> None:
         strat, _, _ = _make_strategy()
         markets = [
-            _make_market("ETH", "0.03"),
+            _make_market("USDC", "0.03"),
             _make_market("SHIB", "0.50"),  # not whitelisted
         ]
         ranked = strat.evaluate(markets)
         assert len(ranked) == 1
-        assert ranked[0].asset == "ETH"
+        assert ranked[0].asset == "USDC"
 
     def test_filters_zero_liquidity(self) -> None:
         strat, _, _ = _make_strategy()
         markets = [
-            _make_market("ETH", "0.03", available_liquidity="0"),
-            _make_market("USDC", "0.04"),
+            _make_market("USDC", "0.03", available_liquidity="0"),
+            _make_market("USDbC", "0.04"),
         ]
         ranked = strat.evaluate(markets)
         assert len(ranked) == 1
@@ -93,8 +91,8 @@ class TestMarketEvaluation:
     def test_filters_zero_apy(self) -> None:
         strat, _, _ = _make_strategy()
         markets = [
-            _make_market("ETH", "0"),
-            _make_market("USDC", "0.04"),
+            _make_market("USDC", "0"),
+            _make_market("USDbC", "0.04"),
         ]
         ranked = strat.evaluate(markets)
         assert len(ranked) == 1
@@ -104,8 +102,22 @@ class TestMarketEvaluation:
         assert strat.evaluate([]) == []
 
     def test_whitelisted_assets_include_expected(self) -> None:
-        for asset in ("ETH", "WETH", "WBTC", "USDC", "USDT", "DAI"):
+        for asset in ("USDC", "USDbC"):
             assert asset in WHITELISTED_ASSETS
+
+    def test_rejects_non_base_chain(self) -> None:
+        """LEND-001 only operates on Base."""
+        strategy, _, _ = _make_strategy()
+        markets = [_make_market(asset="USDC", chain="ethereum", supply_apy="0.06")]
+        orders = strategy.generate_orders(markets)
+        assert orders == []
+
+    def test_rejects_non_stablecoin_asset(self) -> None:
+        """LEND-001 only operates with stablecoins."""
+        strategy, _, _ = _make_strategy()
+        markets = [_make_market(asset="ETH", chain="base", supply_apy="0.06")]
+        orders = strategy.generate_orders(markets)
+        assert orders == []
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +199,7 @@ class TestExposureLimits:
         positions = {
             "existing": {
                 "value_usd": 4000, "protocol": "aave",
-                "asset": "ETH", "tier": 1,
+                "asset": "USDC", "tier": 1,
             },
         }
         strat, _, tracker = _make_strategy(positions=positions)
@@ -202,8 +214,8 @@ class TestExposureLimits:
         alloc = PortfolioAllocator(Decimal("10000"), {}, config)
         tracker = PositionTracker()
         tracker.open_position(
-            strategy="STRAT-001", protocol="aave", chain="ethereum",
-            asset="ETH", entry_price="2000", amount="1.0",
+            strategy="LEND-001", protocol="aave", chain="base",
+            asset="USDbC", entry_price="1", amount="3000",
             position_id="aave-pos",
             protocol_data={"current_apy": "0.030"},
         )
@@ -229,10 +241,10 @@ class TestOrderGeneration:
         assert "orderId" in order
         assert "correlationId" in order
         assert "timestamp" in order
-        assert order["chain"] == "ethereum"
+        assert order["chain"] == "base"
         assert order["protocol"] == "aave_v3"
         assert order["action"] == "supply"
-        assert order["strategy"] == "STRAT-001"
+        assert order["strategy"] == "LEND-001"
         assert order["priority"] == "normal"
         assert "tokenIn" in order["params"]
         assert "amount" in order["params"]
@@ -243,24 +255,24 @@ class TestOrderGeneration:
     def test_rotation_generates_withdraw_and_supply(self) -> None:
         strat, _, tracker = _make_strategy()
         tracker.open_position(
-            strategy="STRAT-001", protocol="aave", chain="ethereum",
-            asset="ETH", entry_price="2000", amount="1.5",
+            strategy="LEND-001", protocol="aave", chain="base",
+            asset="USDbC", entry_price="1", amount="3000",
             position_id="aave-pos",
             protocol_data={"current_apy": "0.020"},
         )
-        # Best market is USDC at 4.2%, current ETH at 2% → big improvement
+        # Best market is USDC at 4.2%, current USDbC at 2% → big improvement
         orders = strat.generate_orders(_sample_markets())
         assert len(orders) == 2
         assert orders[0]["action"] == "withdraw"
-        assert orders[0]["params"]["tokenIn"] == "ETH"
+        assert orders[0]["params"]["tokenIn"] == "USDbC"
         assert orders[1]["action"] == "supply"
         assert orders[1]["params"]["tokenIn"] == "USDC"
 
     def test_same_correlation_id_across_rotation(self) -> None:
         strat, _, tracker = _make_strategy()
         tracker.open_position(
-            strategy="STRAT-001", protocol="aave", chain="ethereum",
-            asset="ETH", entry_price="2000", amount="1.5",
+            strategy="LEND-001", protocol="aave", chain="base",
+            asset="USDbC", entry_price="1", amount="3000",
             position_id="aave-pos",
             protocol_data={"current_apy": "0.020"},
         )
@@ -272,7 +284,7 @@ class TestOrderGeneration:
     def test_no_orders_when_already_in_best(self) -> None:
         strat, _, tracker = _make_strategy()
         tracker.open_position(
-            strategy="STRAT-001", protocol="aave", chain="ethereum",
+            strategy="LEND-001", protocol="aave", chain="base",
             asset="USDC", entry_price="1", amount="3000",
             position_id="aave-pos",
             protocol_data={"current_apy": "0.042"},
@@ -303,22 +315,22 @@ class TestPerformanceTracking:
     def test_records_on_rotation(self) -> None:
         strat, _, tracker = _make_strategy()
         tracker.open_position(
-            strategy="STRAT-001", protocol="aave", chain="ethereum",
-            asset="ETH", entry_price="2000", amount="1.5",
+            strategy="LEND-001", protocol="aave", chain="base",
+            asset="USDbC", entry_price="1", amount="3000",
             position_id="aave-pos",
             protocol_data={"current_apy": "0.020"},
         )
         strat.generate_orders(_sample_markets())
         history = strat.get_performance_history()
         assert len(history) == 1
-        assert history[0]["asset"] == "ETH"
+        assert history[0]["asset"] == "USDbC"
         assert history[0]["apy_at_entry"] == "0.020"
         assert history[0]["exit_time"] is not None
 
     def test_no_record_without_rotation(self) -> None:
         strat, _, tracker = _make_strategy()
         tracker.open_position(
-            strategy="STRAT-001", protocol="aave", chain="ethereum",
+            strategy="LEND-001", protocol="aave", chain="base",
             asset="USDC", entry_price="1", amount="3000",
             position_id="aave-pos",
             protocol_data={"current_apy": "0.042"},
@@ -328,10 +340,10 @@ class TestPerformanceTracking:
 
     def test_multiple_rotations_accumulate(self) -> None:
         strat, _, tracker = _make_strategy()
-        # First rotation: ETH → USDC
+        # First rotation: USDbC → USDC
         tracker.open_position(
-            strategy="STRAT-001", protocol="aave", chain="ethereum",
-            asset="ETH", entry_price="2000", amount="1.5",
+            strategy="LEND-001", protocol="aave", chain="base",
+            asset="USDbC", entry_price="1", amount="3000",
             position_id="p1",
             protocol_data={"current_apy": "0.020"},
         )
@@ -339,9 +351,9 @@ class TestPerformanceTracking:
         assert len(strat.get_performance_history()) == 1
 
         # Simulate: close old, open new position as USDC
-        tracker.close_position("p1", exit_price="2000")
+        tracker.close_position("p1", exit_price="1")
         tracker.open_position(
-            strategy="STRAT-001", protocol="aave", chain="ethereum",
+            strategy="LEND-001", protocol="aave", chain="base",
             asset="USDC", entry_price="1", amount="3000",
             position_id="p2",
             protocol_data={"current_apy": "0.042"},

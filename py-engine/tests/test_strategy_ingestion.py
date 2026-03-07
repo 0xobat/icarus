@@ -22,86 +22,72 @@ from strategies.ingestion import (
 # ---------------------------------------------------------------------------
 
 SAMPLE_STRATEGY_MD = """\
-# Strategy Definitions
+# Icarus Strategy Definitions — v1
 
-## Aave Lending Optimization
-Tier: 1
-Risk: Low risk
+Chain: Base
+Assets: Stablecoins only (USDC, USDbC, DAI)
+Risk Profile: Conservative
 
-Rotate supplied assets across Aave V3 markets to capture highest
-risk-adjusted supply APY on Ethereum and Arbitrum.
+---
 
-**Entry Conditions:**
-- Supply APY exceeds 3% on any whitelisted asset
-- Net improvement after gas exceeds 0.5%
+## Aave V3 Lending Supply
 
-**Exit Conditions:**
-- APY drops below 1%
-- Protocol TVL drops >30% in 24h
+**Tier: 1** | **Risk Profile: Low Risk**
 
-**Constraints:**
-- Max 40% of portfolio in Aave
-- Only whitelisted assets (ETH, WBTC, USDC, DAI)
+ID: LEND-001
 
-## Lido Liquid Staking
-Tier: 1
-Risk: Low risk
+Supply stablecoins to Aave V3 on Base. Rotate to highest supply APY
+market when the APY differential exceeds threshold after gas costs.
 
-Stake ETH via Lido for stETH yield on Ethereum.
+**Protocols:** Aave V3
+**Chains:** Base
 
 **Entry Conditions:**
-- stETH APR above 3.5%
-- Queue status is open
+- Target market APY exceeds current position APY by at least 0.5% after gas
+- Target market has at least $1M available liquidity
 
 **Exit Conditions:**
-- APR drops below 2%
-- Withdrawal queue delays exceed 7 days
+- Supply APY drops below 1.0%
+- Protocol TVL drops more than 30% in 24 hours (circuit breaker)
 
 **Constraints:**
-- Max 30% of portfolio in Lido
+- Max 70% of portfolio
+- Min position size of $100 USD equivalent
+- Assets: USDC, USDbC only
 
-## Uniswap V3 Concentrated Liquidity
-Tier: 2
-Risk: Medium risk
+---
 
-Provide concentrated liquidity on Uniswap V3 pools on Ethereum and Base.
+## Aerodrome Stable LP
+
+**Tier: 1** | **Risk Profile: Low Risk**
+
+ID: LP-001
+
+Provide liquidity to stable-stable pools on Aerodrome (USDC/USDbC,
+USDC/DAI). Harvest AERO emission rewards, swap AERO to USDC,
+re-deposit to compound.
+
+**Protocols:** Aerodrome
+**Chains:** Base
 
 **Entry Conditions:**
-- Pool volume >$1M/day
-- Fee APR >10% after IL estimation
+- Pool emission APR exceeds 3.0%
+- Pool TVL exceeds $500K
 
 **Exit Conditions:**
-- Price moves outside tick range
-- IL exceeds 5% of position
+- Pool emission APR drops below 1.5%
+- AERO price drops more than 50% in 24 hours
 
 **Constraints:**
-- Max 25% of portfolio in Uniswap
-- Only ETH/USDC and WBTC/ETH pairs
-
-## Flash Loan Arbitrage
-Tier: 3
-Risk: High risk
-
-Execute flash loan arbitrage between Aave and Uniswap on Ethereum.
-Uses Flashbots for MEV protection.
-
-**Entry Conditions:**
-- Price spread >0.5% between pools
-- Gas cost < 50% of expected profit
-
-**Exit Conditions:**
-- Spread disappears
-- Gas exceeds threshold
-
-**Constraints:**
-- Max 10% of portfolio
-- Must use Flashbots protect
+- Max 30% of portfolio
+- Min position size of $100 USD equivalent
+- Stable-stable pairs only (no volatile/stable pairs)
 """
 
 MINIMAL_STRATEGY_MD = """\
 ## Simple Strategy
 Tier: 1
-Uses Aave on Ethereum.
+Uses Aave on Base.
 - Entry when APY > 5%
 - Exit when APY < 2%
 """
@@ -134,16 +120,17 @@ class TestExtractTier:
         assert _extract_tier("Tier: 1") == 1
 
     def test_tier_without_colon(self) -> None:
-        assert _extract_tier("Tier 2") == 2
+        assert _extract_tier("Tier 1") == 1
 
     def test_tier_in_text(self) -> None:
-        assert _extract_tier("This is a Tier 3 strategy") == 3
+        assert _extract_tier("This is a Tier 1 strategy") == 1
 
     def test_no_tier(self) -> None:
         assert _extract_tier("No tier info here") is None
 
     def test_invalid_tier(self) -> None:
         assert _extract_tier("Tier 5") is None
+        assert _extract_tier("Tier 2") is None
 
 
 class TestExtractListItems:
@@ -174,16 +161,12 @@ class TestExtractProtocols:
         protos = _extract_protocols("Uses Aave V3 for lending")
         assert "aave" in protos or "aave_v3" in protos
 
-    def test_finds_uniswap(self) -> None:
-        protos = _extract_protocols("Uniswap V3 concentrated liquidity")
-        assert "uniswap" in protos or "uniswap_v3" in protos
-
-    def test_finds_lido(self) -> None:
-        protos = _extract_protocols("Stake via Lido")
-        assert "lido" in protos
+    def test_finds_aerodrome(self) -> None:
+        protos = _extract_protocols("Provide liquidity on Aerodrome")
+        assert "aerodrome" in protos
 
     def test_finds_multiple(self) -> None:
-        protos = _extract_protocols("Arbitrage between Aave and Uniswap using Flashbots")
+        protos = _extract_protocols("Uses Aave and Aerodrome on Base")
         assert len(protos) >= 2
 
     def test_no_protocols(self) -> None:
@@ -193,17 +176,8 @@ class TestExtractProtocols:
 
 class TestExtractChains:
 
-    def test_finds_ethereum(self) -> None:
-        chains = _extract_chains("Deploy on Ethereum mainnet")
-        assert "ethereum" in chains
-
-    def test_finds_arbitrum(self) -> None:
-        chains = _extract_chains("Also runs on Arbitrum")
-        assert "arbitrum" in chains
-
-    def test_finds_multiple(self) -> None:
-        chains = _extract_chains("Ethereum and Base chains")
-        assert "ethereum" in chains
+    def test_finds_base(self) -> None:
+        chains = _extract_chains("Deploy on Base")
         assert "base" in chains
 
     def test_no_chains(self) -> None:
@@ -237,58 +211,55 @@ class TestParseStrategyMd:
 
     def test_parses_all_strategies(self) -> None:
         specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
-        assert len(specs) == 4
+        assert len(specs) == 2
 
     def test_extracts_names(self) -> None:
         specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
         names = [s.name for s in specs]
-        assert "Aave Lending Optimization" in names
-        assert "Lido Liquid Staking" in names
+        assert "Aave V3 Lending Supply" in names
+        assert "Aerodrome Stable LP" in names
 
-    def test_extracts_tiers(self) -> None:
+    def test_extracts_ids(self) -> None:
         specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
-        by_name = {s.name: s for s in specs}
-        assert by_name["Aave Lending Optimization"].tier == 1
-        assert by_name["Uniswap V3 Concentrated Liquidity"].tier == 2
-        assert by_name["Flash Loan Arbitrage"].tier == 3
+        ids = sorted(s.id for s in specs)
+        assert ids == ["LEND-001", "LP-001"]
+
+    def test_all_tier_1(self) -> None:
+        specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
+        assert all(s.tier == 1 for s in specs)
 
     def test_extracts_protocols(self) -> None:
         specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
-        by_name = {s.name: s for s in specs}
-        aave_spec = by_name["Aave Lending Optimization"]
-        assert any("aave" in p for p in aave_spec.protocols)
+        by_id = {s.id: s for s in specs}
+        assert any("aave" in p for p in by_id["LEND-001"].protocols)
+        assert "aerodrome" in by_id["LP-001"].protocols
 
     def test_extracts_chains(self) -> None:
         specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
-        by_name = {s.name: s for s in specs}
-        aave_spec = by_name["Aave Lending Optimization"]
-        assert "ethereum" in aave_spec.chains
+        for spec in specs:
+            assert "base" in spec.chains
 
     def test_extracts_risk_profile(self) -> None:
         specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
-        by_name = {s.name: s for s in specs}
-        assert by_name["Aave Lending Optimization"].risk_profile == "low"
-        assert by_name["Flash Loan Arbitrage"].risk_profile == "high"
+        for spec in specs:
+            assert spec.risk_profile == "low"
 
     def test_extracts_entry_conditions(self) -> None:
         specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
-        by_name = {s.name: s for s in specs}
-        aave_spec = by_name["Aave Lending Optimization"]
-        assert len(aave_spec.entry_conditions) >= 1
+        by_id = {s.id: s for s in specs}
+        assert len(by_id["LEND-001"].entry_conditions) >= 1
 
     def test_extracts_exit_conditions(self) -> None:
         specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
-        by_name = {s.name: s for s in specs}
-        aave_spec = by_name["Aave Lending Optimization"]
-        assert len(aave_spec.exit_conditions) >= 1
+        by_id = {s.id: s for s in specs}
+        assert len(by_id["LEND-001"].exit_conditions) >= 1
 
     def test_extracts_constraints(self) -> None:
         specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
-        by_name = {s.name: s for s in specs}
-        aave_spec = by_name["Aave Lending Optimization"]
-        assert len(aave_spec.constraints) >= 1
+        by_id = {s.id: s for s in specs}
+        assert len(by_id["LEND-001"].constraints) >= 1
 
-    def test_generates_ids(self) -> None:
+    def test_generates_unique_ids(self) -> None:
         specs = parse_strategy_md(SAMPLE_STRATEGY_MD)
         ids = [s.id for s in specs]
         assert all(ids)
@@ -320,7 +291,7 @@ class TestStrategySpec:
             id="test-strategy",
             tier=1,
             protocols=["aave"],
-            chains=["ethereum"],
+            chains=["base"],
         )
         d = spec.to_dict()
         assert d["name"] == "Test"
@@ -360,7 +331,7 @@ class TestValidateSpec:
             id="test",
             tier=1,
             protocols=["aave"],
-            chains=["ethereum"],
+            chains=["base"],
         )
         valid, errors = validate_spec(spec)
         assert valid
@@ -379,7 +350,7 @@ class TestValidateSpec:
         assert any("id" in e for e in errors)
 
     def test_invalid_tier(self) -> None:
-        spec = StrategySpec(name="Test", id="test", tier=5)
+        spec = StrategySpec(name="Test", id="test", tier=2)
         valid, errors = validate_spec(spec)
         assert not valid
         assert any("tier" in e for e in errors)
@@ -403,7 +374,7 @@ class TestValidateSpec:
         assert any("Unrecognized chain" in e for e in errors)
 
     def test_valid_with_known_protocols(self) -> None:
-        for proto in ("aave", "uniswap_v3", "lido"):
+        for proto in ("aave", "aave_v3", "aerodrome"):
             spec = StrategySpec(name="T", id="t", tier=1, protocols=[proto])
             valid, _ = validate_spec(spec)
             assert valid, f"Protocol {proto} should be valid"
@@ -478,20 +449,20 @@ class TestStrategyIngestorFirstRun:
     def test_first_run_all_new(self) -> None:
         ingestor = StrategyIngestor()
         result = ingestor.ingest(SAMPLE_STRATEGY_MD)
-        assert len(result.specs) == 4
-        assert len(result.new_strategies) == 4
+        assert len(result.specs) == 2
+        assert len(result.new_strategies) == 2
         assert result.modified_strategies == []
         assert result.removed_strategies == []
 
     def test_first_run_stores_hashes(self) -> None:
         ingestor = StrategyIngestor()
         ingestor.ingest(SAMPLE_STRATEGY_MD)
-        assert len(ingestor.stored_hashes) == 4
+        assert len(ingestor.stored_hashes) == 2
 
     def test_first_run_stores_specs(self) -> None:
         ingestor = StrategyIngestor()
         ingestor.ingest(SAMPLE_STRATEGY_MD)
-        assert len(ingestor.last_specs) == 4
+        assert len(ingestor.last_specs) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -505,20 +476,23 @@ class TestStrategyIngestorChangeDetection:
         ingestor.ingest(SAMPLE_STRATEGY_MD)
         result = ingestor.ingest(SAMPLE_STRATEGY_MD)
         assert not result.has_changes()
-        assert len(result.unchanged_strategies) == 4
+        assert len(result.unchanged_strategies) == 2
 
     def test_detects_modification(self) -> None:
         ingestor = StrategyIngestor()
         ingestor.ingest(SAMPLE_STRATEGY_MD)
-        modified = SAMPLE_STRATEGY_MD.replace("Tier: 1", "Tier: 2", 1)
+        modified = SAMPLE_STRATEGY_MD.replace(
+            "Max 70% of portfolio",
+            "Max 60% of portfolio",
+        )
         result = ingestor.ingest(modified)
         assert len(result.modified_strategies) >= 1
 
     def test_detects_removal(self) -> None:
         ingestor = StrategyIngestor()
         ingestor.ingest(SAMPLE_STRATEGY_MD)
-        # Remove the last strategy (Flash Loan Arbitrage)
-        reduced = SAMPLE_STRATEGY_MD.split("## Flash Loan Arbitrage")[0]
+        # Remove the Aerodrome strategy
+        reduced = SAMPLE_STRATEGY_MD.split("## Aerodrome Stable LP")[0]
         result = ingestor.ingest(reduced)
         assert len(result.removed_strategies) >= 1
 
@@ -526,7 +500,7 @@ class TestStrategyIngestorChangeDetection:
         ingestor = StrategyIngestor()
         ingestor.ingest(MINIMAL_STRATEGY_MD)
         result = ingestor.ingest(SAMPLE_STRATEGY_MD)
-        assert len(result.new_strategies) >= 3
+        assert len(result.new_strategies) >= 1
 
     def test_mixed_changes(self) -> None:
         ingestor = StrategyIngestor()
@@ -534,10 +508,10 @@ class TestStrategyIngestorChangeDetection:
 
         # Modify one strategy and add a new one
         modified = SAMPLE_STRATEGY_MD.replace(
-            "Supply APY exceeds 3%",
-            "Supply APY exceeds 5%",
+            "at least 0.5% after gas",
+            "at least 1.0% after gas",
         )
-        modified += "\n## New Strategy\nTier: 2\nUses Curve on Ethereum.\n"
+        modified += "\n## New Strategy\nTier: 1\nUses Aave on Base.\n"
         result = ingestor.ingest(modified)
         assert result.has_changes()
 
@@ -582,7 +556,7 @@ class TestStrategyIngestorValidation:
         ingestor = StrategyIngestor()
         result = ingestor.ingest(SAMPLE_STRATEGY_MD)
         assert len(result.validation_errors) == 0
-        assert len(result.specs) == 4
+        assert len(result.specs) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -595,7 +569,7 @@ class TestStrategyIngestorRetirement:
         ingestor = StrategyIngestor()
         ingestor.ingest(SAMPLE_STRATEGY_MD)
         result = ingestor.ingest(MINIMAL_STRATEGY_MD)
-        assert len(result.removed_strategies) >= 3
+        assert len(result.removed_strategies) >= 1
 
     def test_removed_strategies_not_in_specs(self) -> None:
         ingestor = StrategyIngestor()
@@ -621,8 +595,8 @@ class TestStrategyIngestorCodegen:
         ingestor = StrategyIngestor()
         ingestor.ingest(SAMPLE_STRATEGY_MD)
         modified = SAMPLE_STRATEGY_MD.replace(
-            "Supply APY exceeds 3%",
-            "Supply APY exceeds 8%",
+            "at least 0.5% after gas",
+            "at least 1.0% after gas",
         )
         result = ingestor.ingest(modified)
         codegen = result.strategies_needing_codegen()
@@ -646,7 +620,7 @@ class TestStrategyIngestorFile:
         md_path.write_text(SAMPLE_STRATEGY_MD)
         ingestor = StrategyIngestor()
         result = ingestor.ingest_file(str(md_path))
-        assert len(result.specs) == 4
+        assert len(result.specs) == 2
 
     def test_ingest_missing_file(self) -> None:
         import pytest
