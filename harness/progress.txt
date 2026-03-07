@@ -534,4 +534,30 @@ Final state: 45/62 features passing, 947 Python tests + 190 TS tests = 1,137 tot
 Baseline commit: b925b60 (dev)
 verify.sh: PASS
 Blocked: none
-Next: Update shared JSON schemas to remove unused protocols/chains, update prd.md for v1 scope
+Next: Update prd.md for v1 scope
+
+--- Session 2026-03-06-03 (Cross-service sync to v1 scope) ---
+Agent: Claude Opus 4.6
+Worked on: Aligning all services after py-engine simplification
+
+Batch 1 — Quick fixes (py-engine + shared schemas):
+  - ai/insight_synthesis.py:339: protocol loop updated from ("aave", "uniswap_v3", "lido") → ("aave", "aerodrome")
+  - shared/schemas/execution-orders.schema.json: chain enum ["ethereum","base"], protocol enum ["aave_v3","aerodrome"]
+  - shared/schemas/market-events.schema.json: chain enum ["ethereum","base"], protocol enum ["aave_v3","aerodrome","system"]
+  - pyproject.toml: removed unused scikit-learn dependency
+  - Docstring fixes: defi_metrics.py (gmx→aerodrome), tvl_monitor.py (lido→aerodrome)
+  - README.md: removed Arbitrum from chain list, updated adapter count 6→2
+  - .env.example: removed Arbitrum env vars, Discord alert vars
+
+Batch 2 — ts-executor Arbitrum/GMX removal:
+  - l2-listener.ts: removed GMX_EVENT_ABI, defaultArbitrumConfig(), arbitrum import/handling (~150 lines)
+  - event-normalizer.ts: Chain type narrowed to 'ethereum' | 'base'
+  - l2-listener.test.ts: rewritten for Base-only (14 tests, was ~20)
+  - transaction-builder.test.ts: replaced lido/uniswap_v3 mock adapters with aave_v3/aerodrome
+  - websocket-manager.test.ts: replaced arbitrum chain reference with base
+  - index.ts: updated comment "Arbitrum, Base" → "Base"
+
+Final state: 947 Python tests + 185 TS tests = 1,132 total (5 TS tests removed)
+verify.sh: PASS
+Blocked: none
+Next: Update prd.md for v1 scope

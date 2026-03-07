@@ -336,7 +336,7 @@ class InsightSynthesizer:
     def _collect_defi_metrics(self) -> dict[str, Any]:
         """Collect DeFi protocol metrics."""
         metrics: dict[str, Any] = {}
-        for protocol in ("aave", "uniswap_v3", "lido"):
+        for protocol in ("aave", "aerodrome"):
             try:
                 data = self._defi_metrics.get_metrics(protocol)
                 if data is not None:

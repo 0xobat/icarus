@@ -51,7 +51,7 @@ bash harness/verify.sh               # both + lint + schema checks
 │  risk/       │ ──────────►│  wallet/      │
 │  portfolio/  │            │  security/    │
 │  data/       │  exec:     │               │
-│  ml/         │  orders    │  6 protocol   │
+│              │  orders    │  2 protocol   │
 │  reporting/  │◄───────────│  adapters     │
 │              │  exec:     │               │
 │              │  results   │  L1 + L2      │
@@ -59,7 +59,7 @@ bash harness/verify.sh               # both + lint + schema checks
 └─────────────┘            └──────────────┘
 ```
 
-Chains: Ethereum (Sepolia), Arbitrum, Base.
+Chains: Ethereum (Sepolia), Base.
 
 All Redis messages validated against JSON schemas in `shared/schemas/`.
 

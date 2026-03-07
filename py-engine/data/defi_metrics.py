@@ -282,7 +282,7 @@ class DeFiMetricsCollector:
         """Fetch metrics for an L2 protocol on a given chain.
 
         Args:
-            protocol: Protocol identifier (e.g. "gmx", "aerodrome").
+            protocol: Protocol identifier (e.g. "aerodrome").
             chain: Chain identifier (e.g. "base").
 
         Returns:

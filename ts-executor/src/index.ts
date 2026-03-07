@@ -205,7 +205,7 @@ async function main(): Promise<void> {
   await wsManager.connect();
   log("ws_connected", "WebSocket manager connected");
 
-  // Start L2 chain listeners (Arbitrum, Base)
+  // Start L2 chain listener (Base)
   await l2Manager.connectAll();
   log("l2_started", "L2 listeners connected");
 

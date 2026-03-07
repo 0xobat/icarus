@@ -22,7 +22,7 @@
     },
     "chain": {
       "type": "string",
-      "enum": ["ethereum", "arbitrum", "base", "solana"]
+      "enum": ["ethereum", "base"]
     },
     "eventType": {
       "type": "string",
@@ -30,7 +30,7 @@
     },
     "protocol": {
       "type": "string",
-      "enum": ["aave_v3", "uniswap_v3", "lido", "gmx", "aerodrome", "marinade", "raydium", "jupiter", "system"]
+      "enum": ["aave_v3", "aerodrome", "system"]
     },
     "blockNumber": {
       "type": "integer",

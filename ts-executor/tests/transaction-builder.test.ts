@@ -557,7 +557,7 @@ describe('TransactionBuilder', () => {
       vi.useRealTimers();
 
       const adapters = new Map<string, ProtocolAdapter>();
-      adapters.set('lido', {
+      adapters.set('aave_v3', {
         buildTransaction: vi.fn().mockResolvedValue({ to: '0x00' as `0x${string}` }),
       });
 
@@ -588,12 +588,12 @@ describe('TransactionBuilder', () => {
       };
 
       const adapters = new Map<string, ProtocolAdapter>();
-      adapters.set('uniswap_v3', mockAdapter);
+      adapters.set('aerodrome', mockAdapter);
 
       const builder = createBuilder({ adapters });
 
       const order = makeOrder({
-        protocol: 'uniswap_v3',
+        protocol: 'aerodrome',
         action: 'swap',
         limits: {
           maxGasWei: '10000000000000000',

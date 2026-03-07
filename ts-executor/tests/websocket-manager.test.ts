@@ -251,7 +251,7 @@ describe('AlchemyWebSocketManager', () => {
     it('accepts custom chain', () => {
       const manager = new AlchemyWebSocketManager({
         wsUrl: 'wss://test',
-        chain: 'arbitrum',
+        chain: 'base',
       });
       expect(manager).toBeDefined();
     });

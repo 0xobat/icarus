@@ -1,12 +1,12 @@
 /**
- * LISTEN-003: L2 chain listeners (Arbitrum, Base).
+ * LISTEN-003: L2 chain listener (Base).
  *
- * Extends chain listening to L2 networks with:
- * - WebSocket connections to Arbitrum and Base via Alchemy
+ * Extends chain listening to Base L2 with:
+ * - WebSocket connection to Base via Alchemy
  * - Events published to same market:events channel with chain identifier
- * - L2-specific protocol parsing (GMX events, Aerodrome pool changes)
+ * - L2-specific protocol parsing (Aerodrome pool changes)
  * - L2-specific handling (faster block times, different finality)
- * - Per-chain enable/disable via configuration
+ * - Enable/disable via configuration
  */
 
 import {
@@ -19,7 +19,7 @@ import {
   type Abi,
   parseAbi,
 } from 'viem';
-import { arbitrum, base } from 'viem/chains';
+import { base } from 'viem/chains';
 import {
   normalizeNewBlock,
   normalizeContractEvent,
@@ -29,13 +29,6 @@ import {
 } from './event-normalizer.js';
 
 // ── L2 Protocol ABIs ──────────────────────────────
-
-/** GMX V2 event ABI for position changes on Arbitrum. */
-const GMX_EVENT_ABI = parseAbi([
-  'event PositionIncrease(bytes32 indexed key, address account, address collateralToken, address indexToken, uint256 collateralDelta, uint256 sizeDelta, bool isLong, uint256 price, uint256 fee)',
-  'event PositionDecrease(bytes32 indexed key, address account, address collateralToken, address indexToken, uint256 collateralDelta, uint256 sizeDelta, bool isLong, uint256 price, uint256 fee)',
-  'event Swap(address account, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut)',
-]);
 
 /** Aerodrome pool event ABI for liquidity changes on Base. */
 const AERODROME_EVENT_ABI = parseAbi([
@@ -81,8 +74,6 @@ export interface L2ProtocolContract {
 
 /** Options for the L2 listener manager. */
 export interface L2ListenerOptions {
-  /** Arbitrum chain configuration. */
-  arbitrum?: Partial<L2ChainConfig>;
   /** Base chain configuration. */
   base?: Partial<L2ChainConfig>;
   /** Callback when normalized events are ready. */
@@ -113,32 +104,10 @@ type Unwatch = () => void;
 
 // ── Default Addresses ──────────────────────────────
 
-/** GMX V2 EventEmitter on Arbitrum. */
-const DEFAULT_GMX_EVENT_EMITTER: `0x${string}` = '0xC8ee91a54287DB53897056e12D9819156D3822Fb';
 /** Aerodrome Router on Base. */
 const DEFAULT_AERODROME_ROUTER: `0x${string}` = '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43';
 
 // ── Default Configs ──────────────────────────────
-
-/** Default configuration for Arbitrum. */
-function defaultArbitrumConfig(overrides?: Partial<L2ChainConfig>): L2ChainConfig {
-  return {
-    chain: 'arbitrum',
-    enabled: overrides?.enabled ?? (process.env.LISTEN_ARBITRUM_ENABLED !== 'false'),
-    wsUrl: overrides?.wsUrl ?? process.env.ALCHEMY_ARBITRUM_WS_URL,
-    httpUrl: overrides?.httpUrl ?? process.env.ALCHEMY_ARBITRUM_HTTP_URL,
-    blockTimeMs: overrides?.blockTimeMs ?? 250,
-    finalityBlocks: overrides?.finalityBlocks ?? 64,
-    protocolContracts: overrides?.protocolContracts ?? [
-      {
-        protocol: 'gmx',
-        address: (process.env.GMX_EVENT_EMITTER_ADDRESS as `0x${string}` | undefined) ?? DEFAULT_GMX_EVENT_EMITTER,
-        abi: GMX_EVENT_ABI,
-        eventType: 'swap',
-      },
-    ],
-  };
-}
 
 /** Default configuration for Base. */
 function defaultBaseConfig(overrides?: Partial<L2ChainConfig>): L2ChainConfig {
@@ -237,16 +206,14 @@ class SingleChainListener {
       if (this.testClient) {
         this.client = this.testClient;
       } else {
-        const viemChain = this.config.chain === 'arbitrum' ? arbitrum : base;
-
         if (this.config.wsUrl) {
           this.client = createPublicClient({
-            chain: viemChain,
+            chain: base,
             transport: webSocket(this.config.wsUrl, { reconnect: false }),
           }) as PublicClient;
         } else if (this.config.httpUrl) {
           this.client = createPublicClient({
-            chain: viemChain,
+            chain: base,
             transport: http(this.config.httpUrl),
           }) as PublicClient;
         } else {
@@ -397,24 +364,15 @@ class SingleChainListener {
 
   /** Parse L2-specific event data into a normalized record. */
   private parseL2Event(protocol: string, log: Log): Record<string, unknown> {
-    const base: Record<string, unknown> = {
+    return {
       address: log.address,
       topics: log.topics,
       logIndex: Number(log.logIndex),
       protocol,
       chain: this.config.chain,
+      l2BlockTimeMs: this.config.blockTimeMs,
+      finalityBlocks: this.config.finalityBlocks,
     };
-
-    // Add L2-specific metadata
-    if (this.config.chain === 'arbitrum') {
-      base.l2BlockTimeMs = this.config.blockTimeMs;
-      base.finalityBlocks = this.config.finalityBlocks;
-    } else if (this.config.chain === 'base') {
-      base.l2BlockTimeMs = this.config.blockTimeMs;
-      base.finalityBlocks = this.config.finalityBlocks;
-    }
-
-    return base;
   }
 
   /** Update health tracking timestamp. */
@@ -471,7 +429,7 @@ class SingleChainListener {
 
 // ── L2 Listener Manager ──────────────────────────
 
-/** Manages L2 chain listeners for Arbitrum and Base. */
+/** Manages L2 chain listener for Base. */
 export class L2ListenerManager {
   private readonly listeners: Map<MarketChain, SingleChainListener> = new Map();
   private readonly log: (event: string, message: string, extra?: Record<string, unknown>) => void;
@@ -481,17 +439,7 @@ export class L2ListenerManager {
     this.onEvent = opts.onEvent ?? (() => {});
     this.log = opts.onLog ?? (() => {});
 
-    const arbConfig = defaultArbitrumConfig(opts.arbitrum);
     const baseConfig = defaultBaseConfig(opts.base);
-
-    if (arbConfig.enabled) {
-      this.listeners.set('arbitrum', new SingleChainListener(
-        arbConfig,
-        this.onEvent,
-        this.log,
-        opts.publicClients?.arbitrum,
-      ));
-    }
 
     if (baseConfig.enabled) {
       this.listeners.set('base', new SingleChainListener(
@@ -564,6 +512,6 @@ export class L2ListenerManager {
   }
 }
 
-// ── Exports for protocol ABIs (used by EXEC-009) ──
+// ── Exports for protocol ABIs ──────────────────────
 
-export { GMX_EVENT_ABI, AERODROME_EVENT_ABI };
+export { AERODROME_EVENT_ABI };

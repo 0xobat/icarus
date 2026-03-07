@@ -9,7 +9,7 @@ function createMockPublicClient() {
   const contractCallbacks: Array<(logs: any[]) => void> = [];
 
   return {
-    getChainId: vi.fn().mockResolvedValue(42161),
+    getChainId: vi.fn().mockResolvedValue(8453),
     watchBlocks: vi.fn().mockImplementation(({ onBlock }: any) => {
       blockCallbacks.push(onBlock);
       return () => {};
@@ -28,19 +28,6 @@ function createOptions(overrides?: Partial<L2ListenerOptions>): L2ListenerOption
   return {
     onEvent: overrides?.onEvent ?? vi.fn(),
     onLog: overrides?.onLog ?? vi.fn(),
-    arbitrum: {
-      enabled: true,
-      wsUrl: 'wss://test-arb-ws',
-      blockTimeMs: 250,
-      finalityBlocks: 64,
-      protocolContracts: [{
-        protocol: 'gmx',
-        address: '0x1234567890abcdef1234567890abcdef12345678',
-        abi: [],
-        eventType: 'swap' as const,
-      }],
-      ...overrides?.arbitrum,
-    },
     base: {
       enabled: true,
       wsUrl: 'wss://test-base-ws',
@@ -66,29 +53,16 @@ describe('L2ListenerManager', () => {
   });
 
   describe('constructor', () => {
-    it('configures both Arbitrum and Base listeners when enabled', () => {
+    it('configures Base listener when enabled', () => {
       const opts = createOptions();
       const manager = new L2ListenerManager(opts);
 
-      expect(manager.enabledChains).toContain('arbitrum');
       expect(manager.enabledChains).toContain('base');
-      expect(manager.enabledChains).toHaveLength(2);
+      expect(manager.enabledChains).toHaveLength(1);
     });
 
     it('excludes disabled chains', () => {
       const opts = createOptions({
-        arbitrum: { enabled: false },
-        base: { enabled: true, wsUrl: 'wss://test' },
-      });
-      const manager = new L2ListenerManager(opts);
-
-      expect(manager.enabledChains).not.toContain('arbitrum');
-      expect(manager.enabledChains).toContain('base');
-    });
-
-    it('handles both chains disabled', () => {
-      const opts = createOptions({
-        arbitrum: { enabled: false },
         base: { enabled: false },
       });
       const manager = new L2ListenerManager(opts);
@@ -98,15 +72,13 @@ describe('L2ListenerManager', () => {
   });
 
   describe('connectAll', () => {
-    it('connects to all enabled chains', async () => {
-      const mockArbClient = createMockPublicClient();
+    it('connects to Base', async () => {
       const mockBaseClient = createMockPublicClient();
       const logs: Array<{ event: string }> = [];
 
       const opts = createOptions({
         onLog: (event: string) => logs.push({ event }),
         publicClients: {
-          arbitrum: mockArbClient,
           base: mockBaseClient,
         },
       });
@@ -114,20 +86,18 @@ describe('L2ListenerManager', () => {
       const manager = new L2ListenerManager(opts);
       await manager.connectAll();
 
-      expect(manager.isConnected('arbitrum')).toBe(true);
       expect(manager.isConnected('base')).toBe(true);
       expect(logs.some((l) => l.event === 'l2_manager_start')).toBe(true);
       expect(logs.some((l) => l.event === 'l2_manager_ready')).toBe(true);
     });
 
-    it('logs connection for each chain', async () => {
+    it('logs connection for Base chain', async () => {
       const mockClient = createMockPublicClient();
       const logs: Array<{ event: string; extra?: Record<string, unknown> }> = [];
 
       const opts = createOptions({
         onLog: (event, _msg, extra) => logs.push({ event, extra }),
         publicClients: {
-          arbitrum: mockClient,
           base: mockClient,
         },
       });
@@ -135,10 +105,10 @@ describe('L2ListenerManager', () => {
       const manager = new L2ListenerManager(opts);
       await manager.connectAll();
 
-      const arbConnected = logs.filter((l) =>
-        l.event === 'l2_connected' && l.extra?.chain === 'arbitrum'
+      const baseConnected = logs.filter((l) =>
+        l.event === 'l2_connected' && l.extra?.chain === 'base'
       );
-      expect(arbConnected.length).toBeGreaterThanOrEqual(1);
+      expect(baseConnected.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -150,7 +120,6 @@ describe('L2ListenerManager', () => {
       const opts = createOptions({
         onLog: (event) => logs.push({ event }),
         publicClients: {
-          arbitrum: mockClient,
           base: mockClient,
         },
       });
@@ -159,7 +128,6 @@ describe('L2ListenerManager', () => {
       await manager.connectAll();
       await manager.disconnectAll();
 
-      expect(manager.isConnected('arbitrum')).toBe(false);
       expect(manager.isConnected('base')).toBe(false);
       expect(logs.some((l) => l.event === 'l2_manager_stopped')).toBe(true);
     });
@@ -173,15 +141,14 @@ describe('L2ListenerManager', () => {
       const opts = createOptions({
         onEvent: (evt: MarketEvent) => events.push(evt),
         publicClients: {
-          arbitrum: mockClient,
-          base: createMockPublicClient(),
+          base: mockClient,
         },
       });
 
       const manager = new L2ListenerManager(opts);
       await manager.connectAll();
 
-      // Simulate a block event on Arbitrum
+      // Simulate a block event on Base
       const blockCallback = mockClient._blockCallbacks[0];
       if (blockCallback) {
         blockCallback({
@@ -196,7 +163,7 @@ describe('L2ListenerManager', () => {
       expect(events.length).toBeGreaterThanOrEqual(1);
       const blockEvent = events.find((e) => e.eventType === 'new_block');
       expect(blockEvent).toBeDefined();
-      expect(blockEvent?.chain).toBe('arbitrum');
+      expect(blockEvent?.chain).toBe('base');
       expect(blockEvent?.blockNumber).toBe(12345);
     });
 
@@ -207,7 +174,6 @@ describe('L2ListenerManager', () => {
       const opts = createOptions({
         onEvent: (evt: MarketEvent) => events.push(evt),
         publicClients: {
-          arbitrum: createMockPublicClient(),
           base: mockClient,
         },
       });
@@ -215,7 +181,7 @@ describe('L2ListenerManager', () => {
       const manager = new L2ListenerManager(opts);
       await manager.connectAll();
 
-      // Simulate a contract event on Base
+      // Simulate an Aerodrome contract event on Base
       const contractCallback = mockClient._contractCallbacks[0];
       if (contractCallback) {
         contractCallback([{
@@ -240,43 +206,6 @@ describe('L2ListenerManager', () => {
       const opts = createOptions({
         onEvent: (evt: MarketEvent) => events.push(evt),
         publicClients: {
-          arbitrum: mockClient,
-          base: createMockPublicClient(),
-        },
-      });
-
-      const manager = new L2ListenerManager(opts);
-      await manager.connectAll();
-
-      // Simulate GMX event on Arbitrum
-      const contractCallback = mockClient._contractCallbacks[0];
-      if (contractCallback) {
-        contractCallback([{
-          address: '0x1234567890abcdef1234567890abcdef12345678',
-          topics: ['0xgmx_event'],
-          blockNumber: 100n,
-          transactionHash: '0xtx789',
-          logIndex: 0,
-        }]);
-      }
-
-      const gmxEvent = events.find((e) => e.protocol === 'gmx');
-      expect(gmxEvent).toBeDefined();
-      expect(gmxEvent?.data?.chain).toBe('arbitrum');
-      expect(gmxEvent?.data?.l2BlockTimeMs).toBe(250);
-      expect(gmxEvent?.data?.finalityBlocks).toBe(64);
-    });
-  });
-
-  describe('per-chain enable/disable', () => {
-    it('only subscribes to enabled chains', async () => {
-      const mockClient = createMockPublicClient();
-      const events: MarketEvent[] = [];
-
-      const opts = createOptions({
-        onEvent: (evt: MarketEvent) => events.push(evt),
-        arbitrum: { enabled: false },
-        publicClients: {
           base: mockClient,
         },
       });
@@ -284,40 +213,32 @@ describe('L2ListenerManager', () => {
       const manager = new L2ListenerManager(opts);
       await manager.connectAll();
 
-      expect(manager.isConnected('arbitrum')).toBe(false);
-      expect(manager.isConnected('base')).toBe(true);
-    });
+      // Simulate Aerodrome event on Base
+      const contractCallback = mockClient._contractCallbacks[0];
+      if (contractCallback) {
+        contractCallback([{
+          address: '0xabcdef1234567890abcdef1234567890abcdef12',
+          topics: ['0xaero_event'],
+          blockNumber: 100n,
+          transactionHash: '0xtx789',
+          logIndex: 0,
+        }]);
+      }
 
-    it('can connect/disconnect individual chains', async () => {
-      const mockArbClient = createMockPublicClient();
-      const mockBaseClient = createMockPublicClient();
-
-      const opts = createOptions({
-        publicClients: {
-          arbitrum: mockArbClient,
-          base: mockBaseClient,
-        },
-      });
-
-      const manager = new L2ListenerManager(opts);
-      await manager.connectAll();
-
-      expect(manager.isConnected('arbitrum')).toBe(true);
-      expect(manager.isConnected('base')).toBe(true);
-
-      await manager.disconnectChain('arbitrum');
-      expect(manager.isConnected('arbitrum')).toBe(false);
-      expect(manager.isConnected('base')).toBe(true);
+      const aeroEvent = events.find((e) => e.protocol === 'aerodrome');
+      expect(aeroEvent).toBeDefined();
+      expect(aeroEvent?.data?.chain).toBe('base');
+      expect(aeroEvent?.data?.l2BlockTimeMs).toBe(2000);
+      expect(aeroEvent?.data?.finalityBlocks).toBe(12);
     });
   });
 
   describe('getStatus', () => {
-    it('returns status for all configured chains', async () => {
+    it('returns status for Base chain', async () => {
       const mockClient = createMockPublicClient();
 
       const opts = createOptions({
         publicClients: {
-          arbitrum: mockClient,
           base: mockClient,
         },
       });
@@ -326,12 +247,6 @@ describe('L2ListenerManager', () => {
       await manager.connectAll();
 
       const status = manager.getStatus();
-
-      expect(status.arbitrum).toBeDefined();
-      expect(status.arbitrum.enabled).toBe(true);
-      expect(status.arbitrum.connected).toBe(true);
-      expect(status.arbitrum.blockTimeMs).toBe(250);
-      expect(status.arbitrum.finalityBlocks).toBe(64);
 
       expect(status.base).toBeDefined();
       expect(status.base.enabled).toBe(true);
@@ -342,15 +257,6 @@ describe('L2ListenerManager', () => {
   });
 
   describe('L2-specific quirks', () => {
-    it('Arbitrum has faster block time (250ms) and 64-block finality', () => {
-      const opts = createOptions();
-      const manager = new L2ListenerManager(opts);
-      const status = manager.getStatus();
-
-      expect(status.arbitrum?.blockTimeMs).toBe(250);
-      expect(status.arbitrum?.finalityBlocks).toBe(64);
-    });
-
     it('Base has 2s block time and 12-block finality', () => {
       const opts = createOptions();
       const manager = new L2ListenerManager(opts);
@@ -364,45 +270,29 @@ describe('L2ListenerManager', () => {
   describe('error handling', () => {
     it('throws when connecting to unconfigured chain', async () => {
       const opts = createOptions({
-        arbitrum: { enabled: false },
         base: { enabled: false },
       });
       const manager = new L2ListenerManager(opts);
 
-      await expect(manager.connectChain('arbitrum')).rejects.toThrow('not configured');
+      await expect(manager.connectChain('base')).rejects.toThrow('not configured');
     });
 
     it('returns false for unconfigured chain connection check', () => {
       const opts = createOptions({
-        arbitrum: { enabled: false },
         base: { enabled: false },
       });
       const manager = new L2ListenerManager(opts);
 
-      expect(manager.isConnected('arbitrum')).toBe(false);
+      expect(manager.isConnected('base')).toBe(false);
     });
   });
 
   describe('env var enable/disable', () => {
-    const origArb = process.env.LISTEN_ARBITRUM_ENABLED;
     const origBase = process.env.LISTEN_BASE_ENABLED;
 
     afterEach(() => {
-      if (origArb === undefined) delete process.env.LISTEN_ARBITRUM_ENABLED;
-      else process.env.LISTEN_ARBITRUM_ENABLED = origArb;
       if (origBase === undefined) delete process.env.LISTEN_BASE_ENABLED;
       else process.env.LISTEN_BASE_ENABLED = origBase;
-    });
-
-    it('disables Arbitrum when LISTEN_ARBITRUM_ENABLED=false', () => {
-      process.env.LISTEN_ARBITRUM_ENABLED = 'false';
-      const manager = new L2ListenerManager({
-        onEvent: vi.fn(),
-        onLog: vi.fn(),
-        base: { enabled: false },
-      });
-
-      expect(manager.enabledChains).not.toContain('arbitrum');
     });
 
     it('disables Base when LISTEN_BASE_ENABLED=false', () => {
@@ -410,21 +300,18 @@ describe('L2ListenerManager', () => {
       const manager = new L2ListenerManager({
         onEvent: vi.fn(),
         onLog: vi.fn(),
-        arbitrum: { enabled: false },
       });
 
       expect(manager.enabledChains).not.toContain('base');
     });
 
-    it('enables chains by default when env vars not set', () => {
-      delete process.env.LISTEN_ARBITRUM_ENABLED;
+    it('enables Base by default when env var not set', () => {
       delete process.env.LISTEN_BASE_ENABLED;
       const manager = new L2ListenerManager({
         onEvent: vi.fn(),
         onLog: vi.fn(),
       });
 
-      expect(manager.enabledChains).toContain('arbitrum');
       expect(manager.enabledChains).toContain('base');
     });
   });

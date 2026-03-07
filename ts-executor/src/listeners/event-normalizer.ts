@@ -7,7 +7,7 @@ export interface MarketEvent {
   version: '1.0.0';
   timestamp: string;
   sequence: number;
-  chain: 'ethereum' | 'arbitrum' | 'base' | 'solana';
+  chain: 'ethereum' | 'base';
   eventType: 'swap' | 'liquidity_change' | 'rate_change' | 'large_transfer' | 'new_block' | 'price_update';
   protocol: string;
   blockNumber?: number;

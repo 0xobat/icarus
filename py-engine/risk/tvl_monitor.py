@@ -29,8 +29,8 @@ class TVLSnapshot:
     """A single TVL observation for a protocol on a chain.
 
     Attributes:
-        protocol: Protocol identifier (e.g. "aave", "lido").
-        chain: Chain identifier (e.g. "ethereum", "arbitrum").
+        protocol: Protocol identifier (e.g. "aave", "aerodrome").
+        chain: Chain identifier (e.g. "ethereum", "base").
         tvl_usd: Total Value Locked in USD.
         source: Data source (e.g. "defillama", "on-chain").
         timestamp: When the snapshot was captured.
