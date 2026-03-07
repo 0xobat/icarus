@@ -8,10 +8,10 @@
 
 Autonomous DeFi asset management bot. Strategies are defined in `STRATEGY.md` by a human — the system reads them, generates executable code, and runs them autonomously.
 
-The system has two AI integration points:
+The system has one active AI integration point, with a second planned:
 
-1. **Compile time** — Claude reads `STRATEGY.md` and generates Python strategy classes. When strategies change, classes are regenerated.
-2. **Runtime** — Python crunches market data into structured insights. Claude API reasons over those insights to produce trading decisions.
+1. **Runtime** — Python crunches market data into structured insights. Claude API reasons over those insights to produce trading decisions.
+2. **Compile time (planned)** — Claude reads `STRATEGY.md` and generates Python strategy classes. Currently, strategy classes are written manually.
 
 | Metric         | Target         | Hard Limit                      |
 | -------------- | -------------- | ------------------------------- |
@@ -31,16 +31,15 @@ Strategies are data, not code. The system is strategy-agnostic — it executes w
 ### How strategies flow through the system
 
 ```
-STRATEGY.md  →  Ingestion Parser  →  StrategySpec dataclasses
-                                          │
-                                    Claude Code-Gen
-                                          │
-                                    Python strategy class
-                                    (evaluate, should_act, generate_orders)
-                                          │
-                                    Lifecycle Manager
-                                    (evaluating → active → paused → retired)
+STRATEGY.md  →  Manual Python class    (v1 — human writes class per strategy)
+                (evaluate, should_act,
+                 generate_orders)
+                      │
+                Lifecycle Manager
+                (evaluating → active → paused → retired)
 ```
+
+> **Planned (not yet implemented):** Automated pipeline where Claude reads `STRATEGY.md`, parses via ingestion, and generates strategy classes. Currently, adding a strategy requires writing the Python class manually.
 
 ### Strategy contract
 
@@ -168,9 +167,9 @@ icarus/
 │       └── index.ts
 │
 ├── py-engine/                     # Python service — brain
-│   ├── ai/                        # Claude API client, decision engine, code-gen
+│   ├── ai/                        # Claude API client, decision engine, insight synthesis
 │   ├── data/                      # Market data ingestion & enrichment
-│   ├── strategies/                # Strategy classes + ingestion parser
+│   ├── strategies/                # Strategy classes (manually written per STRATEGY.md)
 │   ├── risk/                      # Circuit breakers & exposure limits
 │   ├── portfolio/                 # Position tracker, capital allocator
 │   ├── harness/                   # State recovery, diagnostics
@@ -190,7 +189,7 @@ icarus/
 | Component         | Technology                           |
 | ----------------- | ------------------------------------ |
 | Decision Engine   | Claude API (Anthropic)               |
-| Strategy Code-Gen | Claude API + STRATEGY.md             |
+| Strategy Code-Gen | Manual (planned: Claude API + STRATEGY.md) |
 | RPC Provider      | Alchemy (WebSockets + Enhanced APIs) |
 | Chain Interactions| viem (TypeScript)                    |
 | Message Broker    | Redis 7+ (pub/sub + Streams)         |
@@ -198,7 +197,7 @@ icarus/
 | Database          | PostgreSQL (trade history)           |
 | Deployment        | Docker Compose → Railway             |
 | Wallet            | Safe 1-of-2 Multisig (Safe{Core})    |
-| Monitoring        | Structured JSON logs + Discord       |
+| Monitoring        | Structured JSON logs                 |
 
 ---
 
@@ -261,8 +260,8 @@ Specific limits (e.g. "max 70% in protocol X") are set via `STRATEGY.md` portfol
 ### Human-in-the-loop
 
 - Trades >15% of portfolio require confirmation
-- Emergency override via Discord: pause all, force-unwind, withdraw
-- Strategy updates in `STRATEGY.md` trigger regeneration, enter as "evaluating"
+- Emergency override: pause all, force-unwind, withdraw (notification channel TBD)
+- Strategy updates in `STRATEGY.md` require corresponding Python class update; new strategies enter as "evaluating"
 
 ---
 
@@ -271,8 +270,8 @@ Specific limits (e.g. "max 70% in protocol X") are set via `STRATEGY.md` portfol
 ### Adding a new strategy
 
 1. Edit `STRATEGY.md` — define name, tier, protocols, chains, entry/exit conditions, constraints
-2. System detects change, Claude generates Python class
-3. Lifecycle manager picks up new class as "evaluating"
+2. Write Python strategy class implementing `evaluate()`, `should_act()`, `generate_orders()`
+3. Register class with lifecycle manager; enters as "evaluating"
 4. After validation, transitions to "active"
 
 ### Adding a new protocol
@@ -285,6 +284,6 @@ Specific limits (e.g. "max 70% in protocol X") are set via `STRATEGY.md` portfol
 ### Adding a new chain
 
 1. Add chain listener in `ts-executor/src/listeners/`
-2. Add chain to `py-engine/strategies/ingestion.py` KNOWN_CHAINS
+2. Add chain to `py-engine/data/` pipeline modules (price feed, gas monitor, defi metrics)
 3. Add chain to `shared/schemas/` enums
 4. Strategies in `STRATEGY.md` can now target the new chain

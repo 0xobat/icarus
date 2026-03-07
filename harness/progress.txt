@@ -561,3 +561,42 @@ Final state: 947 Python tests + 185 TS tests = 1,132 total (5 TS tests removed)
 verify.sh: PASS
 Blocked: none
 Next: Update prd.md for v1 scope
+
+--- Sessions 2026-03-06/07 (PostgreSQL + Price Feed) ---
+Agent: Claude Opus 4.6
+Worked on: PostgreSQL container, price feed redesign, misc fixes
+Completed:
+  - PostgreSQL container design doc + implementation plan (964f615, 8fe2079)
+  - Added psycopg2-binary dependency (fd74c7c)
+  - Added PostgreSQL service to docker-compose (58a7479)
+  - Added DATABASE_URL to .env.example, gitignore *.db files (a9bab8c)
+  - Price feed: replaced CoinGecko with Alchemy Token Prices + DefiLlama fallback (c7144a1, 1d18d4e, fca0a67)
+  - Removed CoinGecko code, deviation guard, L2 price fetcher (aff2ef2)
+  - Fixed: deprecated Etherscan gas API → Blocknative + beaconcha.in (0e0e05e)
+  - Fixed: Docker schema path resolution (5531d43)
+  - Fixed: CJS/ESM double-default in @safe-global/protocol-kit (261d716)
+  - Fixed: missing DATABASE_URL env var handling (70b82f1)
+  - Onboarding notes from debugging session (99f5ce8)
+Blocked: none
+Next: PRD/CLAUDE.md alignment audit
+
+--- Session 2026-03-07-01 (PRD & Harness Alignment) ---
+Agent: Claude Opus 4.6
+Worked on: Divergence audit and fixes across PRD, CLAUDE.md, features.json, progress.txt
+Completed:
+  - features.json: STRAT-002 set to passes:false (Lido code deleted in v1 simplification)
+  - features.json: REPORT-001 set to passes:false (tax_engine.py deleted in v1 simplification)
+  - features.json: STRAT-001 description updated to reference LEND-001, v1 scope (Base, USDC/USDbC)
+  - features.json: Added STRAT-009 (LP-001 Aerodrome stable LP) — was missing entirely
+  - features.json: REPORT-002 steps updated from Lido/Solana to Aave V3/Aerodrome/Base
+  - CLAUDE.md: Updated strategy description from code-gen to manual classes (v1 reality)
+  - CLAUDE.md: Running section updated to include postgres
+  - PRD §2: Strategy flow diagram updated — manual classes (v1), code-gen marked as planned
+  - PRD §4: Project structure updated (ai/ description, strategies/ description)
+  - PRD §5: Tech stack — code-gen marked planned, Discord removed from monitoring
+  - PRD §7: Discord override → notification channel TBD; strategy update flow corrected
+  - PRD §8: Adding strategy/chain instructions updated for v1 (no ingestion.py)
+  - progress.txt: Added entries for PostgreSQL + price feed sessions (were unlogged)
+Blocked: none
+Features passing: 44/63 (was 45/62 — 2 set to false, 1 added as true)
+Next: Continue P1 implementation or begin P2 (TEST-002 historical stress testing)

@@ -1,11 +1,11 @@
 # Icarus — Agent Instructions
 
-Autonomous DeFi asset management bot. Strategies are defined in `STRATEGY.md` — the system generates code and executes them. Claude is the decision engine at two levels:
+Autonomous DeFi asset management bot. Strategies are defined in `STRATEGY.md` — the system executes them. Claude is the decision engine at runtime.
 
-1. **Compile time** — Claude reads `STRATEGY.md` and generates Python strategy classes
+1. **Strategy classes** — Manually written Python classes implement each strategy from `STRATEGY.md` (v1). Code-gen pipeline is planned but not yet implemented.
 2. **Runtime** — Python synthesizes market data into insights, Claude API reasons over them to produce trading decisions
 
-Strategies are data (`STRATEGY.md`), not hardcoded logic. Adding a strategy means editing a markdown file.
+Strategies are data (`STRATEGY.md`), not hardcoded logic. Adding a strategy means editing the markdown file and writing a corresponding Python class.
 
 ## Architecture
 
@@ -50,7 +50,7 @@ Per-strategy allocation limits are defined in `STRATEGY.md`. The framework enfor
 
 ```bash
 bash harness/init.sh
-docker compose up -d redis
+docker compose up -d redis postgres
 cd ts-executor && pnpm dev
 cd py-engine && uv run python main.py
 ```
