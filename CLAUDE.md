@@ -1,6 +1,6 @@
 # Icarus — Agent Instructions
 
-Autonomous multi-strategy DeFi bot. Claude is the decision engine at two levels:
+Autonomous DeFi asset management bot. Strategies are defined in `STRATEGY.md` — the system generates code and executes them. Claude is the decision engine at two levels:
 
 1. **Compile time** — Claude reads `STRATEGY.md` and generates Python strategy classes
 2. **Runtime** — Python synthesizes market data into insights, Claude API reasons over them to produce trading decisions
@@ -9,13 +9,13 @@ Strategies are data (`STRATEGY.md`), not hardcoded logic. Adding a strategy mean
 
 ## Architecture
 
-- `ts-executor/` — TypeScript service (chain listeners, TX execution, protocol adapters)
+- `ts-executor/` — TypeScript service (chain listeners, TX execution, encode-only protocol adapters)
 - `py-engine/` — Python service (data pipeline, AI reasoning, risk management, portfolio)
 - `shared/schemas/` — JSON schemas defining Redis message contracts between services
-- `STRATEGY.md` — Human-authored strategy definitions (source of truth)
+- `STRATEGY.md` — Human-authored strategy definitions (source of truth for what to trade)
 - `docker-compose.yml` — Redis + PostgreSQL + both services
 
-**Design principle:** Python synthesizes data and translates Claude's decisions into orders. TypeScript owns all chain interactions. Neither crosses into the other's domain.
+**Design principle:** Python owns all decisions, TypeScript owns all chain interactions. Neither crosses into the other's domain. Protocol adapters are encode-only pure functions (calldata in, no state).
 
 ### Key entry points
 
@@ -25,14 +25,6 @@ Strategies are data (`STRATEGY.md`), not hardcoded logic. Adding a strategy mean
 ### Decision fast-path
 
 Simple threshold crossings (single clear signal, no competing strategies) bypass the Claude API entirely. Claude API is invoked for ambiguous conditions, competing signals, multi-strategy reasoning.
-
-## Strategy Tiers
-
-- **Tier 1 — Low Risk (50–60%):** Lending optimization (Aave), liquid staking (Lido)
-- **Tier 2 — Medium Risk (25–35%):** Concentrated liquidity (Uniswap V3), yield farming
-- **Tier 3 — Higher Risk (10–20%):** Flash loan arbitrage, rate arbitrage
-
-Chains: Ethereum Mainnet (Sepolia testnet), L2s (Arbitrum, Base)
 
 ## Risk Management
 
@@ -48,9 +40,11 @@ Chains: Ethereum Mainnet (Sepolia testnet), L2s (Arbitrum, Base)
 
 ### Exposure Limits
 
-- Max 40% in any single protocol
-- Max 60% in any single asset (excluding stablecoins)
-- Min 15% in stablecoins/liquid reserves at all times
+Per-strategy allocation limits are defined in `STRATEGY.md`. The framework enforces:
+- Per-protocol and per-asset max allocation
+- Minimum liquid reserve requirement
+- Contract allowlist at wallet level
+- Risk limits are environment variables, not hardcoded
 
 ## Running
 
@@ -81,7 +75,6 @@ bash harness/verify.sh
 
 - All logs are structured JSON with: timestamp, service, event, correlationId
 - All Redis messages validated against shared schemas at the boundary
-- Sepolia testnet only until P2
 - Risk limits are environment variables, not hardcoded
 - One strategy adjustment per decision cycle
 - Risk gate is non-negotiable — all decisions pass through circuit breakers before execution

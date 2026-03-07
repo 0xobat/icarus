@@ -1,75 +1,85 @@
 # Icarus — PRD & Design Document
 
-**Version:** 2.0 · **Last Updated:** February 2026
+**Version:** 3.0 · **Last Updated:** March 2026
 
 ---
 
 ## 1. Overview
 
-Autonomous multi-strategy DeFi bot. Strategies are defined in `STRATEGY.md` by a human. Claude synthesizes those definitions into executable Python strategy classes and acts as the runtime decision engine. TypeScript handles all blockchain interaction. Communication via Redis.
+Autonomous DeFi asset management bot. Strategies are defined in `STRATEGY.md` by a human — the system reads them, generates executable code, and runs them autonomously.
 
 The system has two AI integration points:
 
-1. **Compile time** — Claude reads `STRATEGY.md` and generates Python strategy classes. When strategies are updated, classes are regenerated and deployed via rolling release.
-2. **Runtime** — Python crunches market data into structured insights. Claude API reasons over those insights + active strategy specs to produce trading decisions. Not hardcoded if/else — actual AI reasoning.
+1. **Compile time** — Claude reads `STRATEGY.md` and generates Python strategy classes. When strategies change, classes are regenerated.
+2. **Runtime** — Python crunches market data into structured insights. Claude API reasons over those insights to produce trading decisions.
 
-| Metric              | Target          | Hard Limit                      |
-| ------------------- | --------------- | ------------------------------- |
-| Annual Return (APY) | 20–50%          | Risk-adjusted, not nominal      |
-| Max Drawdown        | ≤15% target     | 20% circuit breaker             |
-| Sharpe Ratio        | >2.0            | Minimum 1.5                     |
-| Uptime              | 99.5%           | Graceful degradation on failure |
-| Budget              | $250–$1,000 CAD | Infrastructure + tooling        |
+| Metric         | Target         | Hard Limit                      |
+| -------------- | -------------- | ------------------------------- |
+| Max Drawdown   | ≤15%           | 20% circuit breaker             |
+| TX Success     | >98%           | >95%                            |
+| Uptime         | 99.5%          | Graceful degradation on failure |
+| Restart        | <60 seconds    | <5 minutes                      |
+
+Yield targets and capital allocation are defined per-strategy in `STRATEGY.md`, not here.
 
 ---
 
-## 2. Strategies
+## 2. Strategy System
 
-### Definition
+Strategies are data, not code. The system is strategy-agnostic — it executes whatever `STRATEGY.md` defines.
 
-Strategies are authored in `STRATEGY.md` — a human-readable file that defines:
+### How strategies flow through the system
 
-- Strategy name, tier, and risk profile
-- Target protocols and chains
-- Entry/exit conditions (qualitative or quantitative)
-- Capital allocation constraints
-- Any special logic (e.g. compound frequency, range width)
+```
+STRATEGY.md  →  Ingestion Parser  →  StrategySpec dataclasses
+                                          │
+                                    Claude Code-Gen
+                                          │
+                                    Python strategy class
+                                    (evaluate, should_act, generate_orders)
+                                          │
+                                    Lifecycle Manager
+                                    (evaluating → active → paused → retired)
+```
 
-Claude reads this file and generates a Python class per strategy. Each class follows a common interface: `evaluate()`, `should_act()`, `generate_orders()`. Generated classes live in `py-engine/strategies/` and are deployed via rolling release.
+### Strategy contract
 
-### Strategy Tiers
+Every strategy class implements:
 
-**Tier 1 — Low Risk (50–60% of capital)**
+- `evaluate(markets)` — filter and rank opportunities from market data
+- `should_act(context)` — decide whether to act given current state
+- `generate_orders(markets, correlation_id)` — emit execution orders
 
-- Lending optimization: Aave supply rotation based on utilization rates
-- Liquid staking: ETH → stETH via Lido, deploy derivatives into further yield
+### What STRATEGY.md controls
 
-**Tier 2 — Medium Risk (25–35% of capital)**
+- Which protocols and chains to operate on
+- Entry/exit conditions and thresholds
+- Capital allocation limits (per-strategy and portfolio-level)
+- Risk parameters (position sizing, reserve requirements)
+- Harvest/compound logic
 
-- Concentrated liquidity on Uniswap V3 with dynamic range management
-- Yield farming with auto-harvest and compounding
+### What the PRD controls
 
-**Tier 3 — Higher Risk (10–20% of capital)**
+- System architecture (how strategies are executed)
+- Risk framework (circuit breakers, exposure limits structure)
+- Infrastructure (Redis, wallet, listeners, encoders)
+- Operational rules (decision loop, state management, human-in-the-loop)
 
-- Flash loan arbitrage (atomic cross-DEX, zero-capital)
-- Rate arbitrage across lending protocols
-
-### Chain Support
-
-| Chain                | Protocols              | Environment     |
-| -------------------- | ---------------------- | --------------- |
-| Ethereum Mainnet     | Aave, Uniswap V3, Lido | Sepolia testnet |
-| L2s (Arbitrum, Base) | Aave, GMX, Aerodrome   | L2 testnets     |
+Adding or changing a strategy means editing `STRATEGY.md`. The system, adapters, and risk framework are extended separately when new protocols or chains are needed.
 
 ---
 
 ## 3. Architecture
 
-### Design Principles
+### Principles
 
-- Python owns all decisions. TypeScript owns all chain interactions. Neither crosses into the other's domain.
-- Claude is the decision engine. Python synthesizes data and translates decisions into orders.
-- Strategies are data (`STRATEGY.md`), not hardcoded logic. Adding a strategy means editing a markdown file, not writing a Python class.
+- **Separation of concerns** — Python owns all decisions. TypeScript owns all chain interactions. Neither crosses into the other's domain.
+- **Strategies are data** — Adding a strategy means editing a markdown file, not writing code. Claude generates the implementation.
+- **Encode-only adapters** — Protocol modules are pure functions that produce calldata. No state, no side effects, no chain calls. The TX builder composes them.
+- **Schema-first communication** — All Redis messages validated against shared JSON schemas at the boundary. Invalid messages rejected loudly.
+- **Risk gate is non-negotiable** — Every decision passes through circuit breakers before execution. No bypass.
+
+### System diagram
 
 ```
                         STRATEGY.md
@@ -87,15 +97,15 @@ Claude reads this file and generates a Python class per strategy. Each class fol
 │  (prices, gas,     (pandas, numpy)      (runtime   │
 │   protocol metrics)                      reasoning)│
 │                                              │     │
-│  Generated Strategy Classes ◄────────────────┘     │
-│  (from STRATEGY.md)                                │
+│  Strategy Classes ◄──────────────────────────┘     │
+│  (generated from STRATEGY.md)                      │
 │         │                                          │
 │         ▼                                          │
 │  Risk Gate ──► Order Emitter                       │
 │  (circuit breakers,                                │
 │   exposure limits)                                 │
 │                                                    │
-│  Portfolio Tracker ── Lifecycle Manager            │
+│  Portfolio Tracker ── Lifecycle Manager             │
 │  Monitoring ── State Recovery                      │
 └────────────────────────┬───────────────────────────┘
                          │
@@ -110,38 +120,35 @@ Claude reads this file and generates a Python class per strategy. Each class fol
 ┌───────────────────────────────────────▼────────────┐
 │                TYPESCRIPT LAYER                    │
 │                                                    │
-│  Chain Listener ── TX Builder ── Event Reporter    │
-│  (Alchemy WS)     (viem)        (results)          │
+│  Chain Listeners ── TX Builder ── Event Reporter   │
+│  (Alchemy WS)      (viem)        (results)         │
 │                                                    │
-│  Safe Wallet ── Protocol Encoders                  │
-│  (1-of-2 multisig) (Aave V3, Lido)                 │
+│  Safe Wallet ── Protocol Encoders (encode-only)    │
+│  (1-of-2 multisig)                                 │
 └────────────────────────────────────────────────────┘
 ```
 
-### Decision Loop
+### Decision loop
 
 Each cycle:
 
 1. **Ingest** — TS publishes chain events to `market:events`
-2. **Enrich** — Python pipeline crunches raw data into structured insights (rates, spreads, utilization, anomalies)
-3. **Reason** — Insights + active strategy specs sent to Claude API. Claude returns structured decisions (hold, enter, exit, rotate, adjust).
+2. **Enrich** — Python crunches raw data into structured insights
+3. **Reason** — Simple thresholds handled deterministically. Claude API invoked for ambiguous conditions or multi-strategy decisions.
 4. **Risk gate** — Decisions pass through circuit breakers and exposure limits
 5. **Execute** — Approved decisions become `execution:orders` sent to TS
 6. **Report** — TS publishes results to `execution:results`, Python updates portfolio state
 
-For simple, well-defined situations (e.g. "APY on market A is higher than market B by X%"), the generated strategy class can make the decision deterministically without calling Claude API. Claude API is invoked when the situation requires reasoning — multiple competing signals, ambiguous conditions, or complex multi-step rebalancing.
+### Key decisions
 
-### Key Decisions
-
-| Decision        | Choice                                    | Rationale                                                             |
-| --------------- | ----------------------------------------- | --------------------------------------------------------------------- |
-| Decision Engine | Claude API                                | AI reasoning over synthesized data, not hardcoded rules               |
-| Strategy Def    | Markdown (`STRATEGY.md`) → generated code | Human-readable specs, Claude generates implementations                |
-| Wallet          | Safe 1-of-2 Multisig (Safe{Core} SDK)     | ethskills: battle-tested ($100B+ secured), agent EOA + human recovery |
-| State Recovery  | TTL-based pruning on Redis Streams        | Bounded storage, sufficient replay window for crash recovery          |
-| MEV Protection  | Flashbots Protect RPC (P1b)               | Private mempool routing for swaps; not needed for P1a supply/withdraw |
-| Deployment      | Rolling release via Railway               | Always running, strategies hot-reloaded on update                     |
-| Testnet First   | Sepolia until validated                   | Validate all strategies before real capital                           |
+| Decision        | Choice                             | Rationale                                      |
+| --------------- | ---------------------------------- | ---------------------------------------------- |
+| Decision Engine | Claude API                         | AI reasoning, not hardcoded rules              |
+| Strategy Def    | `STRATEGY.md` → generated code     | Human-readable specs, Claude generates classes |
+| Wallet          | Safe 1-of-2 Multisig               | Battle-tested, agent EOA + human recovery      |
+| State Recovery  | TTL-based pruning on Redis Streams | Bounded storage, crash recovery replay window  |
+| Adapter pattern | Encode-only pure functions         | Composable, testable, no hidden state          |
+| Deployment      | Rolling release via Railway         | Always running, hot-reload on strategy update  |
 
 ---
 
@@ -153,8 +160,8 @@ icarus/
 │
 ├── ts-executor/                   # TypeScript service — chain interaction
 │   └── src/
-│       ├── listeners/             # Alchemy WebSocket handlers
-│       ├── execution/             # TX builder, protocol encoders (Aave, Lido)
+│       ├── listeners/             # Chain event listeners (WS, L2)
+│       ├── execution/             # TX builder + encode-only protocol adapters
 │       ├── wallet/                # Safe 1-of-2 multisig
 │       ├── redis/                 # Redis client
 │       ├── validation/            # Schema validation
@@ -163,7 +170,7 @@ icarus/
 ├── py-engine/                     # Python service — brain
 │   ├── ai/                        # Claude API client, decision engine, code-gen
 │   ├── data/                      # Market data ingestion & enrichment
-│   ├── strategies/                # Generated strategy classes (from STRATEGY.md)
+│   ├── strategies/                # Strategy classes + ingestion parser
 │   ├── risk/                      # Circuit breakers & exposure limits
 │   ├── portfolio/                 # Position tracker, capital allocator
 │   ├── harness/                   # State recovery, diagnostics
@@ -171,8 +178,8 @@ icarus/
 │   └── main.py                   # Main decision loop
 │
 ├── shared/schemas/                # JSON schemas for Redis messages
-├── docs/                          # PRD, architecture docs
-├── docker-compose.yml             # Redis + both services
+├── docs/                          # PRD, design docs
+├── docker-compose.yml             # Redis + PostgreSQL + both services
 └── harness/                       # Init, verify, features tracking
 ```
 
@@ -180,162 +187,104 @@ icarus/
 
 ## 5. Tech Stack
 
-| Component              | Technology                              |
-| ---------------------- | --------------------------------------- |
-| Decision Engine        | Claude API (Anthropic)                  |
-| Strategy Code-Gen      | Claude API + STRATEGY.md                |
-| RPC Provider           | Alchemy (WebSockets + Enhanced APIs)    |
-| ETH Interactions       | viem (TypeScript)                       |
-| Message Broker / Cache | Redis 7+ (pub/sub + Streams)            |
-| Data Processing        | Python — pandas, numpy                  |
-| Database               | PostgreSQL (trade history, audit trail) |
-| Deployment             | Docker Compose → Railway                |
-| Wallet                 | Safe 1-of-2 Multisig (Safe{Core} SDK)   |
-| MEV Protection         | Flashbots Protect RPC (P1b+)            |
-| Monitoring             | Structured JSON logs + Discord alerts   |
+| Component         | Technology                           |
+| ----------------- | ------------------------------------ |
+| Decision Engine   | Claude API (Anthropic)               |
+| Strategy Code-Gen | Claude API + STRATEGY.md             |
+| RPC Provider      | Alchemy (WebSockets + Enhanced APIs) |
+| Chain Interactions| viem (TypeScript)                    |
+| Message Broker    | Redis 7+ (pub/sub + Streams)         |
+| Data Processing   | Python — pandas, numpy               |
+| Database          | PostgreSQL (trade history)           |
+| Deployment        | Docker Compose → Railway             |
+| Wallet            | Safe 1-of-2 Multisig (Safe{Core})    |
+| Monitoring        | Structured JSON logs + Discord       |
 
 ---
 
-## 6. Risk Management
+## 6. Risk Framework
 
-### Circuit Breakers
+Risk management is structural — it applies regardless of which strategies are active.
 
-| Trigger              | Threshold        | Action                                          |
-| -------------------- | ---------------- | ----------------------------------------------- |
-| Portfolio drawdown   | >20% from peak   | Halt all positions. Unwind to stables. Alert.   |
-| Single-position loss | >10% of position | Close position. 24h cooldown for that strategy. |
-| Gas spike            | >3x 24h average  | Pause non-urgent ops. Queue for later.          |
-| TX failure rate      | >3 failures/hour | Pause execution. Diagnostic mode. Alert.        |
-| Protocol TVL drop    | >30% in 24h      | Withdraw all capital from affected protocol.    |
+### Circuit breakers
 
-### Exposure Limits
+| Trigger              | Threshold        | Action                                |
+| -------------------- | ---------------- | ------------------------------------- |
+| Portfolio drawdown   | >20% from peak   | Halt all. Unwind to stables. Alert.   |
+| Single-position loss | >10% of position | Close position. 24h cooldown.         |
+| Gas spike            | >3x 24h average  | Pause non-urgent ops. Queue for later.|
+| TX failure rate      | >3 failures/hour | Pause execution. Diagnostic mode.     |
+| Protocol TVL drop    | >30% in 24h      | Withdraw from affected protocol.      |
 
-- Max 40% in any single protocol
-- Max 60% in any single asset (excluding stablecoins)
-- Min 15% in stablecoins/liquid reserves at all times
-- Application-level contract allowlist enforced at wallet level (SafeWalletManager.validateOrder()); on-chain Safe guard deferred to mainnet
-- Flashbots Protect for swap transactions (P1b+)
+### Exposure limits
 
-### Risk Matrix
+Defined as environment variables, not hardcoded. The framework enforces:
 
-| Risk                   | Severity | Mitigation                                                                     |
-| ---------------------- | -------- | ------------------------------------------------------------------------------ |
-| Smart contract exploit | Critical | Allowlist, TVL monitoring, protocol diversification                            |
-| Oracle manipulation    | High     | Multi-source prices, reject >2% deviation, TWAP                                |
-| Liquidity shock        | High     | Pre-trade depth checks, position sizing to liquidity                           |
-| Key compromise         | Critical | Safe spending caps, 1-of-2 multisig (agent + human recovery)                   |
-| Chain halt / reorg     | Medium   | Finality-aware TX confirmation, state reconciliation                           |
-| Strategy crowding      | Medium   | Yield compression monitoring, automatic rotation                               |
-| AI hallucination       | High     | Risk gate validates all AI decisions, schema enforcement, position size limits |
+- Per-protocol max allocation
+- Per-asset max allocation
+- Minimum liquid reserve requirement
+- Contract allowlist at wallet level
+
+Specific limits (e.g. "max 70% in protocol X") are set via `STRATEGY.md` portfolio rules and env vars.
+
+### Risk matrix
+
+| Risk                   | Severity | Mitigation                                                  |
+| ---------------------- | -------- | ----------------------------------------------------------- |
+| Smart contract exploit | Critical | Allowlist, TVL monitoring, protocol diversification         |
+| Oracle manipulation    | High     | Multi-source prices, reject >2% deviation                   |
+| Key compromise         | Critical | Safe 1-of-2 multisig, spending caps, human recovery signer |
+| AI hallucination       | High     | Risk gate validates all decisions, schema enforcement       |
+| Chain halt / reorg     | Medium   | Finality-aware TX confirmation, state reconciliation        |
 
 ---
 
 ## 7. Agent Harness
 
-Patterns from [Anthropic's long-running agent research](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
-
-### Startup Sequence (every restart)
+### Startup sequence
 
 1. Read `agent-state.json` to restore portfolio knowledge
 2. Check Redis Streams for unprocessed execution orders
-3. Query on-chain state via Alchemy to verify positions match records
-4. Reconcile discrepancies (e.g., TX confirmed while offline)
-5. Run health checks on all connected protocols
+3. Query on-chain state to verify positions match records
+4. Reconcile discrepancies
+5. Health check connected protocols
 6. Resume normal operation or enter diagnostic mode
 
-### Operational Rules
+### Operational rules
 
-- **One strategy adjustment per cycle** — never rebalance everything at once
-- **Clean state after every action** — updated state file, logs, and monitoring before next op
-- **Strategy status tracking** — structured JSON with status (active / paused / evaluating / retired)
-- **All messages validated** against shared JSON schemas; violations rejected loudly
-- **Risk gate is non-negotiable** — Claude's decisions always pass through circuit breakers before execution
+- One strategy adjustment per cycle
+- Clean state after every action
+- Strategy status tracking: active / paused / evaluating / retired
+- All messages validated against shared JSON schemas
+- Risk gate is non-negotiable
 
-### Human-in-the-Loop
+### Human-in-the-loop
 
-- New protocol deployment requires owner approval
 - Trades >15% of portfolio require confirmation
-- New strategy tier activation requires explicit approval
 - Emergency override via Discord: pause all, force-unwind, withdraw
 - Strategy updates in `STRATEGY.md` trigger regeneration, enter as "evaluating"
 
-### Rolling Release
-
-The bot is always running. Updates flow as:
-
-1. Human edits `STRATEGY.md`
-2. Claude regenerates affected strategy classes
-3. New classes deploy, lifecycle manager picks them up as "evaluating"
-4. After validation period, strategies transition to "active"
-5. Old strategy versions gracefully retire
-
 ---
 
-## 8. Event Flow
+## 8. Extending the System
 
-How a lending rotation flows through the system:
+### Adding a new strategy
 
-1. **TS Listener** detects Aave rate change via Alchemy WebSocket → publishes to `market:events`
-2. **Python Data Pipeline** enriches with cached prices, gas costs, protocol metrics
-3. **Python Insight Synthesis** packages structured snapshot: current positions, market state, active strategies, risk status
-4. **Claude API** receives insight data + strategy specs, reasons about optimal action, returns structured decision
-5. **Python Risk Gate** validates decision against circuit breakers, exposure limits, contract allowlist
-6. **Python** publishes approved order to `execution:orders` (token, amount, slippage, gas ceiling, deadline)
-7. **TS Executor** constructs TX via viem, submits via Safe wallet (Flashbots routing added in P1b for swaps)
-8. **TS Reporter** publishes result to `execution:results` (hash, status, fill price, gas)
-9. **Python** updates portfolio state, logs performance, feeds result back into next cycle's insights
+1. Edit `STRATEGY.md` — define name, tier, protocols, chains, entry/exit conditions, constraints
+2. System detects change, Claude generates Python class
+3. Lifecycle manager picks up new class as "evaluating"
+4. After validation, transitions to "active"
 
----
+### Adding a new protocol
 
-## 9. Success Criteria
+1. Add encode-only adapter in `ts-executor/src/execution/` (pure functions → calldata)
+2. Wire adapter into `buildAdapterMap()` in `index.ts`
+3. Add protocol to `shared/schemas/execution-orders.schema.json` enum
+4. Strategies in `STRATEGY.md` can now reference the new protocol
 
-| Metric           | Target      | Minimum    |
-| ---------------- | ----------- | ---------- |
-| APY (30-day)     | 35%         | 20%        |
-| Sharpe Ratio     | >2.0        | >1.5       |
-| Max Drawdown     | <15%        | <20%       |
-| TX Success Rate  | >98%        | >95%       |
-| Uptime           | >99%        | >95%       |
-| Restart Recovery | <60 seconds | <5 minutes |
+### Adding a new chain
 
-The project is successful when the agent consistently generates returns above the S&P 500 benchmark with controlled drawdowns, running autonomously on Railway with Discord alerts and human-in-the-loop controls for high-stakes decisions.
-
----
-
-## 10. Phases
-
-### P1a — Core Loop (Tier 1 Strategies, Ethereum Sepolia)
-
-Infrastructure, Tier 1 strategies, AI decision engine, risk management, monitoring, and portfolio management on Ethereum Sepolia. The core decision-to-execution loop is validated end-to-end.
-
-Includes: infrastructure (Redis, PostgreSQL, Docker, main loop), Ethereum chain listeners (Alchemy WS), Safe 1-of-2 multisig wallet, TransactionBuilder + encode-only protocol modules (Aave V3, Lido), Tier 1 strategies (Aave lending optimization, Lido liquid staking), Claude AI engine (runtime reasoning + code-gen + insight synthesis), full risk management suite (circuit breakers, exposure limits, application-level contract allowlist, oracle guards), portfolio management (allocator, position tracker, rebalancer), Discord alerts, performance dashboard, anomaly detection, human-in-the-loop gates, tax/P&L reporting, ML gas prediction, agent harness (state persistence, startup recovery, diagnostic mode), Sepolia integration tests.
-
-**Gate:** End-to-end Aave supply/withdraw cycle executes on Sepolia through the full pipeline (market event → strategy evaluation → risk gate → order → TX → result).
-
-### P1b — Tier 2 Expansion (Uniswap V3, Yield Farming)
-
-Add Tier 2 strategies and MEV protection for swap-based operations.
-
-Includes: Uniswap V3 encode module, concentrated liquidity strategy, yield farming strategy, Flashbots Protect RPC routing in TransactionBuilder for swap transactions.
-
-**Gate:** Uniswap V3 LP position managed end-to-end on Sepolia.
-
-### P1c — Tier 3 + L2 (Flash Loans, GMX, Aerodrome)
-
-Add L2 chain support and Tier 3 high-risk strategies.
-
-Includes: L2 chain listeners (Arbitrum, Base), flash loan encode module, GMX encode module, Aerodrome encode module, flash loan arbitrage strategy, lending rate arbitrage strategy, L2 gas estimation (L1 data posting costs).
-
-**Gate:** Flash loan arbitrage executes on Sepolia. L2 listeners receiving and publishing events.
-
-### P2 — Historical Stress Testing
-
-Replay historical market crises (March 2020 COVID crash, May 2021 crypto crash, November 2022 FTX collapse) through the system to validate circuit breakers hold and the bot survives extreme conditions.
-
-### P3 — Solana Chain Support
-
-Extend listeners, executors, and data pipeline to Solana's account-based model (Marinade, Raydium, Jupiter).
-
-### P4 — Production Deployment
-
-Deploy to Railway with managed Redis, secrets management, auto-deploy from main, health checks, and cost monitoring within budget.
+1. Add chain listener in `ts-executor/src/listeners/`
+2. Add chain to `py-engine/strategies/ingestion.py` KNOWN_CHAINS
+3. Add chain to `shared/schemas/` enums
+4. Strategies in `STRATEGY.md` can now target the new chain
