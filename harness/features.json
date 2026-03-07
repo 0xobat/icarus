@@ -317,7 +317,7 @@
     "phase": "P1",
     "subsystem": "data-pipeline",
     "category": "functional",
-    "description": "DeFi protocol metrics collector \u2014 collect and normalize protocol-specific metrics (Aave rates, Uniswap pool state, Lido yields, protocol TVLs) for strategy decision-making",
+    "description": "DeFi protocol metrics collector \u2014 collect and normalize protocol-specific metrics (Aave V3 rates, Aerodrome pool data) from external APIs with caching, graceful degradation, and TVL tracking via DeFi Llama",
     "steps": [
       "Aave: utilization rate, supply APY, borrow APY, available liquidity per market \u2014 updated every 5 minutes minimum",
       "Uniswap V3: pool reserves, current tick, fee tier, 24h volume for target pairs",
@@ -349,7 +349,7 @@
     "phase": "P1c",
     "subsystem": "data-pipeline",
     "category": "functional",
-    "description": "L2 data pipeline extension \u2014 extend data pipeline to ingest and normalize data from Arbitrum and Base with L2-specific gas models and protocol metrics",
+    "description": "L2 data pipeline extension \u2014 extend data pipeline to ingest and normalize data from Base L2, including gas estimation with L1 data posting overhead, L2 token price feeds (AERO), and Aerodrome protocol metrics",
     "steps": [
       "Price feeds cover L2-specific tokens and L2 deployments of existing tokens",
       "L2 gas estimation accounts for L1 data posting costs",
@@ -391,7 +391,7 @@
       "Detect changes in STRATEGY.md and regenerate only affected strategy classes",
       "Version tracking: old class gracefully retired via lifecycle manager"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "AI-003",
@@ -537,7 +537,7 @@
       "Trigger AI-002 code-gen pipeline for new or modified strategies",
       "Flag removed strategies for retirement via lifecycle manager"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "PORT-001",
@@ -680,7 +680,7 @@
       "Configurable alert severity levels (not everything sends a push notification)",
       "Inline keyboard buttons for human-in-the-loop approvals (approve/reject)"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "MON-003",
@@ -711,7 +711,7 @@
       "Anomalies trigger alerts with severity classification",
       "False positive rate is manageable (not alert fatigue)"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "RISK-001",
@@ -897,7 +897,7 @@
       "Model retrained on configurable schedule (e.g. weekly)",
       "Fallback to simple heuristics if model fails or degrades"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "TEST-002",

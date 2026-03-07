@@ -1,4 +1,4 @@
-"""DeFi protocol metrics collector — Aave, Uniswap V3, Lido, TVL."""
+"""DeFi protocol metrics collector — Aave V3, Aerodrome, TVL."""
 
 from __future__ import annotations
 
@@ -78,62 +78,6 @@ class AaveMetrics:
         }
 
 
-@dataclass
-class UniswapPoolMetrics:
-    """Metrics for a single Uniswap V3 pool."""
-
-    pair: str
-    reserves_token0: float
-    reserves_token1: float
-    current_tick: int
-    fee_tier: int
-    volume_24h: float
-    timestamp: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.timestamp:
-            self.timestamp = datetime.now(UTC).isoformat()
-
-
-@dataclass
-class UniswapMetrics:
-    """Aggregated Uniswap V3 pool metrics."""
-
-    pools: list[UniswapPoolMetrics] = field(default_factory=list)
-    protocol: str = "uniswap_v3"
-    timestamp: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.timestamp:
-            self.timestamp = datetime.now(UTC).isoformat()
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return dictionary representation."""
-        return {
-            "protocol": self.protocol,
-            "pools": [asdict(p) for p in self.pools],
-            "timestamp": self.timestamp,
-        }
-
-
-@dataclass
-class LidoMetrics:
-    """Lido staking metrics."""
-
-    steth_apy: float
-    queue_status: str  # "open", "closed", "paused"
-    steth_total_supply: float = 0.0
-    protocol: str = "lido"
-    timestamp: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.timestamp:
-            self.timestamp = datetime.now(UTC).isoformat()
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return dictionary representation."""
-        return asdict(self)
-
 
 @dataclass
 class ProtocolTVL:
@@ -152,27 +96,6 @@ class ProtocolTVL:
         """Return dictionary representation."""
         return asdict(self)
 
-
-@dataclass
-class GmxMetrics:
-    """GMX perpetuals protocol metrics on Arbitrum."""
-
-    tvl_usd: float
-    volume_24h: float
-    open_interest_usd: float
-    funding_rates: list[dict[str, Any]] = field(default_factory=list)
-    liquidation_levels: list[dict[str, Any]] = field(default_factory=list)
-    protocol: str = "gmx"
-    chain: str = "arbitrum"
-    timestamp: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.timestamp:
-            self.timestamp = datetime.now(UTC).isoformat()
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return dictionary representation."""
-        return asdict(self)
 
 
 @dataclass
@@ -203,24 +126,13 @@ class AerodromeMetrics:
 # DeFi Llama protocol slugs
 DEFILLAMA_PROTOCOLS = {
     "aave": "aave",
-    "uniswap_v3": "uniswap",
-    "lido": "lido",
-    "gmx": "gmx",
     "aerodrome": "aerodrome",
 }
 
 # L2 protocol chain mappings
 L2_PROTOCOL_CHAINS: dict[str, str] = {
-    "gmx": "arbitrum",
     "aerodrome": "base",
 }
-
-# Target Uniswap pools (pair label → pool address placeholder)
-TARGET_UNISWAP_POOLS = [
-    "ETH/USDC",
-    "ETH/USDT",
-    "WBTC/ETH",
-]
 
 
 class DeFiMetricsCollector:
@@ -281,135 +193,6 @@ class DeFiMetricsCollector:
         except Exception as e:
             _log("metrics_fetch_error", f"Aave metrics fetch failed: {e}", protocol="aave")
             return self._get_cached_or_none("aave", "rates", AaveMetrics)
-
-    # ── Uniswap V3 ───────────────────────────────────────
-
-    def fetch_uniswap_metrics(self) -> UniswapMetrics | None:
-        """Fetch Uniswap V3 pool metrics."""
-        try:
-            data = self._fetch_fn("https://yields.llama.fi/pools")
-            pools_data = data.get("data", [])
-
-            pools: list[UniswapPoolMetrics] = []
-            for pool in pools_data:
-                if pool.get("project") != "uniswap-v3" or pool.get("chain") != "Ethereum":
-                    continue
-                symbol = pool.get("symbol", "")
-                if not any(target.replace("/", "-") in symbol for target in TARGET_UNISWAP_POOLS):
-                    continue
-                pools.append(
-                    UniswapPoolMetrics(
-                        pair=symbol,
-                        reserves_token0=float(pool.get("tvlUsd", 0) or 0) / 2,
-                        reserves_token1=float(pool.get("tvlUsd", 0) or 0) / 2,
-                        current_tick=0,  # Not available from yields API
-                        fee_tier=int(pool.get("feeTier", 0) or 0),
-                        volume_24h=float(pool.get("volumeUsd1d", 0) or 0),
-                    )
-                )
-
-            result = UniswapMetrics(pools=pools)
-            self._cache_set("uniswap_v3", "pools", result.to_dict(), self._rate_ttl)
-            return result
-
-        except Exception as e:
-            _log(
-                "metrics_fetch_error",
-                f"Uniswap metrics fetch failed: {e}",
-                protocol="uniswap_v3",
-            )
-            return self._get_cached_or_none("uniswap_v3", "pools", UniswapMetrics)
-
-    # ── Lido ─────────────────────────────────────────────
-
-    def fetch_lido_metrics(self) -> LidoMetrics | None:
-        """Fetch Lido staking metrics."""
-        try:
-            data = self._fetch_fn("https://eth-api.lido.fi/v1/protocol/steth/apr/sma")
-            sma_data = data.get("data", {})
-            apy = float(sma_data.get("smaApr", 0) or 0)
-
-            result = LidoMetrics(
-                steth_apy=apy,
-                queue_status="open",  # Simplified; real impl queries withdrawal queue
-            )
-            self._cache_set("lido", "staking", result.to_dict(), self._rate_ttl)
-            return result
-
-        except Exception as e:
-            _log("metrics_fetch_error", f"Lido metrics fetch failed: {e}", protocol="lido")
-            return self._get_cached_or_none("lido", "staking", LidoMetrics)
-
-    # ── GMX (Arbitrum) ──────────────────────────────────
-
-    def collect_gmx_metrics(self) -> GmxMetrics | None:
-        """Collect GMX protocol metrics from DeFi Llama.
-
-        Returns:
-            GmxMetrics with TVL, volume, and open interest, or None on failure.
-        """
-        try:
-            # Fetch TVL
-            tvl_data = self._fetch_fn("https://api.llama.fi/tvl/gmx")
-            tvl_usd = float(tvl_data) if isinstance(tvl_data, (int, float)) else 0.0
-
-            # Fetch volume and open interest from yields/pools API
-            pools_data = self._fetch_fn("https://yields.llama.fi/pools")
-            pools = pools_data.get("data", [])
-
-            volume_24h = 0.0
-            open_interest = 0.0
-            funding_rates: list[dict[str, Any]] = []
-            liquidation_levels: list[dict[str, Any]] = []
-            for pool in pools:
-                if pool.get("project") == "gmx" and pool.get("chain") == "Arbitrum":
-                    symbol = pool.get("symbol", "")
-                    vol = float(pool.get("volumeUsd1d", 0) or 0)
-                    tvl = float(pool.get("tvlUsd", 0) or 0)
-                    apy = float(pool.get("apy", 0) or 0)
-
-                    volume_24h += vol
-                    open_interest += tvl
-
-                    funding_rates.append({
-                        "market": symbol,
-                        "rate": apy / 365.0 if apy else 0.0,
-                        "apy": apy,
-                    })
-                    liquidation_levels.append({
-                        "market": symbol,
-                        "tvl_usd": tvl,
-                        "depth_ratio": tvl / tvl_usd if tvl_usd > 0 else 0.0,
-                    })
-
-            result = GmxMetrics(
-                tvl_usd=tvl_usd,
-                volume_24h=volume_24h,
-                open_interest_usd=open_interest,
-                funding_rates=funding_rates,
-                liquidation_levels=liquidation_levels,
-            )
-            self._cache_set("gmx", "metrics", result.to_dict(), self._rate_ttl)
-            return result
-
-        except Exception as e:
-            _log("metrics_fetch_error", f"GMX metrics fetch failed: {e}", protocol="gmx")
-            cached = self._cache_get("gmx", "metrics")
-            if cached is not None:
-                _log(
-                    "metrics_using_cached",
-                    "Using cached metrics for gmx after fetch failure",
-                    protocol="gmx",
-                )
-                return GmxMetrics(
-                    tvl_usd=cached.get("tvl_usd", 0),
-                    volume_24h=cached.get("volume_24h", 0),
-                    open_interest_usd=cached.get("open_interest_usd", 0),
-                    funding_rates=cached.get("funding_rates", []),
-                    liquidation_levels=cached.get("liquidation_levels", []),
-                    timestamp=cached.get("timestamp", ""),
-                )
-            return None
 
     # ── Aerodrome (Base) ─────────────────────────────────
 
@@ -500,7 +283,7 @@ class DeFiMetricsCollector:
 
         Args:
             protocol: Protocol identifier (e.g. "gmx", "aerodrome").
-            chain: Chain identifier (e.g. "arbitrum", "base").
+            chain: Chain identifier (e.g. "base").
 
         Returns:
             Normalized dict of protocol metrics, or None if unavailable.
@@ -526,7 +309,6 @@ class DeFiMetricsCollector:
             return None
 
         fetchers: dict[str, Any] = {
-            "gmx": self.collect_gmx_metrics,
             "aerodrome": self.collect_aerodrome_metrics,
         }
 
@@ -578,9 +360,6 @@ class DeFiMetricsCollector:
         """
         fetchers: dict[str, Any] = {
             "aave": self.fetch_aave_metrics,
-            "uniswap_v3": self.fetch_uniswap_metrics,
-            "lido": self.fetch_lido_metrics,
-            "gmx": self.collect_gmx_metrics,
             "aerodrome": self.collect_aerodrome_metrics,
         }
 
@@ -612,16 +391,6 @@ class DeFiMetricsCollector:
             if cls is AaveMetrics:
                 markets = [AaveMarketMetrics(**m) for m in cached.get("markets", [])]
                 return AaveMetrics(markets=markets, timestamp=cached.get("timestamp", ""))
-            if cls is UniswapMetrics:
-                pools = [UniswapPoolMetrics(**p) for p in cached.get("pools", [])]
-                return UniswapMetrics(pools=pools, timestamp=cached.get("timestamp", ""))
-            if cls is LidoMetrics:
-                return LidoMetrics(
-                    steth_apy=cached.get("steth_apy", 0),
-                    queue_status=cached.get("queue_status", "unknown"),
-                    steth_total_supply=cached.get("steth_total_supply", 0),
-                    timestamp=cached.get("timestamp", ""),
-                )
         return None
 
     def _get_cached_tvl_or_none(self, protocol: str) -> ProtocolTVL | None:

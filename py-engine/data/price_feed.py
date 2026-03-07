@@ -12,51 +12,26 @@ from data.redis_client import RedisManager
 
 SERVICE_NAME = "py-engine"
 
-# Tokens tracked: ETH, WBTC, major stablecoins, Aave-supported
+# Tokens tracked: v1 stablecoins only (Base, Aave V3 lending)
 SUPPORTED_TOKENS: dict[str, str] = {
-    "ETH": "ethereum",
-    "WBTC": "wrapped-bitcoin",
     "USDC": "usd-coin",
     "USDT": "tether",
     "DAI": "dai",
-    "AAVE": "aave",
-    "LINK": "chainlink",
-    "UNI": "uniswap",
 }
 
 # DeFi Llama uses contract addresses on Ethereum mainnet
 DEFILLAMA_TOKEN_ADDRESSES: dict[str, str] = {
-    "ETH": "coingecko:ethereum",
-    "WBTC": "coingecko:wrapped-bitcoin",
     "USDC": "coingecko:usd-coin",
     "USDT": "coingecko:tether",
     "DAI": "coingecko:dai",
-    "AAVE": "coingecko:aave",
-    "LINK": "coingecko:chainlink",
-    "UNI": "coingecko:uniswap",
 }
 
 # L2-specific token mappings: token -> {chain, contract, coingecko_id}
 L2_TOKEN_MAPPINGS: dict[str, dict[str, str]] = {
-    "ARB": {
-        "chain": "arbitrum",
-        "contract": "0x912CE59144191C1204E64559FE8253a0e49E6548",
-        "coingecko_id": "arbitrum",
-    },
-    "GMX": {
-        "chain": "arbitrum",
-        "contract": "0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a",
-        "coingecko_id": "gmx",
-    },
     "AERO": {
         "chain": "base",
         "contract": "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
         "coingecko_id": "aerodrome-finance",
-    },
-    "OP": {
-        "chain": "optimism",
-        "contract": "0x4200000000000000000000000000000000000042",
-        "coingecko_id": "optimism",
     },
 }
 
@@ -131,7 +106,7 @@ class PriceFeedManager:
         """Return tokens available on a given L2 chain.
 
         Args:
-            chain: The L2 chain identifier (e.g. "arbitrum", "base").
+            chain: The L2 chain identifier (e.g. "base").
 
         Returns:
             List of token symbols available on the specified chain.
@@ -146,7 +121,7 @@ class PriceFeedManager:
         """Check if a token is L2-specific.
 
         Args:
-            token: The token symbol to check (e.g. "ARB", "GMX").
+            token: The token symbol to check (e.g. "AERO").
 
         Returns:
             True if the token is an L2-specific token.

@@ -27,20 +27,10 @@ ROLLING_WINDOW_SECONDS = 86400  # 24h
 
 # L2 gas parameters: L1 data posting overhead multipliers and base gas costs
 L2_GAS_PARAMS: dict[str, dict[str, float]] = {
-    "arbitrum": {
-        "l1_overhead_factor": 1.4,
-        "base_l2_gas_gwei": 0.1,
-        "l1_data_cost_gwei": 0.5,
-    },
     "base": {
         "l1_overhead_factor": 1.5,
         "base_l2_gas_gwei": 0.05,
         "l1_data_cost_gwei": 0.3,
-    },
-    "optimism": {
-        "l1_overhead_factor": 1.5,
-        "base_l2_gas_gwei": 0.05,
-        "l1_data_cost_gwei": 0.4,
     },
 }
 
@@ -246,7 +236,7 @@ class GasMonitor:
         """Estimate gas cost on an L2 chain including L1 data posting overhead.
 
         Args:
-            chain: The L2 chain identifier (e.g. "arbitrum", "base").
+            chain: The L2 chain identifier (e.g. "base").
             gas_units: Number of gas units for the transaction.
 
         Returns:
@@ -288,7 +278,7 @@ class GasMonitor:
         """Return the L1 data posting overhead factor for an L2 chain.
 
         Args:
-            chain: The L2 chain identifier (e.g. "arbitrum", "base").
+            chain: The L2 chain identifier (e.g. "base").
 
         Returns:
             The overhead multiplier representing L1 data posting cost ratio.
@@ -313,7 +303,7 @@ class GasMonitor:
         to L1_GAS_BASELINE_GWEI. Caches the result in Redis.
 
         Args:
-            chain: L2 chain identifier (e.g. "arbitrum", "base").
+            chain: L2 chain identifier (e.g. "base").
             gas_units: Number of gas units for the transaction.
 
         Returns:
@@ -386,7 +376,7 @@ class GasMonitor:
         """Get cached L2 gas estimate for a chain.
 
         Args:
-            chain: L2 chain identifier (e.g. "arbitrum", "base").
+            chain: L2 chain identifier (e.g. "base").
 
         Returns:
             Cached L2GasEstimate, or None if not cached.

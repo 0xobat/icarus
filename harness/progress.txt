@@ -503,3 +503,35 @@ Tests: 1,422 total (190 TS + 1,232 Python), all passing
 Features passing: 50/62 (7 set to false for deleted v1 code)
 verify.sh: PASS
 Next: Update shared JSON schemas to remove unused protocols/chains, update prd.md for v1 scope
+
+--- Session 2026-03-06-02 (py-engine Simplification) ---
+Agent: Claude Opus 4.6
+Worked on: Dead code removal + data pipeline simplification in py-engine
+
+Wave 1 — Deleted dead modules (11 source + 7 test files):
+  - ai/code_gen.py, strategies/ingestion.py (code-gen pipeline — done manually now)
+  - ml/ directory (gas_predictor.py, feature_engineering.py, __init__.py)
+  - risk/oracle_guard.py (duplicates PriceFeedManager deviation checks)
+  - reporting/tax_engine.py (premature for testnet-only system)
+  - db/migrations.py (redundant with SQLAlchemy create_all())
+  - monitoring/discord_alerts.py, monitoring/anomaly_detection.py (user requested)
+  - Removed migration tests from test_database.py
+  - 265 tests removed, 967 remaining, all passing
+
+Wave 2 — Simplified data pipeline to v1 scope (Base, stablecoins):
+  - data/defi_metrics.py: removed Uniswap/Lido/GMX dataclasses, methods, and protocol maps
+  - data/price_feed.py: SUPPORTED_TOKENS reduced to USDC/USDT/DAI; L2_TOKEN_MAPPINGS to AERO only
+  - data/gas_monitor.py: L2_GAS_PARAMS reduced to Base only (removed Arbitrum/Optimism)
+  - Updated 4 test files (test_defi_metrics, test_l2_data_pipeline, test_price_feed, test_gas_monitor)
+  - 20 more tests removed, 947 remaining, all passing
+
+Wave 3 — Final cleanup:
+  - features.json: 5 features set to passes:false (AI-002, STRAT-008, MON-002, MON-004, TEST-003)
+  - DATA-003, DATA-005 descriptions updated for v1 scope
+  - All passing via verify.sh
+
+Final state: 45/62 features passing, 947 Python tests + 190 TS tests = 1,137 total
+Baseline commit: b925b60 (dev)
+verify.sh: PASS
+Blocked: none
+Next: Update shared JSON schemas to remove unused protocols/chains, update prd.md for v1 scope

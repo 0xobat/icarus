@@ -10,15 +10,6 @@ from decimal import Decimal
 import pytest
 
 from db.database import DatabaseConfig, DatabaseManager
-from db.migrations import (
-    _MIGRATIONS,
-    ensure_schema,
-    get_current_version,
-    get_pending_migrations,
-    initialize_schema,
-    register_migration,
-    run_migrations,
-)
 from db.models import Alert, Base, PortfolioSnapshot, StrategyPerformance, Trade
 from db.repository import DatabaseRepository
 
@@ -560,77 +551,6 @@ class TestRepositoryAlerts:
         all_alerts = repo.get_alerts()
         severities = {a.severity for a in all_alerts}
         assert severities == {"info", "warning", "critical"}
-
-
-# ---------------------------------------------------------------------------
-# Migration Tests
-# ---------------------------------------------------------------------------
-
-
-class TestMigrations:
-    def test_initialize_schema_creates_tables(self, db_manager):
-        # Tables already created by fixture, but re-calling should be safe
-        initialize_schema(db_manager)
-        assert db_manager.health_check()
-
-    def test_initialize_schema_is_idempotent(self, db_manager):
-        initialize_schema(db_manager)
-        initialize_schema(db_manager)
-        version = get_current_version(db_manager)
-        assert version == 0
-
-    def test_get_current_version_after_init(self, db_manager):
-        initialize_schema(db_manager)
-        assert get_current_version(db_manager) == 0
-
-    def test_get_pending_migrations_none(self, db_manager):
-        initialize_schema(db_manager)
-        pending = get_pending_migrations(db_manager)
-        assert pending == []
-
-    def test_ensure_schema_runs_without_error(self, db_manager):
-        ensure_schema(db_manager)
-        assert get_current_version(db_manager) == 0
-
-    def test_register_and_run_migration(self, db_manager):
-        initialize_schema(db_manager)
-
-        # Register a test migration
-        test_version = 9999  # Use a high number to avoid conflicts
-        called = []
-
-        @register_migration(test_version, "Test migration")
-        def _test_migration(session):
-            called.append(True)
-
-        try:
-            pending = get_pending_migrations(db_manager)
-            assert test_version in pending
-
-            applied = run_migrations(db_manager)
-            assert test_version in applied
-            assert len(called) == 1
-
-            # Should not be pending anymore
-            assert get_pending_migrations(db_manager) == []
-        finally:
-            # Clean up the registry
-            _MIGRATIONS.pop(test_version, None)
-
-    def test_duplicate_migration_version_raises(self):
-        test_version = 9998
-
-        @register_migration(test_version, "First")
-        def _first(session):
-            pass
-
-        try:
-            with pytest.raises(ValueError, match="already registered"):
-                @register_migration(test_version, "Duplicate")
-                def _duplicate(session):
-                    pass
-        finally:
-            _MIGRATIONS.pop(test_version, None)
 
 
 # ---------------------------------------------------------------------------
