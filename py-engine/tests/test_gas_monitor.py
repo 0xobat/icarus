@@ -68,14 +68,15 @@ def _make_mock_redis() -> MagicMock:
 
 
 def _mock_etherscan_response(fast: float, standard: float, slow: float) -> dict[str, Any]:
-    """Build a mock Etherscan gas oracle response."""
+    """Build a mock Blocknative gas price response."""
     return {
-        "status": "1",
-        "result": {
-            "FastGasPrice": str(fast),
-            "ProposeGasPrice": str(standard),
-            "SafeGasPrice": str(slow),
-        },
+        "blockPrices": [{
+            "estimatedPrices": [
+                {"price": fast},
+                {"price": standard},
+                {"price": slow},
+            ],
+        }],
     }
 
 

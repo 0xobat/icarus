@@ -125,19 +125,46 @@ class GasMonitor:
     # ── Source fetching ──────────────────────────────────
 
     def _fetch_gas_prices(self) -> GasPrices:
-        """Fetch current gas prices from external source."""
-        url = "https://api.etherscan.io/api?module=gastracker&action=gasoracle"
+        """Fetch current gas prices from external source.
+
+        Tries Blocknative gas estimator first (free, no key), falls back
+        to beaconcha.in API.
+        """
         now = datetime.now(UTC).isoformat()
 
-        data = self._fetch_fn(url)
-        result = data.get("result", {})
+        # Primary: Blocknative gas estimator (free, no API key)
+        try:
+            url = "https://api.blocknative.com/gasprices/blockprices"
+            data = self._fetch_fn(url)
+            block_prices = data.get("blockPrices", [{}])[0]
+            prices = block_prices.get("estimatedPrices", [])
+            if prices and len(prices) >= 3:
+                return GasPrices(
+                    fast=float(prices[0].get("price", 0)),
+                    standard=float(prices[1].get("price", 0)),
+                    slow=float(prices[2].get("price", 0)),
+                    timestamp=now,
+                )
+        except Exception:
+            pass
 
-        return GasPrices(
-            fast=float(result.get("FastGasPrice", 0)),
-            standard=float(result.get("ProposeGasPrice", 0)),
-            slow=float(result.get("SafeGasPrice", 0)),
-            timestamp=now,
-        )
+        # Fallback: beaconcha.in
+        try:
+            url = "https://beaconcha.in/api/v1/execution/gasnow"
+            data = self._fetch_fn(url)
+            result = data.get("data", {})
+            if isinstance(result, dict):
+                # beaconcha.in returns prices in wei, convert to gwei
+                return GasPrices(
+                    fast=float(result.get("fast", 0)) / 1e9,
+                    standard=float(result.get("standard", 0)) / 1e9,
+                    slow=float(result.get("slow", 0)) / 1e9,
+                    timestamp=now,
+                )
+        except Exception:
+            pass
+
+        raise ValueError("All gas price sources failed")
 
     # ── Caching ──────────────────────────────────────────
 
