@@ -1,6 +1,6 @@
-"""Strategy ingestion -- parses strategy.md into structured specs (STRAT-008).
+"""Strategy ingestion -- parses STRATEGY.md into structured specs (STRAT-008).
 
-Reads the human-authored strategy.md markdown file, extracts per-strategy
+Reads the human-authored STRATEGY.md markdown file, extracts per-strategy
 structured specifications, validates required fields, detects changes against
 previously stored versions, and flags strategies for code-gen or retirement.
 """
@@ -45,7 +45,7 @@ REQUIRED_SPEC_FIELDS = frozenset({
 
 @dataclass
 class StrategySpec:
-    """Structured representation of a single strategy from strategy.md."""
+    """Structured representation of a single strategy from STRATEGY.md."""
 
     name: str
     id: str
@@ -226,13 +226,13 @@ def _extract_risk_profile(text: str) -> str:
 
 
 def parse_strategy_md(content: str) -> list[StrategySpec]:
-    """Parse strategy.md markdown content into a list of StrategySpec objects.
+    """Parse STRATEGY.md markdown content into a list of StrategySpec objects.
 
     Expects strategies defined as H2 (##) or H3 (###) sections with metadata
     in the body. Extracts name, tier, protocols, chains, conditions, etc.
 
     Args:
-        content: Full content of strategy.md.
+        content: Full content of STRATEGY.md.
 
     Returns:
         List of parsed StrategySpec objects.
@@ -369,7 +369,7 @@ def validate_spec(spec: StrategySpec) -> tuple[bool, list[str]]:
 # ---------------------------------------------------------------------------
 
 class StrategyIngestor:
-    """Parses strategy.md and detects changes against stored versions.
+    """Parses STRATEGY.md and detects changes against stored versions.
 
     Manages the full ingestion pipeline: parse markdown, validate specs,
     compare against previous state, and flag strategies for code-gen
@@ -395,10 +395,10 @@ class StrategyIngestor:
         return dict(self._last_specs)
 
     def ingest(self, markdown_content: str) -> IngestionResult:
-        """Parse strategy.md, validate, and detect changes.
+        """Parse STRATEGY.md, validate, and detect changes.
 
         Args:
-            markdown_content: Full content of strategy.md.
+            markdown_content: Full content of STRATEGY.md.
 
         Returns:
             IngestionResult with parsed specs, change classifications,
@@ -487,10 +487,10 @@ class StrategyIngestor:
         return result
 
     def ingest_file(self, file_path: str) -> IngestionResult:
-        """Parse a strategy.md file from disk.
+        """Parse a STRATEGY.md file from disk.
 
         Args:
-            file_path: Path to strategy.md file.
+            file_path: Path to STRATEGY.md file.
 
         Returns:
             IngestionResult with parsed specs and change classifications.

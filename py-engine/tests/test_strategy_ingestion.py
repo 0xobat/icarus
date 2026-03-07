@@ -18,7 +18,7 @@ from strategies.ingestion import (
 )
 
 # ---------------------------------------------------------------------------
-# Sample strategy.md content
+# Sample STRATEGY.md content
 # ---------------------------------------------------------------------------
 
 SAMPLE_STRATEGY_MD = """\
@@ -642,7 +642,7 @@ class TestStrategyIngestorCodegen:
 class TestStrategyIngestorFile:
 
     def test_ingest_file(self, tmp_path) -> None:
-        md_path = tmp_path / "strategy.md"
+        md_path = tmp_path / "STRATEGY.md"
         md_path.write_text(SAMPLE_STRATEGY_MD)
         ingestor = StrategyIngestor()
         result = ingestor.ingest_file(str(md_path))
@@ -652,4 +652,4 @@ class TestStrategyIngestorFile:
         import pytest
         ingestor = StrategyIngestor()
         with pytest.raises(FileNotFoundError):
-            ingestor.ingest_file("/nonexistent/strategy.md")
+            ingestor.ingest_file("/nonexistent/STRATEGY.md")

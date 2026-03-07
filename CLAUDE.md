@@ -2,17 +2,17 @@
 
 Autonomous multi-strategy DeFi bot. Claude is the decision engine at two levels:
 
-1. **Compile time** — Claude reads `strategy.md` and generates Python strategy classes
+1. **Compile time** — Claude reads `STRATEGY.md` and generates Python strategy classes
 2. **Runtime** — Python synthesizes market data into insights, Claude API reasons over them to produce trading decisions
 
-Strategies are data (`strategy.md`), not hardcoded logic. Adding a strategy means editing a markdown file.
+Strategies are data (`STRATEGY.md`), not hardcoded logic. Adding a strategy means editing a markdown file.
 
 ## Architecture
 
 - `ts-executor/` — TypeScript service (chain listeners, TX execution, protocol adapters)
 - `py-engine/` — Python service (data pipeline, AI reasoning, risk management, portfolio)
 - `shared/schemas/` — JSON schemas defining Redis message contracts between services
-- `strategy.md` — Human-authored strategy definitions (source of truth)
+- `STRATEGY.md` — Human-authored strategy definitions (source of truth)
 - `docker-compose.yml` — Redis + PostgreSQL + both services
 
 **Design principle:** Python synthesizes data and translates Claude's decisions into orders. TypeScript owns all chain interactions. Neither crosses into the other's domain.

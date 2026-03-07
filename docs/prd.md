@@ -6,11 +6,11 @@
 
 ## 1. Overview
 
-Autonomous multi-strategy DeFi bot. Strategies are defined in `strategy.md` by a human. Claude synthesizes those definitions into executable Python strategy classes and acts as the runtime decision engine. TypeScript handles all blockchain interaction. Communication via Redis.
+Autonomous multi-strategy DeFi bot. Strategies are defined in `STRATEGY.md` by a human. Claude synthesizes those definitions into executable Python strategy classes and acts as the runtime decision engine. TypeScript handles all blockchain interaction. Communication via Redis.
 
 The system has two AI integration points:
 
-1. **Compile time** — Claude reads `strategy.md` and generates Python strategy classes. When strategies are updated, classes are regenerated and deployed via rolling release.
+1. **Compile time** — Claude reads `STRATEGY.md` and generates Python strategy classes. When strategies are updated, classes are regenerated and deployed via rolling release.
 2. **Runtime** — Python crunches market data into structured insights. Claude API reasons over those insights + active strategy specs to produce trading decisions. Not hardcoded if/else — actual AI reasoning.
 
 | Metric              | Target          | Hard Limit                      |
@@ -27,7 +27,7 @@ The system has two AI integration points:
 
 ### Definition
 
-Strategies are authored in `strategy.md` — a human-readable file that defines:
+Strategies are authored in `STRATEGY.md` — a human-readable file that defines:
 
 - Strategy name, tier, and risk profile
 - Target protocols and chains
@@ -69,10 +69,10 @@ Claude reads this file and generates a Python class per strategy. Each class fol
 
 - Python owns all decisions. TypeScript owns all chain interactions. Neither crosses into the other's domain.
 - Claude is the decision engine. Python synthesizes data and translates decisions into orders.
-- Strategies are data (`strategy.md`), not hardcoded logic. Adding a strategy means editing a markdown file, not writing a Python class.
+- Strategies are data (`STRATEGY.md`), not hardcoded logic. Adding a strategy means editing a markdown file, not writing a Python class.
 
 ```
-                        strategy.md
+                        STRATEGY.md
                             │
                       ┌─────▼─────┐
                       │  Claude   │  (compile time)
@@ -88,7 +88,7 @@ Claude reads this file and generates a Python class per strategy. Each class fol
 │   protocol metrics)                      reasoning)│
 │                                              │     │
 │  Generated Strategy Classes ◄────────────────┘     │
-│  (from strategy.md)                                │
+│  (from STRATEGY.md)                                │
 │         │                                          │
 │         ▼                                          │
 │  Risk Gate ──► Order Emitter                       │
@@ -136,7 +136,7 @@ For simple, well-defined situations (e.g. "APY on market A is higher than market
 | Decision        | Choice                                    | Rationale                                                             |
 | --------------- | ----------------------------------------- | --------------------------------------------------------------------- |
 | Decision Engine | Claude API                                | AI reasoning over synthesized data, not hardcoded rules               |
-| Strategy Def    | Markdown (`strategy.md`) → generated code | Human-readable specs, Claude generates implementations                |
+| Strategy Def    | Markdown (`STRATEGY.md`) → generated code | Human-readable specs, Claude generates implementations                |
 | Wallet          | Safe 1-of-2 Multisig (Safe{Core} SDK)     | ethskills: battle-tested ($100B+ secured), agent EOA + human recovery |
 | State Recovery  | TTL-based pruning on Redis Streams        | Bounded storage, sufficient replay window for crash recovery          |
 | MEV Protection  | Flashbots Protect RPC (P1b)               | Private mempool routing for swaps; not needed for P1a supply/withdraw |
@@ -149,7 +149,7 @@ For simple, well-defined situations (e.g. "APY on market A is higher than market
 
 ```
 icarus/
-├── strategy.md                    # Human-authored strategy definitions
+├── STRATEGY.md                    # Human-authored strategy definitions
 │
 ├── ts-executor/                   # TypeScript service — chain interaction
 │   └── src/
@@ -163,7 +163,7 @@ icarus/
 ├── py-engine/                     # Python service — brain
 │   ├── ai/                        # Claude API client, decision engine, code-gen
 │   ├── data/                      # Market data ingestion & enrichment
-│   ├── strategies/                # Generated strategy classes (from strategy.md)
+│   ├── strategies/                # Generated strategy classes (from STRATEGY.md)
 │   ├── risk/                      # Circuit breakers & exposure limits
 │   ├── portfolio/                 # Position tracker, capital allocator
 │   ├── harness/                   # State recovery, diagnostics
@@ -183,7 +183,7 @@ icarus/
 | Component              | Technology                              |
 | ---------------------- | --------------------------------------- |
 | Decision Engine        | Claude API (Anthropic)                  |
-| Strategy Code-Gen      | Claude API + strategy.md                |
+| Strategy Code-Gen      | Claude API + STRATEGY.md                |
 | RPC Provider           | Alchemy (WebSockets + Enhanced APIs)    |
 | ETH Interactions       | viem (TypeScript)                       |
 | Message Broker / Cache | Redis 7+ (pub/sub + Streams)            |
@@ -257,13 +257,13 @@ Patterns from [Anthropic's long-running agent research](https://www.anthropic.co
 - Trades >15% of portfolio require confirmation
 - New strategy tier activation requires explicit approval
 - Emergency override via Discord: pause all, force-unwind, withdraw
-- Strategy updates in `strategy.md` trigger regeneration, enter as "evaluating"
+- Strategy updates in `STRATEGY.md` trigger regeneration, enter as "evaluating"
 
 ### Rolling Release
 
 The bot is always running. Updates flow as:
 
-1. Human edits `strategy.md`
+1. Human edits `STRATEGY.md`
 2. Claude regenerates affected strategy classes
 3. New classes deploy, lifecycle manager picks them up as "evaluating"
 4. After validation period, strategies transition to "active"

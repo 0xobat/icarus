@@ -291,7 +291,7 @@ def _make_metadata_header(
         # spec_hash: {spec_hash}
         # generated_at: {now}
         # class_name: {class_name}
-        # DO NOT EDIT — regenerate by updating strategy.md
+        # DO NOT EDIT — regenerate by updating STRATEGY.md
     """)
 
 
@@ -492,7 +492,7 @@ class StrategyCodeGenerator:
         ingestor: StrategyIngestor,
         markdown_content: str,
     ) -> list[CodeGenResult]:
-        """Parse strategy.md and regenerate only changed strategies.
+        """Parse STRATEGY.md and regenerate only changed strategies.
 
         Uses the StrategyIngestor (STRAT-008) for change detection.
         Only strategies flagged as new or modified are regenerated.
@@ -500,7 +500,7 @@ class StrategyCodeGenerator:
 
         Args:
             ingestor: StrategyIngestor instance for parsing and change detection.
-            markdown_content: Full content of strategy.md.
+            markdown_content: Full content of STRATEGY.md.
 
         Returns:
             List of CodeGenResult for each strategy that was processed.
