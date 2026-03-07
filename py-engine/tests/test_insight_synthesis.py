@@ -25,8 +25,8 @@ from portfolio.position_tracker import Position, PositionTracker
 def _make_price_feed(prices: dict[str, Any] | None = None):
     mock = MagicMock()
     mock.fetch_prices.return_value = prices or {
-        "ETH": {"price_usd": 3200.0, "sources": ["coingecko", "defillama"]},
-        "USDC": {"price_usd": 1.0, "sources": ["coingecko"]},
+        "ETH": {"price_usd": 3200.0, "sources": ["alchemy", "defillama"]},
+        "USDC": {"price_usd": 1.0, "sources": ["alchemy"]},
     }
     return mock
 
@@ -220,7 +220,7 @@ class TestCompressPrices:
 
     def test_compresses_multi_source(self) -> None:
         prices = {
-            "ETH": {"price_usd": 3200.50, "sources": ["coingecko", "defillama"]},
+            "ETH": {"price_usd": 3200.50, "sources": ["alchemy", "defillama"]},
         }
         result = _compress_prices(prices)
         assert "ETH" in result
@@ -229,7 +229,7 @@ class TestCompressPrices:
 
     def test_compresses_single_source(self) -> None:
         prices = {
-            "USDC": {"price_usd": 1.0, "sources": ["coingecko"]},
+            "USDC": {"price_usd": 1.0, "sources": ["alchemy"]},
         }
         result = _compress_prices(prices)
         assert "1 source" in result["USDC"]
