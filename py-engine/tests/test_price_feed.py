@@ -156,7 +156,7 @@ class TestFetchPricesFlow:
 
         def mock_fetch(url: str, timeout: int = 10) -> Any:
             if "api.g.alchemy.com" in url:
-                return _make_alchemy_response({"USDC": 1.0001, "USDT": 1.0})
+                return _make_alchemy_response({"USDC": 1.0001, "USDT": 1.0, "DAI": 1.0, "AERO": 1.5})
             raise ConnectionError("Should not call fallback")
 
         mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
@@ -165,7 +165,30 @@ class TestFetchPricesFlow:
         assert "USDC" in result
         assert result["USDC"]["price_usd"] == pytest.approx(1.0001)
         assert result["USDC"]["sources"] == ["alchemy"]
-        assert redis.cache_set.call_count >= 2
+        assert redis.cache_set.call_count >= 4
+
+    def test_partial_alchemy_supplements_from_defillama(self) -> None:
+        """When Alchemy returns some tokens, DefiLlama fills in the rest."""
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response({"USDC": 1.0001, "USDT": 1.0})
+            if "coins.llama.fi" in url:
+                return _make_defillama_response({"DAI": 0.999, "AERO": 1.25, "USDC": 1.001})
+            raise ConnectionError("Unknown URL")
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        result = mgr.fetch_prices()
+
+        # Alchemy tokens kept
+        assert result["USDC"]["sources"] == ["alchemy"]
+        assert result["USDC"]["price_usd"] == pytest.approx(1.0001)
+        assert result["USDT"]["sources"] == ["alchemy"]
+        # Missing tokens filled from DefiLlama
+        assert result["DAI"]["sources"] == ["defillama"]
+        assert result["AERO"]["sources"] == ["defillama"]
+        assert result["AERO"]["price_usd"] == pytest.approx(1.25)
 
     def test_alchemy_fail_falls_back_to_defillama(self) -> None:
         """When Alchemy fails, DefiLlama is tried."""

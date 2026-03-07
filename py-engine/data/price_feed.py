@@ -262,10 +262,14 @@ class PriceFeedManager:
             except Exception as e:
                 _log("price_source_error", f"Alchemy fetch failed: {e}", source="alchemy")
 
-        # Fallback: DefiLlama (only if Alchemy returned nothing)
-        if not source_results:
+        # Fallback: DefiLlama for missing tokens (or all tokens if Alchemy failed)
+        missing = set(ALCHEMY_SYMBOLS) - set(source_results)
+        if missing:
             try:
-                source_results = self._fetch_defillama()
+                fallback = self._fetch_defillama()
+                for token, pr in fallback.items():
+                    if token not in source_results:
+                        source_results[token] = pr
             except Exception as e:
                 _log("price_source_error", f"DefiLlama fetch failed: {e}", source="defillama")
 
