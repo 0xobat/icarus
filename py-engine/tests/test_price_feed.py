@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from data.price_feed import (
+    ALCHEMY_SYMBOLS,
     DEFILLAMA_TOKEN_ADDRESSES,
     PRICE_CACHE_KEY_PREFIX,
     SUPPORTED_TOKENS,
@@ -89,6 +90,19 @@ def _make_defillama_response(prices: dict[str, float]) -> dict[str, Any]:
     return {"coins": coins}
 
 
+def _make_alchemy_response(prices: dict[str, float]) -> dict[str, Any]:
+    """Build a mock Alchemy Token Prices API response."""
+    return {
+        "data": [
+            {
+                "symbol": symbol,
+                "prices": [{"currency": "usd", "value": str(price), "lastUpdatedAt": "2026-01-01T00:00:00Z"}],
+            }
+            for symbol, price in prices.items()
+        ]
+    }
+
+
 # ── Tests ─────────────────────────────────────────────
 
 
@@ -130,6 +144,52 @@ class TestOracleManipulationGuard:
         ok, dev = mgr._check_deviation("USDC", 0.0, 0.0)
         assert ok
         assert dev == 0.0
+
+
+class TestAlchemyFetch:
+    def test_fetches_all_tokens(self) -> None:
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            assert "api.g.alchemy.com/prices" in url
+            return _make_alchemy_response({"USDC": 1.0001, "USDT": 1.0, "DAI": 0.9998, "AERO": 1.25})
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        result = mgr._fetch_alchemy()
+
+        assert len(result) == 4
+        assert result["USDC"].price_usd == pytest.approx(1.0001)
+        assert result["USDC"].source == "alchemy"
+        assert result["AERO"].price_usd == pytest.approx(1.25)
+
+    def test_handles_missing_token_gracefully(self) -> None:
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            return _make_alchemy_response({"USDC": 1.0})
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        result = mgr._fetch_alchemy()
+
+        assert "USDC" in result
+        assert "USDT" not in result
+
+    def test_no_api_key_raises(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis)
+        # Ensure env vars don't leak
+        import os
+        old_key = os.environ.pop("ALCHEMY_API_KEY", None)
+        old_sep = os.environ.pop("ALCHEMY_SEPOLIA_API_KEY", None)
+        try:
+            mgr._alchemy_api_key = None
+            with pytest.raises(ValueError, match="ALCHEMY_API_KEY"):
+                mgr._fetch_alchemy()
+        finally:
+            if old_key:
+                os.environ["ALCHEMY_API_KEY"] = old_key
+            if old_sep:
+                os.environ["ALCHEMY_SEPOLIA_API_KEY"] = old_sep
 
 
 class TestMultiSourceAggregation:

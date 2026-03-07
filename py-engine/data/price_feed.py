@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import urllib.request
 from datetime import UTC, datetime
@@ -12,26 +13,30 @@ from data.redis_client import RedisManager
 
 SERVICE_NAME = "py-engine"
 
-# Tokens tracked: v1 stablecoins only (Base, Aave V3 lending)
+# Tokens tracked by Alchemy (symbol used directly in API call)
+ALCHEMY_SYMBOLS: list[str] = ["USDC", "USDT", "DAI", "AERO"]
+
+# Legacy CoinGecko ID mapping (removed in Task 3)
 SUPPORTED_TOKENS: dict[str, str] = {
     "USDC": "usd-coin",
     "USDT": "tether",
     "DAI": "dai",
 }
 
-# DeFi Llama uses contract addresses on Ethereum mainnet
+# DeFi Llama fallback addresses
 DEFILLAMA_TOKEN_ADDRESSES: dict[str, str] = {
     "USDC": "coingecko:usd-coin",
     "USDT": "coingecko:tether",
     "DAI": "coingecko:dai",
+    "AERO": "coingecko:aerodrome-finance",
 }
 
-# L2-specific token mappings: token -> {chain, contract, coingecko_id}
+# L2-specific token metadata (kept for get_l2_tokens / is_l2_token helpers)
 L2_TOKEN_MAPPINGS: dict[str, dict[str, str]] = {
     "AERO": {
         "chain": "base",
         "contract": "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
-        "coingecko_id": "aerodrome-finance",
+        "coingecko_id": "aerodrome-finance",  # Legacy: removed in Task 3
     },
 }
 
@@ -93,12 +98,17 @@ class PriceFeedManager:
         deviation_threshold: float = DEFAULT_DEVIATION_THRESHOLD,
         tokens: dict[str, str] | None = None,
         fetch_fn: Any = None,
+        alchemy_api_key: str | None = None,
+        fetch_interval_seconds: int | None = None,
     ) -> None:
         self._redis = redis
         self._ttl = ttl_seconds
         self._deviation_threshold = deviation_threshold
         self._tokens = tokens or SUPPORTED_TOKENS
         self._fetch_fn = fetch_fn or _fetch_url
+        self._alchemy_api_key = alchemy_api_key or os.environ.get("ALCHEMY_API_KEY") or os.environ.get("ALCHEMY_SEPOLIA_API_KEY")
+        self._fetch_interval = fetch_interval_seconds or int(os.environ.get("PRICE_FETCH_INTERVAL_SECONDS", "30"))
+        self._last_fetch_time: float = 0.0
 
     # ── L2 token helpers ──────────────────────────────────
 
@@ -213,6 +223,35 @@ class PriceFeedManager:
                     source="defillama",
                     timestamp=now,
                 )
+        return results
+
+    def _fetch_alchemy(self) -> dict[str, PriceResult]:
+        """Fetch prices from Alchemy Token Prices API."""
+        if not self._alchemy_api_key:
+            raise ValueError("ALCHEMY_API_KEY is required for Alchemy price fetches")
+
+        symbols = "&".join(f"symbols={s}" for s in ALCHEMY_SYMBOLS)
+        url = f"https://api.g.alchemy.com/prices/v1/{self._alchemy_api_key}/tokens/by-symbol?{symbols}"
+        now = datetime.now(UTC).isoformat()
+
+        data = self._fetch_fn(url)
+        results: dict[str, PriceResult] = {}
+
+        for entry in data.get("data", []):
+            symbol = entry.get("symbol", "").upper()
+            prices = entry.get("prices", [])
+            if symbol in ALCHEMY_SYMBOLS and prices:
+                usd_price = next(
+                    (p for p in prices if p.get("currency") == "usd"), None
+                )
+                if usd_price:
+                    results[symbol] = PriceResult(
+                        token=symbol,
+                        price_usd=float(usd_price["value"]),
+                        source="alchemy",
+                        timestamp=now,
+                    )
+
         return results
 
     # ── Oracle manipulation guard ────────────────────────
@@ -355,13 +394,6 @@ class PriceFeedManager:
                 # Only one source — use it but flag single-source
                 single = price_a_result or price_b_result
                 assert single is not None
-
-                _log(
-                    "single_source_price",
-                    f"Only one source available for {token}",
-                    token=token,
-                    source=single.source,
-                )
 
                 self._cache_price(token, single.price_usd, single.timestamp)
                 self._record_price_history(token, single.price_usd, now_epoch)
