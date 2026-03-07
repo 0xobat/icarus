@@ -365,42 +365,6 @@ describe('TransactionBuilder', () => {
     });
   });
 
-  describe('Flashbots compatibility', () => {
-    it('logs not-configured warning when useFlashbotsProtect set but no manager', async () => {
-      vi.useRealTimers();
-
-      const logs: Array<{ event: string; extra?: Record<string, unknown> }> = [];
-      const safeWallet = createMockSafeWallet();
-      const builder = createBuilder({
-        safeWallet,
-        onLog: (event, _msg, extra) => logs.push({ event, extra }),
-      });
-
-      const order = makeOrder({ useFlashbotsProtect: true });
-      const result = await builder.handleOrder(order);
-
-      expect(result.status).toBe('confirmed');
-      const flashbotsWarning = logs.find((l) => l.event === 'exec_flashbots_not_configured');
-      expect(flashbotsWarning).toBeDefined();
-      expect(safeWallet.executeTransaction).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not log Flashbots warning when useFlashbotsProtect is false', async () => {
-      vi.useRealTimers();
-
-      const logs: Array<{ event: string; extra?: Record<string, unknown> }> = [];
-      const builder = createBuilder({
-        onLog: (event, _msg, extra) => logs.push({ event, extra }),
-      });
-
-      const order = makeOrder({ useFlashbotsProtect: false });
-      await builder.handleOrder(order);
-
-      const flashbotsWarning = logs.find((l) => l.event === 'exec_flashbots_not_configured');
-      expect(flashbotsWarning).toBeUndefined();
-    });
-  });
-
   describe('retry logic', () => {
     it('retries on transient failure and succeeds', async () => {
       vi.useRealTimers();

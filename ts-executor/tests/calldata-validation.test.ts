@@ -1,5 +1,5 @@
 /**
- * Calldata encode/decode validation for Aave V3 and Lido adapters.
+ * Calldata encode/decode validation for Aave V3 adapter.
  *
  * Roundtrips encoded calldata through viem's decodeFunctionData to verify
  * correctness — catches ABI mismatches, wrong argument ordering, and
@@ -16,19 +16,8 @@ import {
   encodeWithdraw,
 } from '../src/execution/aave-v3-adapter.js';
 
-import {
-  LIDO_STETH_ABI,
-  STETH_ADDRESS,
-  WSTETH_ABI,
-  WSTETH_ADDRESS,
-  encodeStake,
-  encodeUnwrap,
-  encodeWrap,
-} from '../src/execution/lido-adapter.js';
-
 const DUMMY_ASSET: Address = '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8';
 const DUMMY_WALLET: Address = '0x1111111111111111111111111111111111111111';
-const ZERO_ADDR: Address = '0x0000000000000000000000000000000000000000';
 
 // ── Aave V3 ──────────────────────────────────────
 
@@ -87,77 +76,6 @@ describe('Aave V3 calldata validation', () => {
     const calldata = encodeSupply(DUMMY_ASSET, 10n ** 18n, DUMMY_WALLET);
     expect(() =>
       decodeFunctionData({ abi: AAVE_POOL_ABI, data: calldata }),
-    ).not.toThrow();
-  });
-});
-
-// ── Lido ──────────────────────────────────────
-
-describe('Lido calldata validation', () => {
-  it('stETH address matches Sepolia', () => {
-    expect(STETH_ADDRESS.toLowerCase()).toBe(
-      '0x3e3FE7dBc6B4C189E7128855dD526361c49b40Af'.toLowerCase(),
-    );
-  });
-
-  it('wstETH address matches Sepolia', () => {
-    expect(WSTETH_ADDRESS.toLowerCase()).toBe(
-      '0xB82381A3fBD3FaFA77B3a7bE693342618240067b'.toLowerCase(),
-    );
-  });
-
-  it('stake encode/decode with default zero referral', () => {
-    const calldata = encodeStake();
-    const decoded = decodeFunctionData({ abi: LIDO_STETH_ABI, data: calldata });
-
-    expect(decoded.functionName).toBe('submit');
-    expect(decoded.args[0]).toBe(ZERO_ADDR);
-  });
-
-  it('stake encode/decode with custom referral', () => {
-    const referral: Address = '0x2222222222222222222222222222222222222222';
-    const calldata = encodeStake(referral);
-    const decoded = decodeFunctionData({ abi: LIDO_STETH_ABI, data: calldata });
-
-    expect(decoded.functionName).toBe('submit');
-    expect(decoded.args[0]).toBe(referral);
-  });
-
-  it('wrap encode/decode roundtrip', () => {
-    const amount = 10n ** 18n;
-    const calldata = encodeWrap(amount);
-    const decoded = decodeFunctionData({ abi: WSTETH_ABI, data: calldata });
-
-    expect(decoded.functionName).toBe('wrap');
-    expect(decoded.args[0]).toBe(amount);
-  });
-
-  it('unwrap encode/decode roundtrip', () => {
-    const amount = 5n * 10n ** 17n;
-    const calldata = encodeUnwrap(amount);
-    const decoded = decodeFunctionData({ abi: WSTETH_ABI, data: calldata });
-
-    expect(decoded.functionName).toBe('unwrap');
-    expect(decoded.args[0]).toBe(amount);
-  });
-
-  it('wrap vs unwrap have different selectors', () => {
-    const wrapData = encodeWrap(1n);
-    const unwrapData = encodeUnwrap(1n);
-    expect(wrapData.slice(0, 10)).not.toBe(unwrapData.slice(0, 10));
-  });
-
-  it('stake calldata is ABI-decodable', () => {
-    const calldata = encodeStake();
-    expect(() =>
-      decodeFunctionData({ abi: LIDO_STETH_ABI, data: calldata }),
-    ).not.toThrow();
-  });
-
-  it('wrap calldata is ABI-decodable', () => {
-    const calldata = encodeWrap(10n ** 18n);
-    expect(() =>
-      decodeFunctionData({ abi: WSTETH_ABI, data: calldata }),
     ).not.toThrow();
   });
 });

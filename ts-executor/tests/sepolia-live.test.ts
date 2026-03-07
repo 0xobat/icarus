@@ -1,7 +1,7 @@
 /**
  * Sepolia live validation tests — skip-by-default.
  *
- * Verifies that Aave V3 and Lido contracts exist on Sepolia and accept
+ * Verifies that Aave V3 contracts exist on Sepolia and accept
  * the calldata produced by our protocol adapters. Only runs when
  * ALCHEMY_SEPOLIA_HTTP_URL is set in the environment.
  *
@@ -14,7 +14,6 @@ import { createPublicClient, http, type Hex } from 'viem';
 import { sepolia } from 'viem/chains';
 
 import { AAVE_POOL_ABI, AAVE_V3_POOL, encodeSupply } from '../src/execution/aave-v3-adapter.js';
-import { STETH_ADDRESS, WSTETH_ADDRESS } from '../src/execution/lido-adapter.js';
 
 const RPC_URL = process.env.ALCHEMY_SEPOLIA_HTTP_URL;
 
@@ -30,18 +29,6 @@ describe.skipIf(!RPC_URL)('Sepolia live validation', () => {
     const code = await client!.getCode({ address: AAVE_V3_POOL });
     expect(code).toBeDefined();
     expect(code!.length).toBeGreaterThan(2); // '0x' is empty
-  });
-
-  it('Lido stETH contract exists on Sepolia', async () => {
-    const code = await client!.getCode({ address: STETH_ADDRESS });
-    expect(code).toBeDefined();
-    expect(code!.length).toBeGreaterThan(2);
-  });
-
-  it('Lido wstETH contract exists on Sepolia', async () => {
-    const code = await client!.getCode({ address: WSTETH_ADDRESS });
-    expect(code).toBeDefined();
-    expect(code!.length).toBeGreaterThan(2);
   });
 
   it('Aave getReserveData is callable for Sepolia USDC', async () => {
