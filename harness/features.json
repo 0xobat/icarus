@@ -302,7 +302,7 @@
       "Auto-discovery: any module in strategies/ exporting a Strategy-conforming class is registered",
       "Strategies are analysts — they produce reports, not execution orders"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-002",
@@ -576,7 +576,7 @@
       "Structured diagnostic logging for troubleshooting irreconcilable state",
       "Auto-resume when Claude API responds, budget resets, or state is manually reconciled"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "MON-001",
