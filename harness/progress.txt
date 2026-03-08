@@ -813,3 +813,23 @@ Remaining 12 features:
   Wave 6: HARNESS-002, TEST-001, DEPLOY-001, RISK-009
 
 Next: Resume with Wave 4 — circuit breakers (RISK-001/002/005) + rebalancing (PORT-003)
+
+## Session — 2026-03-08 (RISK-005 implementation)
+
+Feature: RISK-005 — Protocol TVL monitor circuit breaker
+Status: COMPLETE
+
+Changes:
+  1. py-engine/risk/tvl_monitor.py:
+     - Added generate_withdrawal_orders() for schema-compliant CB:tvl_drop orders
+     - Added get_active_protocols() and check_active_protocols() for position filtering
+  2. py-engine/main.py:
+     - Imported and instantiated TVLMonitor in DecisionLoop.__init__
+     - Wired TVL check into run_cycle() after drawdown check
+     - Fetches TVL for aave/aerodrome, records snapshots, generates orders on critical drop
+  3. py-engine/tests/test_tvl_monitor.py:
+     - Added 13 new tests (47 total): active protocol filtering, withdrawal order generation
+     - Tests cover schema compliance, CB: prefix, position filtering, edge cases
+
+Test results: 1227 passed, 11 skipped, verify.sh PASS
+Feature passes: RISK-005 set to true in features.json (37/48 passing)

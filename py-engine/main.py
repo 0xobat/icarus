@@ -32,6 +32,7 @@ from risk.exposure_limits import ExposureLimiter
 from risk.exposure_limits import load_config as load_exposure_config
 from risk.gas_spike_breaker import GasSpikeBreaker
 from risk.oracle_guard import OracleGuard
+from risk.tvl_monitor import TVLMonitor
 from risk.tx_failure_monitor import TxFailureMonitor
 from strategies.lifecycle_manager import LifecycleManager
 
@@ -96,6 +97,9 @@ class DecisionLoop:
             total_capital=total_capital,
             config=load_exposure_config(),
         )
+
+        # TVL monitor circuit breaker
+        self.tvl_monitor = TVLMonitor()
 
         # Oracle manipulation guard
         self.oracle_guard = OracleGuard(self.price_feed)
@@ -169,6 +173,28 @@ class DecisionLoop:
                     extra={"data": {"drawdown_pct": str(dd_state.drawdown_pct)}},
                 )
                 return self._emit_unwind_orders(correlation_id)
+
+        # TVL monitor — feed data and check for critical drops
+        for protocol_key in ("aave", "aerodrome"):
+            tvl_result = self.defi_metrics.fetch_tvl(protocol_key)
+            if tvl_result is not None:
+                self.tvl_monitor.record_tvl(
+                    protocol=protocol_key,
+                    chain="base",
+                    tvl_usd=Decimal(str(tvl_result.tvl_usd)),
+                    source="defi_metrics",
+                )
+
+        tvl_orders = self.tvl_monitor.generate_withdrawal_orders(
+            positions=self.tracker.query(),
+            correlation_id=correlation_id,
+        )
+        if tvl_orders:
+            _logger.warning(
+                "TVL drop breaker triggered",
+                extra={"data": {"order_count": len(tvl_orders)}},
+            )
+            return tvl_orders
 
         if gas is not None:
             self.gas_spike.update(
