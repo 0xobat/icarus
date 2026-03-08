@@ -773,3 +773,43 @@ Completed:
 Notes:
   - 5 pre-existing failures in test_main_loop.py::TestRiskGate (oracle guard mock issue, not related to this change)
   - Position-size-dependent constraints (gas amortization, monthly gain) are reported as observations but enforced by decision gate
+
+--- Team Session 2026-03-08-01 (Waves 1-3) ---
+Lead: Claude Opus 4.6
+Agents: 12 dispatched across 3 waves (max 4 per wave)
+Baseline commit: 0abcc50 (24/48 passing)
+
+Pre-wave recovery:
+  - Recovered crashed session work: STRAT-001 + HARNESS-005 (commit 4de997e)
+  - Fixed lint error in test_hold_mode.py (unused pytest import)
+
+Wave 1 (4 agents):
+  agent-infra005: INFRA-005 PostgreSQL database — MERGED (commit dd95642)
+  agent-infra002: INFRA-002 Redis Streams — MERGED (commits 81bade2, aaea4ce)
+  agent-data001:  DATA-001 Price feed — MERGED (commit 143f7f6)
+  agent-risk006:  RISK-006 Contract allowlist env vars — MERGED (commit 81bade2)
+
+Wave 2 (4 agents):
+  agent-risk008:    RISK-008 Exposure limits — MERGED (commit b66e9db)
+  agent-strat002-v2: STRAT-002 Strategy lifecycle — MERGED (commit a0b7c67)
+  agent-port001:    PORT-001 Portfolio allocator — MERGED (commit f97b70d)
+  agent-port002:    PORT-002 Position tracker — MERGED (commit 99cb137)
+  Note: agent-strat002 (v1) stalled, killed and respawned as v2
+
+Wave 3 (4 agents):
+  agent-risk004:  RISK-004 TX failure monitor — MERGED (commit 5177708)
+  agent-risk007:  RISK-007 Oracle guard — MERGED (commit 1ea9fc5)
+  agent-strat003: STRAT-003 LEND-001 Aave strategy — MERGED (commit 1ca0719)
+  agent-strat004: STRAT-004 LP-001 Aerodrome strategy — MERGED (commit 4212d88)
+  Post-merge fix: oracle guard mock + lint cleanup (commit e36fcca)
+
+Summary: 12/12 features completed across 3 waves, 0 deferred
+Final state: 36/48 passing (up from 24), 1214 tests, verify.sh PASS
+Final commit: e36fcca
+
+Remaining 12 features:
+  Wave 4: RISK-001, RISK-002, RISK-005, PORT-003
+  Wave 5: DATA-004, HARNESS-001, REPORT-001, INFRA-006
+  Wave 6: HARNESS-002, TEST-001, DEPLOY-001, RISK-009
+
+Next: Resume with Wave 4 — circuit breakers (RISK-001/002/005) + rebalancing (PORT-003)
