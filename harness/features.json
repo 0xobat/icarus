@@ -371,7 +371,7 @@
       "State persisted in PostgreSQL, kept in-memory for fast access",
       "Provides position data for Claude's prompt context"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "PORT-003",
@@ -493,7 +493,7 @@
       "Limits defined as environment variables, not hardcoded",
       "Checked as part of verification gate before order execution"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-009",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from unittest.mock import MagicMock
 
 from portfolio.position_tracker import Position, PositionTracker
 
@@ -32,6 +33,14 @@ def _tracker_with_positions() -> PositionTracker:
         protocol_data={"staked_amount": "2.0", "rewards": "0.05"},
     )
     return t
+
+
+def _mock_repository() -> MagicMock:
+    """Create a mock DatabaseRepository."""
+    repo = MagicMock()
+    repo.save_position = MagicMock()
+    repo.get_positions = MagicMock(return_value=[])
+    return repo
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +187,7 @@ class TestPnlCalculation:
 # ---------------------------------------------------------------------------
 
 class TestQueryFiltering:
-    """Positions must be queryable by strategy, protocol, chain, asset."""
+    """Positions must be queryable by strategy, protocol, chain, asset, status."""
 
     def test_query_all(self) -> None:
         t = _tracker_with_positions()
@@ -224,6 +233,28 @@ class TestQueryFiltering:
         assert len(t.query()) == 2
         # Include closed
         assert len(t.query(include_closed=True)) == 3
+
+    def test_query_by_status_open(self) -> None:
+        t = _tracker_with_positions()
+        t.close_position("pos-btc", exit_price="42000")
+        results = t.query(status="open")
+        assert len(results) == 2
+        assert all(p.status == "open" for p in results)
+
+    def test_query_by_status_closed(self) -> None:
+        t = _tracker_with_positions()
+        t.close_position("pos-btc", exit_price="42000")
+        t.close_position("pos-steth", exit_price="2100")
+        results = t.query(status="closed")
+        assert len(results) == 2
+        assert all(p.status == "closed" for p in results)
+
+    def test_query_by_status_with_other_filters(self) -> None:
+        t = _tracker_with_positions()
+        t.close_position("pos-btc", exit_price="42000")
+        results = t.query(status="closed", protocol="uniswap")
+        assert len(results) == 1
+        assert results[0].id == "pos-btc"
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +375,234 @@ class TestSummary:
 
 
 # ---------------------------------------------------------------------------
-# Persistence
+# Position summary for Claude prompt
+# ---------------------------------------------------------------------------
+
+class TestPositionSummary:
+    """get_position_summary provides structured data for Claude's prompt."""
+
+    def test_empty_tracker_summary(self) -> None:
+        t = PositionTracker()
+        summary = t.get_position_summary()
+        assert summary["positions"] == []
+        assert summary["by_protocol"] == {}
+        assert summary["by_strategy"] == {}
+        assert summary["totals"]["open_positions"] == 0
+
+    def test_summary_includes_all_open_positions(self) -> None:
+        t = _tracker_with_positions()
+        summary = t.get_position_summary()
+        assert len(summary["positions"]) == 3
+        assert summary["totals"]["open_positions"] == 3
+
+    def test_summary_groups_by_protocol(self) -> None:
+        t = _tracker_with_positions()
+        summary = t.get_position_summary()
+        assert "aave" in summary["by_protocol"]
+        assert summary["by_protocol"]["aave"]["count"] == 1
+        assert "lido" in summary["by_protocol"]
+
+    def test_summary_groups_by_strategy(self) -> None:
+        t = _tracker_with_positions()
+        summary = t.get_position_summary()
+        assert "STRAT-001" in summary["by_strategy"]
+        assert summary["by_strategy"]["STRAT-001"]["count"] == 1
+
+    def test_summary_totals(self) -> None:
+        t = _tracker_with_positions()
+        t.close_position("pos-btc", exit_price="42000")
+        summary = t.get_position_summary()
+        assert summary["totals"]["open_positions"] == 2
+        assert summary["totals"]["closed_positions"] == 1
+        # Realized P&L: (42000 - 40000) * 0.1 = 200
+        assert Decimal(summary["totals"]["total_realized_pnl"]) == Decimal("200")
+
+    def test_summary_position_fields(self) -> None:
+        t = PositionTracker()
+        t.open_position(
+            strategy="LEND-001", protocol="aave_v3", chain="base",
+            asset="USDC", entry_price="1.0", amount="1000",
+            position_id="pos-usdc",
+        )
+        summary = t.get_position_summary()
+        pos = summary["positions"][0]
+        assert pos["id"] == "pos-usdc"
+        assert pos["strategy"] == "LEND-001"
+        assert pos["protocol"] == "aave_v3"
+        assert pos["chain"] == "base"
+        assert pos["asset"] == "USDC"
+        assert pos["amount"] == "1000"
+        assert pos["entry_price"] == "1.0"
+        assert "entry_time" in pos
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL persistence
+# ---------------------------------------------------------------------------
+
+class TestPostgresPersistence:
+    """Database sync via DatabaseRepository."""
+
+    def test_open_syncs_to_db(self) -> None:
+        repo = _mock_repository()
+        t = PositionTracker(repository=repo)
+        t.open_position(
+            strategy="LEND-001", protocol="aave_v3", chain="base",
+            asset="USDC", entry_price="1.0", amount="500",
+            position_id="p1",
+        )
+        repo.save_position.assert_called_once()
+        saved = repo.save_position.call_args[0][0]
+        assert saved["position_id"] == "p1"
+        assert saved["status"] == "open"
+
+    def test_close_syncs_to_db(self) -> None:
+        repo = _mock_repository()
+        t = PositionTracker(repository=repo)
+        t.open_position(
+            strategy="LEND-001", protocol="aave_v3", chain="base",
+            asset="USDC", entry_price="1.0", amount="500",
+            position_id="p1",
+        )
+        repo.save_position.reset_mock()
+        t.close_position("p1", exit_price="1.01")
+        repo.save_position.assert_called_once()
+        saved = repo.save_position.call_args[0][0]
+        assert saved["status"] == "closed"
+        assert saved["realized_pnl"] is not None
+
+    def test_fill_price_update_syncs_to_db(self) -> None:
+        repo = _mock_repository()
+        t = PositionTracker(repository=repo)
+        t.open_position(
+            strategy="LEND-001", protocol="aave_v3", chain="base",
+            asset="USDC", entry_price="1.0", amount="500",
+            position_id="p1",
+        )
+        repo.save_position.reset_mock()
+        t.on_execution_result({
+            "position_id": "p1",
+            "status": "confirmed",
+            "action": "open",
+            "fill_price": "1.001",
+        })
+        repo.save_position.assert_called_once()
+
+    def test_no_db_calls_without_repository(self) -> None:
+        t = PositionTracker()  # No repository
+        t.open_position(
+            strategy="LEND-001", protocol="aave_v3", chain="base",
+            asset="USDC", entry_price="1.0", amount="500",
+        )
+        # Should not raise — graceful no-op
+
+    def test_sync_all_to_db(self) -> None:
+        repo = _mock_repository()
+        t = PositionTracker(repository=repo)
+        t.open_position(
+            strategy="LEND-001", protocol="aave_v3", chain="base",
+            asset="USDC", entry_price="1.0", amount="500",
+            position_id="p1",
+        )
+        t.open_position(
+            strategy="LP-001", protocol="aerodrome", chain="base",
+            asset="USDC", entry_price="1.0", amount="300",
+            position_id="p2",
+        )
+        repo.save_position.reset_mock()
+        t.sync_all_to_db()
+        assert repo.save_position.call_count == 2
+
+    def test_sync_all_includes_closed(self) -> None:
+        repo = _mock_repository()
+        t = PositionTracker(repository=repo)
+        t.open_position(
+            strategy="LEND-001", protocol="aave_v3", chain="base",
+            asset="USDC", entry_price="1.0", amount="500",
+            position_id="p1",
+        )
+        t.close_position("p1", exit_price="1.01")
+        repo.save_position.reset_mock()
+        t.sync_all_to_db()
+        assert repo.save_position.call_count == 1  # 1 closed
+        saved = repo.save_position.call_args[0][0]
+        assert saved["status"] == "closed"
+
+    def test_db_error_does_not_crash(self) -> None:
+        repo = _mock_repository()
+        repo.save_position.side_effect = RuntimeError("DB connection lost")
+        t = PositionTracker(repository=repo)
+        # Should log error but not raise
+        pos = t.open_position(
+            strategy="LEND-001", protocol="aave_v3", chain="base",
+            asset="USDC", entry_price="1.0", amount="500",
+        )
+        assert pos.status == "open"  # In-memory state still works
+
+    def test_from_database(self) -> None:
+        repo = _mock_repository()
+        # Mock open positions
+        open_row = MagicMock()
+        open_row.position_id = "db-pos-1"
+        open_row.strategy = "LEND-001"
+        open_row.protocol = "aave_v3"
+        open_row.chain = "base"
+        open_row.asset = "USDC"
+        open_row.entry_price = 1.0
+        open_row.entry_time = MagicMock()
+        open_row.entry_time.isoformat.return_value = "2026-01-01T00:00:00+00:00"
+        open_row.amount = 1000.0
+        open_row.current_value = 1005.0
+        open_row.unrealized_pnl = 5.0
+        open_row.status = "open"
+
+        # Mock closed positions
+        closed_row = MagicMock()
+        closed_row.position_id = "db-pos-2"
+        closed_row.strategy = "LP-001"
+        closed_row.protocol = "aerodrome"
+        closed_row.chain = "base"
+        closed_row.asset = "USDC"
+        closed_row.entry_price = 1.0
+        closed_row.entry_time = MagicMock()
+        closed_row.entry_time.isoformat.return_value = "2026-01-01T00:00:00+00:00"
+        closed_row.amount = 500.0
+        closed_row.current_value = 510.0
+        closed_row.unrealized_pnl = 0.0
+        closed_row.realized_pnl = 10.0
+        closed_row.status = "closed"
+        closed_row.close_time = MagicMock()
+        closed_row.close_time.isoformat.return_value = "2026-01-02T00:00:00+00:00"
+
+        repo.get_positions = MagicMock(side_effect=lambda status: {
+            "open": [open_row],
+            "closed": [closed_row],
+        }[status])
+
+        tracker = PositionTracker.from_database(repo)
+        assert len(tracker.query(status="open")) == 1
+        assert len(tracker.query(status="closed")) == 1
+        assert tracker.get_position("db-pos-1").entry_price == Decimal("1.0")
+        assert tracker._repository is repo  # Repo wired for future syncs
+
+    def test_from_database_empty(self) -> None:
+        repo = _mock_repository()
+        repo.get_positions = MagicMock(return_value=[])
+        tracker = PositionTracker.from_database(repo)
+        assert tracker.get_summary()["open_count"] == 0
+        assert tracker.get_summary()["closed_count"] == 0
+
+    def test_sync_all_no_repo_is_noop(self) -> None:
+        t = PositionTracker()
+        t.open_position(
+            strategy="LEND-001", protocol="aave_v3", chain="base",
+            asset="USDC", entry_price="1.0", amount="500",
+        )
+        t.sync_all_to_db()  # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# Legacy persistence (StateManager)
 # ---------------------------------------------------------------------------
 
 class TestPersistence:
@@ -365,10 +623,6 @@ class TestPersistence:
         data = t.to_state_dict()
         t2 = PositionTracker.from_state_dict(data)
         assert t2.get_summary()["open_count"] == 0
-
-    def test_postgres_stub(self) -> None:
-        t = _tracker_with_positions()
-        t.backup_to_postgres()  # should not raise
 
 
 # ---------------------------------------------------------------------------
