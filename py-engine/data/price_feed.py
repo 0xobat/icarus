@@ -93,8 +93,14 @@ class PriceFeedManager:
         self._redis = redis
         self._ttl = ttl_seconds
         self._fetch_fn = fetch_fn or _fetch_url
-        self._alchemy_api_key = alchemy_api_key or os.environ.get("ALCHEMY_API_KEY") or os.environ.get("ALCHEMY_SEPOLIA_API_KEY")
-        self._fetch_interval = fetch_interval_seconds or int(os.environ.get("PRICE_FETCH_INTERVAL_SECONDS", "30"))
+        self._alchemy_api_key = (
+            alchemy_api_key
+            or os.environ.get("ALCHEMY_API_KEY")
+            or os.environ.get("ALCHEMY_SEPOLIA_API_KEY")
+        )
+        self._fetch_interval = fetch_interval_seconds or int(
+            os.environ.get("PRICE_FETCH_INTERVAL_SECONDS", "30"),
+        )
         self._last_fetch_time: float = 0.0
 
     # ── L2 token helpers ──────────────────────────────────

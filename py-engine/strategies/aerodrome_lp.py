@@ -282,5 +282,4 @@ class AerodromeLpStrategy:
                 "maxSlippageBps": self.config.default_max_slippage_bps,
                 "deadlineUnix": deadline,
             },
-            "useFlashbotsProtect": False,
         }

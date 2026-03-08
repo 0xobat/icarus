@@ -9,7 +9,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from data.price_feed import (
-    ALCHEMY_SYMBOLS,
     DEFILLAMA_TOKEN_ADDRESSES,
     PRICE_CACHE_KEY_PREFIX,
     PriceFeedManager,
@@ -84,7 +83,13 @@ def _make_alchemy_response(prices: dict[str, float]) -> dict[str, Any]:
         "data": [
             {
                 "symbol": symbol,
-                "prices": [{"currency": "usd", "value": str(price), "lastUpdatedAt": "2026-01-01T00:00:00Z"}],
+                "prices": [
+                    {
+                        "currency": "usd",
+                        "value": str(price),
+                        "lastUpdatedAt": "2026-01-01T00:00:00Z",
+                    },
+                ],
             }
             for symbol, price in prices.items()
         ]
@@ -109,7 +114,9 @@ class TestAlchemyFetch:
 
         def mock_fetch(url: str, timeout: int = 10) -> Any:
             assert "api.g.alchemy.com/prices" in url
-            return _make_alchemy_response({"USDC": 1.0001, "USDT": 1.0, "DAI": 0.9998, "AERO": 1.25})
+            return _make_alchemy_response(
+                {"USDC": 1.0001, "USDT": 1.0, "DAI": 0.9998, "AERO": 1.25},
+            )
 
         mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
         result = mgr._fetch_alchemy()
@@ -156,7 +163,9 @@ class TestFetchPricesFlow:
 
         def mock_fetch(url: str, timeout: int = 10) -> Any:
             if "api.g.alchemy.com" in url:
-                return _make_alchemy_response({"USDC": 1.0001, "USDT": 1.0, "DAI": 1.0, "AERO": 1.5})
+                return _make_alchemy_response(
+                    {"USDC": 1.0001, "USDT": 1.0, "DAI": 1.0, "AERO": 1.5},
+                )
             raise ConnectionError("Should not call fallback")
 
         mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")

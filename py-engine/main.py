@@ -338,7 +338,6 @@ class DecisionLoop:
                 "maxSlippageBps": 50,
                 "deadlineUnix": int(time.time()) + 300,
             }),
-            "useFlashbotsProtect": params.get("useFlashbotsProtect", False),
         }]
 
     def _emit_unwind_orders(
