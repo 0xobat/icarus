@@ -207,6 +207,7 @@ describe('SafeWalletManager', () => {
   describe('spending limits', () => {
     it('rejects per-tx cap exceeded', async () => {
       const wallet = await createWallet({
+        allowlist: new Set([TEST_CONTRACT.toLowerCase() as Address]),
         perTxCapWei: parseEther('1'),
         dailyCapWei: parseEther('10'),
       });
@@ -218,6 +219,7 @@ describe('SafeWalletManager', () => {
 
     it('rejects daily cap exceeded', async () => {
       const wallet = await createWallet({
+        allowlist: new Set([TEST_CONTRACT.toLowerCase() as Address]),
         perTxCapWei: parseEther('5'),
         dailyCapWei: parseEther('2'),
       });
@@ -233,6 +235,7 @@ describe('SafeWalletManager', () => {
 
     it('resets daily counter on new UTC day', async () => {
       const wallet = await createWallet({
+        allowlist: new Set([TEST_CONTRACT.toLowerCase() as Address]),
         perTxCapWei: parseEther('5'),
         dailyCapWei: parseEther('2'),
       });
@@ -280,7 +283,7 @@ describe('SafeWalletManager', () => {
       expect(result.allowed).toBe(true);
     });
 
-    it('passes when empty (no restrictions)', async () => {
+    it('rejects all when allowlist is empty (fail-closed)', async () => {
       const wallet = await createWallet({
         allowlist: new Set<Address>(),
         perTxCapWei: parseEther('10'),
@@ -288,10 +291,12 @@ describe('SafeWalletManager', () => {
       });
 
       const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
-      expect(result.allowed).toBe(true);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('fail-closed');
 
       const result2 = wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
-      expect(result2.allowed).toBe(true);
+      expect(result2.allowed).toBe(false);
+      expect(result2.reason).toContain('CONTRACT_ALLOWLIST');
     });
   });
 
@@ -325,6 +330,7 @@ describe('SafeWalletManager', () => {
     it('tracks daily total', async () => {
       const logs: Array<{ event: string; extra?: Record<string, unknown> }> = [];
       const wallet = await createWallet({
+        allowlist: new Set([TEST_CONTRACT.toLowerCase() as Address]),
         perTxCapWei: parseEther('10'),
         dailyCapWei: parseEther('5'),
         onLog: (event, _msg, extra) => logs.push({ event, extra }),
@@ -357,6 +363,90 @@ describe('SafeWalletManager', () => {
       expect(wallet.signerAddress.toLowerCase()).toBe(
         '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
       );
+    });
+  });
+
+  describe('CONTRACT_ALLOWLIST env var', () => {
+    it('loads allowlist from env var (comma-separated)', async () => {
+      process.env.CONTRACT_ALLOWLIST = `${TEST_CONTRACT},${TEST_CONTRACT_2}`;
+      try {
+        const wallet = await createWallet({
+          allowlist: undefined,
+          perTxCapWei: parseEther('10'),
+          dailyCapWei: parseEther('100'),
+        });
+
+        const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+        expect(result.allowed).toBe(true);
+
+        const result2 = wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
+        expect(result2.allowed).toBe(true);
+      } finally {
+        delete process.env.CONTRACT_ALLOWLIST;
+      }
+    });
+
+    it('rejects non-listed contract when env var is set', async () => {
+      process.env.CONTRACT_ALLOWLIST = TEST_CONTRACT;
+      try {
+        const wallet = await createWallet({
+          allowlist: undefined,
+          perTxCapWei: parseEther('10'),
+          dailyCapWei: parseEther('100'),
+        });
+
+        const result = wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toContain('not on the allowlist');
+      } finally {
+        delete process.env.CONTRACT_ALLOWLIST;
+      }
+    });
+
+    it('rejects all when env var is empty (fail-closed)', async () => {
+      process.env.CONTRACT_ALLOWLIST = '';
+      try {
+        const wallet = await createWallet({
+          allowlist: undefined,
+          perTxCapWei: parseEther('10'),
+          dailyCapWei: parseEther('100'),
+        });
+
+        const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toContain('fail-closed');
+      } finally {
+        delete process.env.CONTRACT_ALLOWLIST;
+      }
+    });
+
+    it('rejects all when env var is unset (fail-closed)', async () => {
+      delete process.env.CONTRACT_ALLOWLIST;
+      const wallet = await createWallet({
+        allowlist: undefined,
+        perTxCapWei: parseEther('10'),
+        dailyCapWei: parseEther('100'),
+      });
+
+      const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('fail-closed');
+    });
+
+    it('handles spaces in env var gracefully', async () => {
+      process.env.CONTRACT_ALLOWLIST = ` ${TEST_CONTRACT} , ${TEST_CONTRACT_2} `;
+      try {
+        const wallet = await createWallet({
+          allowlist: undefined,
+          perTxCapWei: parseEther('10'),
+          dailyCapWei: parseEther('100'),
+        });
+
+        const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+        expect(result.allowed).toBe(true);
+      } finally {
+        delete process.env.CONTRACT_ALLOWLIST;
+      }
     });
   });
 

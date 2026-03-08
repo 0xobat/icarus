@@ -73,6 +73,20 @@ const ERC20_ABI = parseAbi([
   'function balanceOf(address account) view returns (uint256)',
 ]);
 
+/**
+ * Parse CONTRACT_ALLOWLIST env var (comma-separated hex addresses) into a Set.
+ * Returns empty set when env var is unset or empty — validateOrder() treats this as fail-closed.
+ */
+function loadAllowlistFromEnv(): Set<Address> {
+  const raw = process.env.CONTRACT_ALLOWLIST ?? '';
+  if (!raw.trim()) return new Set<Address>();
+  return new Set(
+    raw.split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0) as Address[],
+  );
+}
+
 // ── Safe Wallet Manager ──────────────────────────
 
 /** Manages a Safe 1-of-2 multisig with spending limits and allowlist enforcement. */
@@ -138,7 +152,7 @@ export class SafeWalletManager implements SafeWalletLike {
         ?? BigInt(process.env.SPENDING_CAP_DAILY_WEI ?? '2000000000000000000'), // 2 ETH
     };
 
-    const allowlist = opts.allowlist ?? new Set<Address>();
+    const allowlist = opts.allowlist ?? loadAllowlistFromEnv();
     const onLog = opts.onLog ?? (() => {});
 
     let protocolKit: Safe;
@@ -274,19 +288,20 @@ export class SafeWalletManager implements SafeWalletLike {
 
   /** Validate an order against allowlist and spending limits. */
   validateOrder(target: Address, amountWei: bigint): { allowed: boolean; reason?: string } {
-    // Allowlist check
-    if (this.allowlistSet.size > 0) {
-      const normalizedTarget = target.toLowerCase() as Address;
-      let found = false;
-      for (const addr of this.allowlistSet) {
-        if (addr.toLowerCase() === normalizedTarget) {
-          found = true;
-          break;
-        }
+    // Allowlist check — fail-closed: reject all when allowlist is empty
+    if (this.allowlistSet.size === 0) {
+      return { allowed: false, reason: 'Contract allowlist is empty — all transactions rejected (fail-closed). Set CONTRACT_ALLOWLIST env var.' };
+    }
+    const normalizedTarget = target.toLowerCase() as Address;
+    let found = false;
+    for (const addr of this.allowlistSet) {
+      if (addr.toLowerCase() === normalizedTarget) {
+        found = true;
+        break;
       }
-      if (!found) {
-        return { allowed: false, reason: `Target contract ${target} is not on the allowlist` };
-      }
+    }
+    if (!found) {
+      return { allowed: false, reason: `Target contract ${target} is not on the allowlist` };
     }
 
     // Per-transaction cap
