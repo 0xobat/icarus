@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
 from data.price_feed import (
+    ALCHEMY_SYMBOLS,
     DEFILLAMA_TOKEN_ADDRESSES,
     PRICE_CACHE_KEY_PREFIX,
     PriceFeedManager,
     PriceResult,
 )
+from strategies.base import TokenPrice
 
 # ── Fixtures ──────────────────────────────────────────
 
@@ -166,14 +169,19 @@ class TestFetchPricesFlow:
                 return _make_alchemy_response(
                     {"USDC": 1.0001, "USDT": 1.0, "DAI": 1.0, "AERO": 1.5},
                 )
-            raise ConnectionError("Should not call fallback")
+            if "coins.llama.fi" in url:
+                # DefiLlama always called for cross-validation
+                return _make_defillama_response(
+                    {"USDC": 1.0001, "USDT": 1.0, "DAI": 1.0, "AERO": 1.5},
+                )
+            raise ConnectionError("Unknown URL")
 
         mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
         result = mgr.fetch_prices()
 
         assert "USDC" in result
         assert result["USDC"]["price_usd"] == pytest.approx(1.0001)
-        assert result["USDC"]["sources"] == ["alchemy"]
+        assert "alchemy" in result["USDC"]["sources"]
         assert redis.cache_set.call_count >= 4
 
     def test_partial_alchemy_supplements_from_defillama(self) -> None:
@@ -190,8 +198,8 @@ class TestFetchPricesFlow:
         mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
         result = mgr.fetch_prices()
 
-        # Alchemy tokens kept
-        assert result["USDC"]["sources"] == ["alchemy"]
+        # USDC cross-validated: primary source alchemy, both sources listed
+        assert result["USDC"]["sources"][0] == "alchemy"
         assert result["USDC"]["price_usd"] == pytest.approx(1.0001)
         assert result["USDT"]["sources"] == ["alchemy"]
         # Missing tokens filled from DefiLlama
@@ -286,7 +294,7 @@ class TestFetchPricesFlow:
 class TestStalePriceDetection:
     def test_fresh_price_not_stale(self) -> None:
         redis = _make_mock_redis()
-        mgr = PriceFeedManager(redis, ttl_seconds=30)
+        mgr = PriceFeedManager(redis, staleness_threshold_seconds=60)
 
         # Manually cache a fresh price
         redis._cache[f"{PRICE_CACHE_KEY_PREFIX}USDC"] = {
@@ -301,9 +309,9 @@ class TestStalePriceDetection:
 
     def test_old_price_is_stale(self) -> None:
         redis = _make_mock_redis()
-        mgr = PriceFeedManager(redis, ttl_seconds=30)
+        mgr = PriceFeedManager(redis, staleness_threshold_seconds=30)
 
-        # Cache a price from 60 seconds ago
+        # Cache a price from 60 seconds ago (>30s threshold)
         redis._cache[f"{PRICE_CACHE_KEY_PREFIX}USDC"] = {
             "price_usd": 1.0,
             "timestamp": "2026-01-01T00:00:00+00:00",
@@ -401,7 +409,11 @@ class TestTimestampsUTC:
         redis = _make_mock_redis()
 
         def mock_fetch(url: str, timeout: int = 10) -> Any:
-            return _make_alchemy_response({"USDC": 1.000})
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response({"USDC": 1.000})
+            if "coins.llama.fi" in url:
+                return _make_defillama_response({"USDC": 1.000})
+            raise ConnectionError("Unknown URL")
 
         mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
         result = mgr.fetch_prices()
@@ -416,10 +428,332 @@ class TestCustomTokenList:
         redis = _make_mock_redis()
 
         def mock_fetch(url: str, timeout: int = 10) -> Any:
-            return _make_alchemy_response({"USDC": 1.0, "AERO": 1.5})
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response({"USDC": 1.0, "AERO": 1.5})
+            if "coins.llama.fi" in url:
+                return _make_defillama_response({"USDC": 1.0, "AERO": 1.5})
+            raise ConnectionError("Unknown URL")
 
         mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
         result = mgr.fetch_prices()
 
         assert "USDC" in result
         assert "AERO" in result
+
+
+# ── Cross-source validation tests ─────────────────────
+
+
+class TestCrossSourceValidation:
+    """Tests for multi-source price validation (>2% deviation rejection)."""
+
+    def test_prices_within_threshold_accepted(self) -> None:
+        """Prices with <2% deviation are accepted, primary source preferred."""
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response({"USDC": 1.001, "DAI": 0.999})
+            if "coins.llama.fi" in url:
+                return _make_defillama_response({"USDC": 1.002, "DAI": 1.000})
+            raise ConnectionError("Unknown URL")
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        result = mgr.fetch_prices()
+
+        assert "USDC" in result
+        assert "DAI" in result
+        # Primary (alchemy) price used when validated
+        assert result["USDC"]["price_usd"] == pytest.approx(1.001)
+        # Both sources recorded
+        assert "alchemy" in result["USDC"]["sources"]
+        assert "defillama" in result["USDC"]["sources"]
+
+    def test_prices_exceeding_threshold_rejected(self) -> None:
+        """Prices with >2% deviation are rejected entirely."""
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response({"USDC": 1.00, "AERO": 2.00})
+            if "coins.llama.fi" in url:
+                # AERO has >2% deviation (2.00 vs 1.50 = ~28% deviation)
+                return _make_defillama_response({"USDC": 1.005, "AERO": 1.50})
+            raise ConnectionError("Unknown URL")
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        result = mgr.fetch_prices()
+
+        assert "USDC" in result  # Within threshold
+        assert "AERO" not in result  # Rejected due to deviation
+
+    def test_single_source_accepted_without_validation(self) -> None:
+        """Token from only one source is accepted without cross-validation."""
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response({"USDC": 1.0, "USDT": 1.0})
+            if "coins.llama.fi" in url:
+                # Only returns USDC, not USDT
+                return _make_defillama_response({"USDC": 1.0})
+            raise ConnectionError("Unknown URL")
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        result = mgr.fetch_prices()
+
+        assert "USDC" in result
+        assert "USDT" in result  # Single source, accepted without cross-check
+
+    def test_exact_boundary_deviation_rejected(self) -> None:
+        """Prices at >2% deviation are rejected."""
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            if "api.g.alchemy.com" in url:
+                # ~2.08% deviation: 1.00 vs 1.021
+                return _make_alchemy_response({"USDC": 1.00})
+            if "coins.llama.fi" in url:
+                return _make_defillama_response({"USDC": 1.021})
+            raise ConnectionError("Unknown URL")
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        result = mgr.fetch_prices()
+
+        assert "USDC" not in result  # >2% deviation rejected
+
+    def test_custom_deviation_threshold(self) -> None:
+        """Custom deviation threshold is respected."""
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response({"USDC": 1.00})
+            if "coins.llama.fi" in url:
+                # ~1% deviation
+                return _make_defillama_response({"USDC": 1.01})
+            raise ConnectionError("Unknown URL")
+
+        # Strict threshold: 0.5%
+        mgr = PriceFeedManager(
+            redis, fetch_fn=mock_fetch, alchemy_api_key="test-key",
+            deviation_threshold=0.005,
+        )
+        result = mgr.fetch_prices()
+        assert "USDC" not in result  # Rejected at 0.5% threshold
+
+    def test_defillama_fail_uses_alchemy_only(self) -> None:
+        """When DefiLlama fails, Alchemy results used without cross-validation."""
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response({"USDC": 1.0, "USDT": 1.0})
+            if "coins.llama.fi" in url:
+                raise ConnectionError("DefiLlama down")
+            raise ConnectionError("Unknown URL")
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        result = mgr.fetch_prices()
+
+        assert "USDC" in result
+        assert result["USDC"]["sources"] == ["alchemy"]
+
+
+# ── Staleness threshold tests ────────────────────────
+
+
+class TestStalenessThreshold:
+    """Tests for configurable staleness detection."""
+
+    def test_default_threshold_is_60s(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis)
+        assert mgr._staleness_threshold == 60
+
+    def test_custom_threshold_via_constructor(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis, staleness_threshold_seconds=120)
+        assert mgr._staleness_threshold == 120
+
+    def test_threshold_from_env_var(self) -> None:
+        import os
+        redis = _make_mock_redis()
+        old = os.environ.get("PRICE_STALENESS_THRESHOLD_SECONDS")
+        try:
+            os.environ["PRICE_STALENESS_THRESHOLD_SECONDS"] = "45"
+            mgr = PriceFeedManager(redis)
+            assert mgr._staleness_threshold == 45
+        finally:
+            if old is not None:
+                os.environ["PRICE_STALENESS_THRESHOLD_SECONDS"] = old
+            else:
+                os.environ.pop("PRICE_STALENESS_THRESHOLD_SECONDS", None)
+
+    def test_price_within_threshold_not_stale(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis, staleness_threshold_seconds=60)
+
+        redis._cache[f"{PRICE_CACHE_KEY_PREFIX}USDC"] = {
+            "price_usd": 1.0,
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "cached_at": time.time() - 30,  # 30s old, threshold 60s
+        }
+
+        result = mgr.get_cached_price("USDC")
+        assert result is not None
+        assert not result["stale"]
+
+    def test_price_beyond_threshold_is_stale(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis, staleness_threshold_seconds=60)
+
+        redis._cache[f"{PRICE_CACHE_KEY_PREFIX}USDC"] = {
+            "price_usd": 1.0,
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "cached_at": time.time() - 90,  # 90s old, threshold 60s
+        }
+
+        result = mgr.get_cached_price("USDC")
+        assert result is not None
+        assert result["stale"]
+
+    def test_is_any_stale_all_fresh(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis, staleness_threshold_seconds=60)
+
+        now = time.time()
+        for symbol in ALCHEMY_SYMBOLS:
+            redis._cache[f"{PRICE_CACHE_KEY_PREFIX}{symbol}"] = {
+                "price_usd": 1.0,
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "cached_at": now,
+            }
+
+        assert not mgr.is_any_stale()
+
+    def test_is_any_stale_one_stale(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis, staleness_threshold_seconds=60)
+
+        now = time.time()
+        for symbol in ALCHEMY_SYMBOLS:
+            redis._cache[f"{PRICE_CACHE_KEY_PREFIX}{symbol}"] = {
+                "price_usd": 1.0,
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "cached_at": now,
+            }
+        # Make one stale
+        redis._cache[f"{PRICE_CACHE_KEY_PREFIX}AERO"]["cached_at"] = now - 120
+
+        assert mgr.is_any_stale()
+
+    def test_is_any_stale_missing_price(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis, staleness_threshold_seconds=60)
+        # No prices cached at all
+        assert mgr.is_any_stale()
+
+
+# ── Cache TTL tests ──────────────────────────────────
+
+
+class TestCacheTTL:
+    """Tests for PRICE_CACHE_TTL env var."""
+
+    def test_default_cache_ttl(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis)
+        assert mgr._ttl == 30
+
+    def test_custom_cache_ttl_via_constructor(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis, ttl_seconds=120)
+        assert mgr._ttl == 120
+
+    def test_cache_ttl_from_env_var(self) -> None:
+        import os
+        redis = _make_mock_redis()
+        old = os.environ.get("PRICE_CACHE_TTL")
+        try:
+            os.environ["PRICE_CACHE_TTL"] = "90"
+            mgr = PriceFeedManager(redis)
+            assert mgr._ttl == 90
+        finally:
+            if old is not None:
+                os.environ["PRICE_CACHE_TTL"] = old
+            else:
+                os.environ.pop("PRICE_CACHE_TTL", None)
+
+    def test_cache_set_uses_ttl(self) -> None:
+        redis = _make_mock_redis()
+        mgr = PriceFeedManager(redis, ttl_seconds=45)
+
+        mgr._cache_price("USDC", 1.0, "2026-01-01T00:00:00+00:00")
+
+        redis.cache_set.assert_called_once()
+        call_args = redis.cache_set.call_args
+        assert call_args[0][2] == 45  # TTL argument
+
+
+# ── TokenPrice dataclass tests ───────────────────────
+
+
+class TestGetTokenPrices:
+    """Tests for get_token_prices() returning TokenPrice dataclasses."""
+
+    def test_returns_token_price_dataclasses(self) -> None:
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response(
+                    {"USDC": 1.0001, "USDT": 1.0, "DAI": 0.999, "AERO": 1.25},
+                )
+            if "coins.llama.fi" in url:
+                return _make_defillama_response(
+                    {"USDC": 1.0001, "USDT": 1.0, "DAI": 0.999, "AERO": 1.25},
+                )
+            raise ConnectionError("Unknown URL")
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        prices = mgr.get_token_prices()
+
+        assert len(prices) == 4
+        assert all(isinstance(p, TokenPrice) for p in prices)
+
+        usdc = next(p for p in prices if p.token == "USDC")
+        assert usdc.price == pytest.approx(1.0001)
+        assert usdc.source == "alchemy"
+        assert isinstance(usdc.timestamp, datetime)
+
+    def test_returns_empty_list_when_no_prices(self) -> None:
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            raise ConnectionError("Network down")
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        prices = mgr.get_token_prices()
+
+        assert prices == []
+
+    def test_token_price_has_correct_fields(self) -> None:
+        redis = _make_mock_redis()
+
+        def mock_fetch(url: str, timeout: int = 10) -> Any:
+            if "api.g.alchemy.com" in url:
+                return _make_alchemy_response({"AERO": 1.5})
+            if "coins.llama.fi" in url:
+                return _make_defillama_response({"AERO": 1.5})
+            raise ConnectionError("Unknown URL")
+
+        mgr = PriceFeedManager(redis, fetch_fn=mock_fetch, alchemy_api_key="test-key")
+        prices = mgr.get_token_prices()
+
+        assert len(prices) == 1
+        aero = prices[0]
+        assert aero.token == "AERO"
+        assert aero.price == pytest.approx(1.5)
+        assert aero.source in ("alchemy", "defillama")
+        assert isinstance(aero.timestamp, datetime)

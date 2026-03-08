@@ -1,4 +1,4 @@
-"""Real-time price feed — multi-source ingestion, caching, and oracle manipulation guards."""
+"""Price feed — multi-source ingestion, caching, staleness, cross-source validation."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from data.redis_client import RedisManager
+from strategies.base import TokenPrice
 
 SERVICE_NAME = "py-engine"
 
@@ -33,7 +34,9 @@ L2_TOKEN_MAPPINGS: dict[str, dict[str, str]] = {
 }
 
 # Defaults
-DEFAULT_PRICE_TTL_SECONDS = 30
+DEFAULT_PRICE_CACHE_TTL_SECONDS = 30
+DEFAULT_STALENESS_THRESHOLD_SECONDS = 60
+DEFAULT_DEVIATION_THRESHOLD = 0.02  # 2%
 TWAP_WINDOWS = {"5m": 300, "1h": 3600, "24h": 86400}
 TWAP_HISTORY_KEY_PREFIX = "price:history:"
 PRICE_CACHE_KEY_PREFIX = "price:"
@@ -79,19 +82,34 @@ class PriceResult:
 
 
 class PriceFeedManager:
-    """Multi-source price feed with caching and TWAP."""
+    """Multi-source price feed with caching, staleness detection, and cross-source validation."""
 
     def __init__(
         self,
         redis: RedisManager,
         *,
-        ttl_seconds: int = DEFAULT_PRICE_TTL_SECONDS,
+        ttl_seconds: int | None = None,
+        staleness_threshold_seconds: int | None = None,
+        deviation_threshold: float | None = None,
         fetch_fn: Any = None,
         alchemy_api_key: str | None = None,
         fetch_interval_seconds: int | None = None,
     ) -> None:
         self._redis = redis
-        self._ttl = ttl_seconds
+        self._ttl = ttl_seconds or int(
+            os.environ.get("PRICE_CACHE_TTL", str(DEFAULT_PRICE_CACHE_TTL_SECONDS)),
+        )
+        self._staleness_threshold = staleness_threshold_seconds or int(
+            os.environ.get(
+                "PRICE_STALENESS_THRESHOLD_SECONDS",
+                str(DEFAULT_STALENESS_THRESHOLD_SECONDS),
+            ),
+        )
+        self._deviation_threshold = (
+            deviation_threshold
+            if deviation_threshold is not None
+            else DEFAULT_DEVIATION_THRESHOLD
+        )
         self._fetch_fn = fetch_fn or _fetch_url
         self._alchemy_api_key = (
             alchemy_api_key
@@ -192,22 +210,24 @@ class PriceFeedManager:
         self._redis.cache_set(f"{PRICE_CACHE_KEY_PREFIX}{token}", data, self._ttl)
 
     def get_cached_price(self, token: str) -> dict[str, Any] | None:
-        """Get cached price. Returns None if missing. Flags stale prices."""
+        """Get cached price. Returns None if missing. Flags stale prices.
+
+        Staleness is determined by PRICE_STALENESS_THRESHOLD_SECONDS (default 60s),
+        which is separate from the cache TTL. A price can be cached but stale.
+        """
         data = self._redis.cache_get(f"{PRICE_CACHE_KEY_PREFIX}{token}")
         if data is None:
             return None
-        # Check staleness — if Redis TTL has expired, cache_get returns None,
-        # but we also check the cached_at timestamp for extra safety.
         cached_at = data.get("cached_at", 0)
         age = time.time() - cached_at
-        data["stale"] = age > self._ttl
+        data["stale"] = age > self._staleness_threshold
         if data["stale"]:
             _log(
                 "stale_price_detected",
                 f"Stale price for {token}",
                 token=token,
                 age_seconds=round(age, 1),
-                ttl=self._ttl,
+                staleness_threshold=self._staleness_threshold,
             )
         return data
 
@@ -242,13 +262,101 @@ class PriceFeedManager:
 
         return sum(prices) / len(prices)
 
+    # ── Cross-source validation ────────────────────────
+
+    def _validate_cross_source(
+        self,
+        alchemy_results: dict[str, PriceResult],
+        defillama_results: dict[str, PriceResult],
+    ) -> dict[str, PriceResult]:
+        """Validate prices across sources, rejecting tokens with >2% deviation.
+
+        When both sources provide a price for the same token, deviation is checked.
+        If deviation exceeds the threshold, the token is rejected from results.
+        Tokens available from only one source are accepted as-is.
+
+        Returns:
+            Validated price results (primary source preferred).
+        """
+        validated: dict[str, PriceResult] = {}
+
+        all_tokens = set(alchemy_results) | set(defillama_results)
+        for token in all_tokens:
+            alchemy_pr = alchemy_results.get(token)
+            defillama_pr = defillama_results.get(token)
+
+            if alchemy_pr and defillama_pr:
+                # Both sources — check deviation
+                mid = (alchemy_pr.price_usd + defillama_pr.price_usd) / 2
+                if mid == 0:
+                    continue
+                deviation = abs(alchemy_pr.price_usd - defillama_pr.price_usd) / mid
+                if deviation > self._deviation_threshold:
+                    _log(
+                        "price_deviation_rejected",
+                        f"Price deviation for {token} exceeds threshold",
+                        token=token,
+                        alchemy_price=alchemy_pr.price_usd,
+                        defillama_price=defillama_pr.price_usd,
+                        deviation=round(deviation, 6),
+                        threshold=self._deviation_threshold,
+                    )
+                    continue
+                # Use primary (Alchemy) when validated
+                validated[token] = alchemy_pr
+            elif alchemy_pr:
+                validated[token] = alchemy_pr
+            elif defillama_pr:
+                validated[token] = defillama_pr
+
+        return validated
+
+    # ── Staleness check ──────────────────────────────────
+
+    def is_any_stale(self) -> bool:
+        """Check if any tracked token price is stale.
+
+        Returns:
+            True if any token has a stale or missing cached price.
+        """
+        for symbol in ALCHEMY_SYMBOLS:
+            cached = self.get_cached_price(symbol)
+            if cached is None or cached.get("stale", False):
+                return True
+        return False
+
+    # ── TokenPrice conversion ────────────────────────────
+
+    def get_token_prices(self) -> list[TokenPrice]:
+        """Fetch prices and return as TokenPrice dataclasses for strategy consumption.
+
+        Returns:
+            List of TokenPrice dataclasses with token, price, source, and timestamp.
+        """
+        price_data = self.fetch_prices()
+        result: list[TokenPrice] = []
+        for token, data in price_data.items():
+            source = data["sources"][0] if data["sources"] else "unknown"
+            ts_str = data["timestamp"]
+            try:
+                ts = datetime.fromisoformat(ts_str)
+            except (ValueError, TypeError):
+                ts = datetime.now(UTC)
+            result.append(
+                TokenPrice(token=token, price=data["price_usd"], source=source, timestamp=ts),
+            )
+        return result
+
     # ── Main fetch cycle ─────────────────────────────────
 
     def fetch_prices(self) -> dict[str, dict[str, Any]]:
-        """Fetch prices: Alchemy primary, DefiLlama fallback, with cache-freshness check.
+        """Fetch prices: Alchemy primary, DefiLlama fallback, with cross-source validation.
 
-        Returns a dict of token -> {price_usd, timestamp, sources}.
-        Skips API calls if prices were fetched within fetch_interval_seconds.
+        Fetches from both sources when possible. If both return a price for the
+        same token, validates that deviation is <2%. Rejected tokens are excluded.
+
+        Returns:
+            Dict of token -> {price_usd, timestamp, sources}.
         """
         now_epoch = time.time()
 
@@ -258,35 +366,39 @@ class PriceFeedManager:
             if cached:
                 return cached
 
-        results: dict[str, dict[str, Any]] = {}
-        source_results: dict[str, PriceResult] = {}
+        alchemy_results: dict[str, PriceResult] = {}
+        defillama_results: dict[str, PriceResult] = {}
 
         # Primary: Alchemy
         if self._alchemy_api_key:
             try:
-                source_results = self._fetch_alchemy()
+                alchemy_results = self._fetch_alchemy()
             except Exception as e:
                 _log("price_source_error", f"Alchemy fetch failed: {e}", source="alchemy")
 
-        # Fallback: DefiLlama for missing tokens (or all tokens if Alchemy failed)
-        missing = set(ALCHEMY_SYMBOLS) - set(source_results)
-        if missing:
-            try:
-                fallback = self._fetch_defillama()
-                for token, pr in fallback.items():
-                    if token not in source_results:
-                        source_results[token] = pr
-            except Exception as e:
-                _log("price_source_error", f"DefiLlama fetch failed: {e}", source="defillama")
+        # Always try DefiLlama for cross-validation (or fallback if Alchemy failed)
+        try:
+            defillama_results = self._fetch_defillama()
+        except Exception as e:
+            _log("price_source_error", f"DefiLlama fetch failed: {e}", source="defillama")
 
-        # Cache and return whatever we got
-        for token, pr in source_results.items():
+        # Cross-source validation
+        validated = self._validate_cross_source(alchemy_results, defillama_results)
+
+        # Cache and return
+        results: dict[str, dict[str, Any]] = {}
+        for token, pr in validated.items():
             self._cache_price(token, pr.price_usd, pr.timestamp)
             self._record_price_history(token, pr.price_usd, now_epoch)
+            sources = [pr.source]
+            # Note if cross-validated
+            other = defillama_results if pr.source == "alchemy" else alchemy_results
+            if token in other:
+                sources.append(other[token].source)
             results[token] = {
                 "price_usd": pr.price_usd,
                 "timestamp": pr.timestamp,
-                "sources": [pr.source],
+                "sources": sources,
             }
 
         if results:
