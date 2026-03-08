@@ -600,3 +600,78 @@ Completed:
 Blocked: none
 Features passing: 44/63 (was 45/62 — 2 set to false, 1 added as true)
 Next: Continue P1 implementation or begin P2 (TEST-002 historical stress testing)
+
+--- Session 2026-03-07-02 (Security Hardening Design) ---
+Agent: Claude Opus 4.6
+Worked on: Security audit findings → design doc + implementation plan
+Completed:
+  - Created docs/plans/2026-03-07-security-hardening-design.md (4 fixes from security audit)
+  - Created docs/plans/2026-03-07-security-hardening.md (680-line implementation plan)
+  - Design-only session — no code changes
+Blocked: none
+Commits: c8799f3, 6f35d6f
+Next: System design v4.2
+
+--- Session 2026-03-07-03 (System Design v4.2) ---
+Agent: Claude Opus 4.6
+Worked on: Replace PRD v3.0 with system design v4.2, align CLAUDE.md and README.md
+Completed:
+  - Replaced docs/prd.md (289 lines) with docs/system-design.md (540 lines)
+  - Key clarifications in system design v4.2:
+    - Redis Streams (not pub/sub) for all channels
+    - MarketSnapshot fields, decision gate timing, hold mode, CB cooldowns defined
+    - 5 internal contradictions found by fresh-reader testing and fixed
+    - Removed useFlashbotsProtect (YAGNI — Base only), loosened params schema
+    - Added Redis Stream overflow and Safe allowlist to failure modes/extension guide
+  - execution-orders.schema.json: removed useFlashbotsProtect, loosened params
+  - CLAUDE.md aligned with system design v4.2:
+    - Removed decision fast-path (contradicted system design)
+    - Updated strategy authoring to Claude Code workflow
+    - Added circuit breaker separate execution path, CB: prefix, Redis TTL cooldowns
+    - Added hold mode section
+    - Strategy states: active/inactive (was 4 states)
+    - Diagnostic mode → hold mode terminology
+    - Safe on-chain guard module added to exposure limits
+  - README.md: clarified Base mainnet target, Sepolia for dev
+Blocked: none
+Commits: bd5b831, ae06d94
+Next: Refresh features.json to match system design v4.2
+
+--- Session 2026-03-07-04 (Features.json Rewrite) ---
+Agent: Claude Opus 4.6
+Worked on: Fresh features.json derived from system design v4.2
+Completed:
+  - Replaced 63-feature features.json with 47-feature version derived from system design v4.2
+  - All features set to passes: false (clean slate for verification)
+  - Phases simplified: P1/P1b/P1c/P2/P3/P4 → dev (43), test (3), deploy (1)
+  - Removed 16+ features with no system design backing:
+    - Deleted code: EXEC-005/006/007 (Uniswap/Lido/Flash loan adapters),
+      STRAT-002-006/008 (Lido, Uniswap LP, yield farming, flash arb, rate arb, ingestion),
+      AI-002 (code-gen), MON-002/004 (Discord/anomaly), TEST-003 (ML gas), REPORT-001 (tax)
+    - Aspirational: LISTEN-004, EXEC-008, DATA-006 (Solana — P3)
+    - Aspirational: TEST-002 (historical stress testing — P2)
+  - Renumbered IDs to match actual codebase (e.g. old EXEC-004→new EXEC-003 for Aave adapter)
+  - Added HARNESS-005 (Hold mode — was implicit, now explicit per system design §7)
+  - Created .claude/tasks/features-json-update/onboarding.md (divergence analysis)
+Blocked: none
+Features: 47 total, 0 passing (all reset for verification)
+Next: Verify features against codebase — set passes: true for implemented features
+
+--- Session 2026-03-07-05 (Features/System Design Alignment) ---
+Agent: Claude Opus 4.6
+Worked on: Coverage audit of features.json against system-design.md v4.2, then 5 alignment fixes
+Completed:
+  - Full coverage audit: 42/47 features fully covered, 5 alignment issues identified
+  - Fix 1: RISK-006 description updated — marked as interim application-level allowlist
+  - Fix 2: RISK-009 added — Safe on-chain AllowlistGuard (4 steps, passes: false)
+  - Fix 3: LISTEN-003 + EXEC-001 — added finality-aware confirmation steps
+  - Fix 4: HARNESS-004 deprecated — merged into HARNESS-005 (hold mode)
+  - Fix 5: HARNESS-005 expanded — two entry paths (API failure + irreconcilable state), diagnostic logging
+  - Fix 6: system-design.md §7 monitoring — added performance dashboard sentence
+  - HARNESS-003 (approval gates) kept as-is — stands on its own without system design backing
+  - Design doc: docs/plans/2026-03-07-features-alignment-design.md
+  - Implementation plan: docs/plans/2026-03-07-features-alignment.md
+Blocked: none
+Features: 48 total (47 + RISK-009), 1 passing (HARNESS-004 deprecated), 47 pending verification
+Commit: 1c50008
+Next: Verify features against codebase — set passes: true for implemented features
