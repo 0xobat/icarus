@@ -84,7 +84,7 @@
       "Graceful shutdown with signal handling in both services",
       "Periodic stream trimming (STREAM_TRIM_INTERVAL_CYCLES env var)"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "LISTEN-001",
@@ -466,7 +466,7 @@
       "Runs before every TX execution in the transaction builder",
       "Allowlist configurable via environment variables"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "RISK-007",
