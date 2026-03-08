@@ -536,7 +536,7 @@
       "Health check connected protocols",
       "Resume normal operation or enter hold mode if reconciliation fails"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-003",

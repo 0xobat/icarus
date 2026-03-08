@@ -25,6 +25,7 @@ from data.redis_client import CHANNELS, RedisManager
 from db.database import DatabaseConfig, DatabaseManager
 from db.repository import DatabaseRepository
 from harness.hold_mode import HoldMode
+from harness.startup_recovery import FullRecoveryResult, run_startup_recovery
 from harness.state_manager import StateManager
 from monitoring.logger import get_logger
 from portfolio.allocator import PortfolioAllocator
@@ -159,6 +160,24 @@ class DecisionLoop:
         except Exception:
             _logger.exception("Failed to load positions from PostgreSQL — starting empty")
             return PositionTracker(repository=self.repository)
+
+    def startup_recovery(self) -> FullRecoveryResult:
+        """Run the startup recovery sequence before entering the main loop.
+
+        Loads state from PostgreSQL, replays unprocessed Redis Stream
+        messages, reconciles on-chain positions, and performs health checks.
+        Enters hold mode if any critical step fails.
+
+        Returns:
+            FullRecoveryResult summarizing all recovery steps.
+        """
+        return run_startup_recovery(
+            redis=self.redis,
+            db_manager=self.db,
+            repository=self.repository,
+            hold_mode=self.hold_mode,
+            position_tracker=self.tracker,
+        )
 
     def register_strategy(self, strategy: Strategy) -> None:
         """Register a strategy instance for evaluation in the decision loop.
@@ -791,6 +810,16 @@ def main() -> None:
 
     redis, db_manager, repository, state = _create_components()
     loop = DecisionLoop(redis, db_manager, repository, state)
+
+    # Run startup recovery before entering main loop
+    recovery_result = loop.startup_recovery()
+    _logger.info(
+        "Startup recovery complete",
+        extra={"data": {
+            "success": recovery_result.success,
+            "hold_mode": recovery_result.entered_hold_mode,
+        }},
+    )
 
     # Subscribe to market events and execution results
     event_queue: list[dict[str, Any]] = []
