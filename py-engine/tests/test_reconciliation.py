@@ -12,8 +12,12 @@ from data.reconciliation import (
     Discrepancy,
     DiscrepancyType,
     LPPosition,
+    OnChainBalance,
     OnChainState,
+    PositionDiscrepancy,
+    PositionReconciler,
     Reconciler,
+    ReconciliationResult,
     Severity,
     TokenBalance,
 )
@@ -358,3 +362,437 @@ class TestFetchOnChain:
     def test_configurable_interval(self) -> None:
         rec = Reconciler(interval_seconds=900)
         assert rec.interval_seconds == 900
+
+
+# ══════════════════════════════════════════════════════
+# PositionReconciler tests (DATA-004)
+# ══════════════════════════════════════════════════════
+
+
+class _MockProvider:
+    """Mock on-chain provider returning preset balances."""
+
+    def __init__(self, balances: list[dict[str, Any]]) -> None:
+        self._balances = balances
+
+    def get_token_balances(self, wallet_address: str) -> list[dict[str, Any]]:
+        return self._balances
+
+
+class _FakePosition:
+    """Minimal stand-in for PortfolioPosition ORM objects."""
+
+    def __init__(
+        self,
+        position_id: str,
+        strategy: str,
+        protocol: str,
+        chain: str,
+        asset: str,
+        amount: float,
+        current_value: float,
+        status: str = "open",
+    ) -> None:
+        self.position_id = position_id
+        self.strategy = strategy
+        self.protocol = protocol
+        self.chain = chain
+        self.asset = asset
+        self.amount = amount
+        self.current_value = current_value
+        self.status = status
+
+
+def _bal(
+    symbol: str,
+    balance: float,
+    addr: str = "0x0",
+    protocol: str = "wallet",
+) -> dict[str, Any]:
+    """Build a token balance dict for _MockProvider."""
+    return {
+        "token_symbol": symbol,
+        "balance": balance,
+        "contract_address": addr,
+        "protocol": protocol,
+    }
+
+
+class _MockRepository:
+    """Mock DatabaseRepository tracking save_position calls."""
+
+    def __init__(self, positions: list[_FakePosition] | None = None) -> None:
+        self._positions = list(positions or [])
+        self.saved: list[dict[str, Any]] = []
+
+    def get_positions(self, *, status: str | None = None) -> list[_FakePosition]:
+        if status is not None:
+            return [p for p in self._positions if p.status == status]
+        return list(self._positions)
+
+    def save_position(self, pos_data: dict[str, Any]) -> None:
+        self.saved.append(pos_data)
+
+
+# ── PositionReconciler.query_onchain_balances ────────
+
+
+class TestPositionQueryOnchain:
+    def test_returns_balances_keyed_by_protocol_asset(self) -> None:
+        provider = _MockProvider([
+            _bal("USDC", 1000.0, "0xabc", "wallet"),
+            _bal("USDC", 500.0, "0xdef", "aave_v3"),
+        ])
+        reconciler = PositionReconciler(provider)
+        result = reconciler.query_onchain_balances("0xwallet")
+
+        assert "wallet:USDC" in result
+        assert "aave_v3:USDC" in result
+        assert result["wallet:USDC"].balance == 1000.0
+        assert result["aave_v3:USDC"].balance == 500.0
+
+    def test_provider_override(self) -> None:
+        default_provider = _MockProvider([])
+        override_provider = _MockProvider([
+            _bal("DAI", 200.0, "0x1", "wallet"),
+        ])
+        reconciler = PositionReconciler(default_provider)
+        result = reconciler.query_onchain_balances("0xwallet", provider=override_provider)
+
+        assert "wallet:DAI" in result
+        assert len(result) == 1
+
+    def test_no_provider_raises(self) -> None:
+        reconciler = PositionReconciler()
+        with pytest.raises(RuntimeError, match="No on-chain provider"):
+            reconciler.query_onchain_balances("0xwallet")
+
+    def test_empty_balances(self) -> None:
+        provider = _MockProvider([])
+        reconciler = PositionReconciler(provider)
+        result = reconciler.query_onchain_balances("0xwallet")
+        assert result == {}
+
+
+# ── PositionReconciler.compare_positions ─────────────
+
+
+class TestPositionCompare:
+    def setup_method(self) -> None:
+        self.reconciler = PositionReconciler()
+
+    def test_no_discrepancies_when_matching(self) -> None:
+        onchain = {
+            "aave_v3:USDC": OnChainBalance("USDC", 1000.0, "0xabc", "aave_v3"),
+        }
+        db_positions = [{
+            "position_id": "pos-1",
+            "strategy": "LEND-001",
+            "protocol": "aave_v3",
+            "chain": "base",
+            "asset": "USDC",
+            "amount": "1000.0",
+            "current_value": "1000.0",
+            "status": "open",
+        }]
+
+        discrepancies = self.reconciler.compare_positions(onchain, db_positions)
+        assert discrepancies == []
+
+    def test_missing_db_position(self) -> None:
+        onchain = {
+            "aave_v3:USDC": OnChainBalance("USDC", 500.0, "0xabc", "aave_v3"),
+        }
+
+        discrepancies = self.reconciler.compare_positions(onchain, [])
+        assert len(discrepancies) == 1
+        assert discrepancies[0].discrepancy_type == "missing_db"
+        assert discrepancies[0].actual_value == 500.0
+        assert discrepancies[0].position_id is None
+
+    def test_missing_onchain(self) -> None:
+        db_positions = [{
+            "position_id": "pos-1",
+            "strategy": "LEND-001",
+            "protocol": "aave_v3",
+            "chain": "base",
+            "asset": "USDC",
+            "amount": "1000.0",
+            "current_value": "1000.0",
+            "status": "open",
+        }]
+
+        discrepancies = self.reconciler.compare_positions({}, db_positions)
+        assert len(discrepancies) == 1
+        assert discrepancies[0].discrepancy_type == "missing_onchain"
+        assert discrepancies[0].position_id == "pos-1"
+
+    def test_value_mismatch(self) -> None:
+        onchain = {
+            "aave_v3:USDC": OnChainBalance("USDC", 1200.0, "0xabc", "aave_v3"),
+        }
+        db_positions = [{
+            "position_id": "pos-1",
+            "strategy": "LEND-001",
+            "protocol": "aave_v3",
+            "chain": "base",
+            "asset": "USDC",
+            "amount": "1000.0",
+            "current_value": "1000.0",
+            "status": "open",
+        }]
+
+        discrepancies = self.reconciler.compare_positions(onchain, db_positions)
+        assert len(discrepancies) == 1
+        assert discrepancies[0].discrepancy_type == "value_mismatch"
+        assert discrepancies[0].expected_value == 1000.0
+        assert discrepancies[0].actual_value == 1200.0
+
+    def test_within_tolerance_no_discrepancy(self) -> None:
+        onchain = {
+            "aave_v3:USDC": OnChainBalance("USDC", 1000.05, "0xabc", "aave_v3"),
+        }
+        db_positions = [{
+            "position_id": "pos-1",
+            "strategy": "LEND-001",
+            "protocol": "aave_v3",
+            "chain": "base",
+            "asset": "USDC",
+            "amount": "1000.0",
+            "current_value": "1000.0",
+            "status": "open",
+        }]
+
+        discrepancies = self.reconciler.compare_positions(onchain, db_positions)
+        assert discrepancies == []
+
+    def test_closed_positions_ignored(self) -> None:
+        db_positions = [{
+            "position_id": "pos-1",
+            "strategy": "LEND-001",
+            "protocol": "aave_v3",
+            "chain": "base",
+            "asset": "USDC",
+            "amount": "1000.0",
+            "current_value": "1000.0",
+            "status": "closed",
+        }]
+
+        discrepancies = self.reconciler.compare_positions({}, db_positions)
+        assert discrepancies == []
+
+    def test_zero_onchain_balance_ignored(self) -> None:
+        onchain = {
+            "wallet:USDC": OnChainBalance("USDC", 0.0, "0xabc", "wallet"),
+        }
+
+        discrepancies = self.reconciler.compare_positions(onchain, [])
+        assert discrepancies == []
+
+    def test_multiple_discrepancies(self) -> None:
+        onchain = {
+            "aave_v3:USDC": OnChainBalance("USDC", 800.0, "0xabc", "aave_v3"),
+            "aerodrome:USDC-DAI": OnChainBalance("USDC-DAI", 300.0, "0xdef", "aerodrome"),
+        }
+        db_positions = [
+            {
+                "position_id": "pos-1",
+                "strategy": "LEND-001",
+                "protocol": "aave_v3",
+                "chain": "base",
+                "asset": "USDC",
+                "amount": "1000.0",
+                "current_value": "1000.0",
+                "status": "open",
+            },
+            {
+                "position_id": "pos-2",
+                "strategy": "LP-001",
+                "protocol": "wallet",
+                "chain": "base",
+                "asset": "DAI",
+                "amount": "500.0",
+                "current_value": "500.0",
+                "status": "open",
+            },
+        ]
+
+        discrepancies = self.reconciler.compare_positions(onchain, db_positions)
+        types = {d.discrepancy_type for d in discrepancies}
+        assert "value_mismatch" in types
+        assert "missing_db" in types
+        assert "missing_onchain" in types
+
+
+# ── PositionReconciler.reconcile ─────────────────────
+
+
+class TestPositionReconcile:
+    def setup_method(self) -> None:
+        self.reconciler = PositionReconciler()
+        self.repo = _MockRepository()
+
+    def test_missing_onchain_closes_position(self) -> None:
+        discrepancies = [
+            PositionDiscrepancy("pos-1", 1000.0, 0.0, "USDC", "aave_v3", "missing_onchain"),
+        ]
+
+        result = self.reconciler.reconcile(discrepancies, self.repo)
+        assert result.positions_closed == 1
+        assert len(self.repo.saved) == 1
+        assert self.repo.saved[0]["status"] == "closed"
+        assert self.repo.saved[0]["position_id"] == "pos-1"
+
+    def test_missing_db_creates_position(self) -> None:
+        discrepancies = [
+            PositionDiscrepancy(None, 0.0, 500.0, "USDbC", "aave_v3", "missing_db"),
+        ]
+
+        result = self.reconciler.reconcile(discrepancies, self.repo)
+        assert result.positions_created == 1
+        assert self.repo.saved[0]["status"] == "open"
+        assert self.repo.saved[0]["amount"] == 500.0
+        assert self.repo.saved[0]["position_id"].startswith("reconciled-")
+
+    def test_value_mismatch_updates_position(self) -> None:
+        discrepancies = [
+            PositionDiscrepancy("pos-1", 1000.0, 1200.0, "USDC", "aave_v3", "value_mismatch"),
+        ]
+
+        result = self.reconciler.reconcile(discrepancies, self.repo)
+        assert result.positions_updated == 1
+        assert self.repo.saved[0]["amount"] == 1200.0
+        assert self.repo.saved[0]["position_id"] == "pos-1"
+
+    def test_mixed_discrepancies(self) -> None:
+        discrepancies = [
+            PositionDiscrepancy("pos-1", 1000.0, 0.0, "USDC", "aave_v3", "missing_onchain"),
+            PositionDiscrepancy(None, 0.0, 300.0, "DAI", "wallet", "missing_db"),
+            PositionDiscrepancy("pos-2", 500.0, 600.0, "USDbC", "aave_v3", "value_mismatch"),
+        ]
+
+        result = self.reconciler.reconcile(discrepancies, self.repo)
+        assert result.discrepancies_found == 3
+        assert result.positions_closed == 1
+        assert result.positions_created == 1
+        assert result.positions_updated == 1
+        assert result.success is True
+        assert len(self.repo.saved) == 3
+
+    def test_empty_discrepancies(self) -> None:
+        result = self.reconciler.reconcile([], self.repo)
+        assert result.discrepancies_found == 0
+        assert result.success is True
+        assert len(self.repo.saved) == 0
+
+
+# ── PositionReconciler.run (full orchestration) ──────
+
+
+class TestPositionRun:
+    def test_full_run_no_discrepancies(self) -> None:
+        provider = _MockProvider([
+            _bal("USDC", 1000.0, "0xabc", "aave_v3"),
+        ])
+        positions = [
+            _FakePosition("pos-1", "LEND-001", "aave_v3", "base", "USDC", 1000.0, 1000.0),
+        ]
+        repo = _MockRepository(positions)
+        reconciler = PositionReconciler(provider)
+
+        result = reconciler.run("0xwallet", repo)
+        assert result.discrepancies_found == 0
+        assert result.success is True
+        assert len(repo.saved) == 0
+
+    def test_full_run_with_discrepancies(self) -> None:
+        provider = _MockProvider([
+            _bal("USDC", 800.0, "0xabc", "aave_v3"),
+            _bal("DAI", 200.0, "0xdef", "wallet"),
+        ])
+        positions = [
+            _FakePosition("pos-1", "LEND-001", "aave_v3", "base", "USDC", 1000.0, 1000.0),
+        ]
+        repo = _MockRepository(positions)
+        reconciler = PositionReconciler(provider)
+
+        result = reconciler.run("0xwallet", repo)
+        assert result.discrepancies_found == 2
+        assert result.positions_updated == 1
+        assert result.positions_created == 1
+        assert result.success is True
+
+    def test_full_run_position_gone_onchain(self) -> None:
+        provider = _MockProvider([])
+        positions = [
+            _FakePosition("pos-1", "LEND-001", "aave_v3", "base", "USDC", 1000.0, 1000.0),
+        ]
+        repo = _MockRepository(positions)
+        reconciler = PositionReconciler(provider)
+
+        result = reconciler.run("0xwallet", repo)
+        assert result.discrepancies_found == 1
+        assert result.positions_closed == 1
+        assert repo.saved[0]["status"] == "closed"
+
+    def test_full_run_with_provider_override(self) -> None:
+        default_provider = _MockProvider([])
+        override_provider = _MockProvider([
+            _bal("USDC", 1000.0, "0xabc", "aave_v3"),
+        ])
+        positions = [
+            _FakePosition("pos-1", "LEND-001", "aave_v3", "base", "USDC", 1000.0, 1000.0),
+        ]
+        repo = _MockRepository(positions)
+        reconciler = PositionReconciler(default_provider)
+
+        result = reconciler.run("0xwallet", repo, provider=override_provider)
+        assert result.discrepancies_found == 0
+        assert result.success is True
+
+    def test_structured_logging(self, capsys: pytest.CaptureFixture[str]) -> None:
+        provider = _MockProvider([
+            _bal("USDC", 800.0, "0xabc", "aave_v3"),
+        ])
+        positions = [
+            _FakePosition("pos-1", "LEND-001", "aave_v3", "base", "USDC", 1000.0, 1000.0),
+        ]
+        repo = _MockRepository(positions)
+        reconciler = PositionReconciler(provider)
+
+        reconciler.run("0xwallet", repo)
+        captured = capsys.readouterr()
+        assert "position_reconciliation_start" in captured.out
+        assert "position_reconciliation_discrepancy" in captured.out
+        assert "position_reconciliation_action" in captured.out
+        assert "position_reconciliation_complete" in captured.out
+
+
+# ── PositionReconciler data models ───────────────────
+
+
+class TestPositionDataModels:
+    def test_discrepancy_to_dict(self) -> None:
+        d = PositionDiscrepancy(
+            position_id="pos-1",
+            expected_value=100.0,
+            actual_value=200.0,
+            asset="USDC",
+            protocol="aave_v3",
+            discrepancy_type="value_mismatch",
+        )
+        result = d.to_dict()
+        assert result["position_id"] == "pos-1"
+        assert result["discrepancy_type"] == "value_mismatch"
+        assert "timestamp" in result
+
+    def test_reconciliation_result_defaults(self) -> None:
+        r = ReconciliationResult(
+            discrepancies_found=0,
+            positions_closed=0,
+            positions_created=0,
+            positions_updated=0,
+            success=True,
+        )
+        assert r.discrepancies == []
+        assert r.timestamp != ""
