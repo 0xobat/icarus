@@ -12,12 +12,36 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from monitoring.logger import get_logger
+from strategies.base import MarketSnapshot
 
 if TYPE_CHECKING:
     from db.repository import DatabaseRepository
-    from strategies.base import MarketSnapshot, StrategyReport
+    from strategies.base import StrategyReport
 
 _logger = get_logger("strategies.manager", enable_file=False)
+
+
+def _slice_snapshot(snapshot: MarketSnapshot, window: timedelta) -> MarketSnapshot:
+    """Filter snapshot data to only include entries within the data_window.
+
+    Prices are filtered by their timestamp relative to the snapshot timestamp.
+    Pools have no timestamp field and pass through unfiltered.
+
+    Args:
+        snapshot: Full market data snapshot.
+        window: How far back to include data.
+
+    Returns:
+        A new MarketSnapshot with prices filtered to the window.
+    """
+    cutoff = snapshot.timestamp - window
+    filtered_prices = [p for p in snapshot.prices if p.timestamp >= cutoff]
+    return MarketSnapshot(
+        prices=filtered_prices,
+        gas=snapshot.gas,
+        pools=snapshot.pools,
+        timestamp=snapshot.timestamp,
+    )
 
 
 class StrategyManager:
@@ -175,8 +199,10 @@ class StrategyManager:
         async def _run(sid: str) -> StrategyReport | None:
             try:
                 instance = self._get_instance(sid)
+                window: timedelta = instance.data_window  # type: ignore[attr-defined]
+                sliced = _slice_snapshot(snapshot, window)
                 report = await asyncio.to_thread(
-                    instance.evaluate, snapshot  # type: ignore[attr-defined]
+                    instance.evaluate, sliced  # type: ignore[attr-defined]
                 )
                 self.record_evaluation(sid)
                 _logger.info(
