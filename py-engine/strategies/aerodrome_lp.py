@@ -1,29 +1,25 @@
 """Aerodrome stable LP auto-compound — Tier 1 strategy (LP-001).
 
-Provides liquidity to Aerodrome stable pools on Base, stakes LP tokens
-in gauges for AERO emissions, harvests when gas-optimal, and compounds
-rewards back into the LP position.
+Evaluates Aerodrome stable pools on Base for LP opportunities. Checks
+emission APR, pool TVL, AERO price, and swap liquidity to produce
+entry/exit/harvest signals and recommendations.
 """
 
 from __future__ import annotations
 
-import uuid
-from dataclasses import dataclass
-from datetime import UTC, datetime
-from decimal import Decimal
-from typing import Any
+from datetime import UTC, datetime, timedelta
 
-from monitoring.logger import get_logger
-from portfolio.allocator import PortfolioAllocator
-from portfolio.position_tracker import PositionTracker
-
-_logger = get_logger("aerodrome-lp", enable_file=False)
+from strategies.base import (
+    MarketSnapshot,
+    Observation,
+    Recommendation,
+    Signal,
+    SignalType,
+    StrategyReport,
+    TokenPrice,
+)
 
 STRATEGY_ID = "LP-001"
-STRATEGY_TIER = 1
-
-# LP-001 operates exclusively on Base
-ALLOWED_CHAINS = frozenset({"base"})
 
 # Known stable pairs for Aerodrome on Base
 STABLE_PAIRS = frozenset({
@@ -33,241 +29,244 @@ STABLE_PAIRS = frozenset({
     ("USDbC", "DAI"),
 })
 
-
-# ---------------------------------------------------------------------------
-# Market data types
-# ---------------------------------------------------------------------------
-@dataclass
-class StablePool:
-    """Snapshot of an Aerodrome stable liquidity pool."""
-
-    pool_id: str
-    token_a: str
-    token_b: str
-    emission_apr: Decimal  # AERO emission APR, e.g. 0.08 = 8%
-    tvl_usd: Decimal
-    aero_price_usd: Decimal
-    gauge_address: str
-    chain: str = "base"
-
-
-# ---------------------------------------------------------------------------
-# Strategy
-# ---------------------------------------------------------------------------
-@dataclass
-class AerodromeLpConfig:
-    """Strategy configuration for Aerodrome stable LP."""
-
-    min_emission_apr: Decimal = Decimal("0.03")  # 3% entry threshold
-    min_tvl_usd: Decimal = Decimal("500000")  # $500K minimum TVL
-    min_harvest_value_usd: Decimal = Decimal("0.50")  # $0.50 min harvest
-    exit_apr_threshold: Decimal = Decimal("0.015")  # 1.5% exit threshold
-    aero_crash_threshold: Decimal = Decimal("-0.50")  # -50% AERO price drop
-    max_allocation_pct: Decimal = Decimal("0.30")  # 30% of portfolio
-    default_max_gas_wei: str = "500000000000000"  # 0.0005 ETH
-    default_max_slippage_bps: int = 50
-    default_deadline_seconds: int = 300
+# Thresholds
+MIN_EMISSION_APR = 0.03  # 3% entry
+EXIT_APR = 0.015  # 1.5% exit
+MIN_TVL_ENTRY = 500_000.0  # $500K entry
+MIN_TVL_EXIT = 200_000.0  # $200K exit (below = exit signal)
+AERO_CRASH_THRESHOLD = -0.50  # -50% 24h price drop
+HARVEST_MIN_AERO_PRICE = 0.50  # $0.50 min AERO price to harvest
+MAX_ALLOCATION_PCT = 0.30  # 30% portfolio
+MIN_POSITION_USD = 100.0  # $100 min position
 
 
 class AerodromeLpStrategy:
-    """Tier 1: Aerodrome stable LP with auto-compound.
+    """Tier 1: Aerodrome stable LP analyst.
 
-    Evaluates Aerodrome stable pools by emission APR and TVL, enters
-    positions via mint_lp, stakes in gauges, harvests AERO rewards when
-    gas-optimal, and compounds back into the LP. Exits when APR drops
-    or AERO price crashes.
+    Evaluates Aerodrome stable pools by emission APR, TVL, and AERO
+    price conditions. Produces StrategyReport with observations, signals,
+    and recommendations — does not generate execution orders.
     """
 
-    def __init__(
-        self,
-        allocator: PortfolioAllocator,
-        tracker: PositionTracker,
-        config: AerodromeLpConfig | None = None,
-    ) -> None:
-        self.allocator = allocator
-        self.tracker = tracker
-        self.config = config or AerodromeLpConfig()
-        self.status: str = "evaluating"
+    @property
+    def strategy_id(self) -> str:
+        """Unique identifier matching STRATEGY.md."""
+        return STRATEGY_ID
 
-    # ------------------------------------------------------------------
-    # Pool evaluation
-    # ------------------------------------------------------------------
+    @property
+    def eval_interval(self) -> timedelta:
+        """How often evaluate() should be called."""
+        return timedelta(minutes=15)
 
-    def evaluate(self, pools: list[StablePool]) -> list[StablePool]:
-        """Filter and rank stable pools by emission APR (descending).
+    @property
+    def data_window(self) -> timedelta:
+        """How far back the strategy needs market data."""
+        return timedelta(hours=24)
 
-        Args:
-            pools: List of Aerodrome stable pool snapshots.
-
-        Returns:
-            Filtered and ranked list of eligible pools.
-        """
-        eligible = [
-            p for p in pools
-            if p.chain in ALLOWED_CHAINS
-            and p.emission_apr >= self.config.min_emission_apr
-            and p.tvl_usd >= self.config.min_tvl_usd
-        ]
-        ranked = sorted(eligible, key=lambda p: p.emission_apr, reverse=True)
-        _logger.debug(
-            "Pools evaluated",
-            extra={"data": {
-                "eligible_count": len(ranked),
-                "top_pool": ranked[0].pool_id if ranked else None,
-                "top_apr": str(ranked[0].emission_apr) if ranked else None,
-            }},
-        )
-        return ranked
-
-    # ------------------------------------------------------------------
-    # Harvest / exit decisions
-    # ------------------------------------------------------------------
-
-    def should_harvest(self, pending_aero_value_usd: Decimal) -> bool:
-        """Check if pending AERO rewards justify a harvest transaction.
+    def evaluate(self, snapshot: MarketSnapshot) -> StrategyReport:
+        """Analyze Aerodrome stable pools and return a structured report.
 
         Args:
-            pending_aero_value_usd: USD value of pending AERO rewards.
+            snapshot: Pre-sliced market data for this strategy's data_window.
 
         Returns:
-            True if rewards meet or exceed the minimum harvest threshold.
+            StrategyReport with observations, signals, and optional recommendation.
         """
-        return pending_aero_value_usd >= self.config.min_harvest_value_usd
+        observations: list[Observation] = []
+        signals: list[Signal] = []
+        recommendation: Recommendation | None = None
 
-    def should_exit(
-        self,
-        current_apr: Decimal,
-        aero_price_change: Decimal,
-    ) -> bool:
-        """Determine if the LP position should be exited.
+        # Find Aerodrome pools
+        aero_pools = [p for p in snapshot.pools if p.protocol == "aerodrome"]
 
-        Args:
-            current_apr: Current emission APR of the pool.
-            aero_price_change: 24h AERO price change as decimal (e.g. -0.55).
+        # Find AERO price
+        aero_price = self._get_aero_price(snapshot.prices)
+        aero_price_24h_change = self._get_aero_price_change(snapshot.prices)
 
-        Returns:
-            True if APR is below exit threshold or AERO has crashed.
-        """
-        if current_apr < self.config.exit_apr_threshold:
-            return True
-        if aero_price_change < self.config.aero_crash_threshold:
-            return True
-        return False
+        # Observe AERO price
+        if aero_price is not None:
+            observations.append(Observation(
+                metric="aero_price_usd",
+                value=f"{aero_price:.4f}",
+                context=f"AERO trading at ${aero_price:.4f}",
+            ))
 
-    # ------------------------------------------------------------------
-    # Order generation
-    # ------------------------------------------------------------------
+        if aero_price_24h_change is not None:
+            observations.append(Observation(
+                metric="aero_price_change_24h",
+                value=f"{aero_price_24h_change:.4f}",
+                context=f"AERO 24h price change: {aero_price_24h_change * 100:.1f}%",
+            ))
 
-    def generate_orders(
-        self,
-        pools: list[StablePool],
-        correlation_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Generate execution:orders for Aerodrome LP operations.
-
-        Args:
-            pools: List of Aerodrome stable pool snapshots.
-            correlation_id: Optional correlation ID for order tracing.
-
-        Returns:
-            List of schema-compliant order dicts.
-        """
-        ranked = self.evaluate(pools)
-        if not ranked:
-            return []
-
-        best = ranked[0]
-        cid = correlation_id or uuid.uuid4().hex
-        now = datetime.now(UTC)
-        deadline = int(now.timestamp()) + self.config.default_deadline_seconds
-
-        # Compute max deployable amount respecting allocation limit
-        available = self.allocator.get_available_capital(STRATEGY_ID)
-        amount = min(available, self.config.max_allocation_pct * self.allocator.total_capital)
-
-        if amount < Decimal("1"):
-            return []
-
-        check = self.allocator.check_allocation({
-            "value_usd": float(amount),
-            "strategy": STRATEGY_ID,
-        })
-        if not check.allowed:
-            _logger.info(
-                "LP position blocked by allocator",
-                extra={"data": {"reason": check.reason}},
+        if not aero_pools:
+            observations.append(Observation(
+                metric="aerodrome_pool_count",
+                value="0",
+                context="No Aerodrome pools found in snapshot",
+            ))
+            return StrategyReport(
+                strategy_id=self.strategy_id,
+                timestamp=datetime.now(UTC).isoformat(),
+                observations=observations,
+                signals=signals,
+                recommendation=recommendation,
             )
-            return []
 
-        orders: list[dict[str, Any]] = []
+        # Evaluate best pool
+        best_pool = max(aero_pools, key=lambda p: p.apy)
 
-        orders.append(self._make_order(
-            action="mint_lp",
-            token_in=best.token_a,
-            amount=str(amount),
-            chain=best.chain,
-            correlation_id=cid,
-            deadline=deadline,
-            extra_params={"tokenOut": best.token_b, "gauge": best.gauge_address},
+        observations.append(Observation(
+            metric="aerodrome_best_pool_apr",
+            value=f"{best_pool.apy:.4f}",
+            context=f"Best Aerodrome pool {best_pool.pool_id} APR: {best_pool.apy * 100:.2f}%",
+        ))
+        observations.append(Observation(
+            metric="aerodrome_best_pool_tvl",
+            value=f"{best_pool.tvl:.0f}",
+            context=f"Pool {best_pool.pool_id} TVL: ${best_pool.tvl:,.0f}",
+        ))
+        observations.append(Observation(
+            metric="aerodrome_pool_count",
+            value=str(len(aero_pools)),
+            context=f"{len(aero_pools)} Aerodrome pool(s) in snapshot",
         ))
 
-        _logger.info(
-            "LP orders generated",
-            extra={"data": {
-                "order_count": len(orders),
-                "target_pool": best.pool_id,
-                "emission_apr": str(best.emission_apr),
-                "amount": str(amount),
-            }},
+        # --- Entry signals ---
+        entry_apr_met = best_pool.apy >= MIN_EMISSION_APR
+        entry_tvl_met = best_pool.tvl >= MIN_TVL_ENTRY
+        entry_met = entry_apr_met and entry_tvl_met
+
+        if entry_met:
+            signals.append(Signal(
+                type=SignalType.ENTRY_MET,
+                actionable=True,
+                details=(
+                    f"Pool {best_pool.pool_id} meets entry: "
+                    f"APR {best_pool.apy * 100:.2f}% >= {MIN_EMISSION_APR * 100:.1f}%, "
+                    f"TVL ${best_pool.tvl:,.0f} >= ${MIN_TVL_ENTRY:,.0f}"
+                ),
+            ))
+            recommendation = Recommendation(
+                action="mint_lp",
+                reasoning=(
+                    f"Aerodrome pool {best_pool.pool_id} has strong emission APR "
+                    f"({best_pool.apy * 100:.2f}%) with sufficient TVL (${best_pool.tvl:,.0f}). "
+                    f"Recommend entering stable LP position."
+                ),
+                parameters={
+                    "protocol": "aerodrome",
+                    "pool_id": best_pool.pool_id,
+                    "chain": "base",
+                    "max_allocation_pct": MAX_ALLOCATION_PCT,
+                    "min_position_usd": MIN_POSITION_USD,
+                },
+            )
+        elif entry_apr_met and not entry_tvl_met:
+            signals.append(Signal(
+                type=SignalType.THRESHOLD_APPROACHING,
+                actionable=False,
+                details=(
+                    f"Pool {best_pool.pool_id} APR meets entry "
+                    f"({best_pool.apy * 100:.2f}%) but TVL too low "
+                    f"(${best_pool.tvl:,.0f} < ${MIN_TVL_ENTRY:,.0f})"
+                ),
+            ))
+
+        # --- Exit signals ---
+        exit_low_apr = best_pool.apy < EXIT_APR
+        exit_low_tvl = best_pool.tvl < MIN_TVL_EXIT
+        exit_aero_crash = (
+            aero_price_24h_change is not None
+            and aero_price_24h_change < AERO_CRASH_THRESHOLD
         )
-        return orders
 
-    def _make_order(
-        self,
-        *,
-        action: str,
-        token_in: str,
-        amount: str,
-        chain: str,
-        correlation_id: str,
-        deadline: int,
-        extra_params: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
-        """Build a schema-compliant execution:orders dict.
+        if exit_low_apr or exit_low_tvl or exit_aero_crash:
+            reasons = []
+            if exit_low_apr:
+                reasons.append(
+                    f"APR {best_pool.apy * 100:.2f}% < {EXIT_APR * 100:.1f}%"
+                )
+            if exit_low_tvl:
+                reasons.append(
+                    f"TVL ${best_pool.tvl:,.0f} < ${MIN_TVL_EXIT:,.0f}"
+                )
+            if exit_aero_crash:
+                reasons.append(
+                    f"AERO price dropped {aero_price_24h_change * 100:.1f}% in 24h"  # type: ignore[operator]
+                )
 
-        Args:
-            action: Order action (mint_lp, burn_lp, stake, etc.).
-            token_in: Primary input token symbol.
-            amount: Amount as string.
-            chain: Target chain.
-            correlation_id: Correlation ID for tracing.
-            deadline: Unix timestamp deadline.
-            extra_params: Additional params (tokenOut, gauge, etc.).
+            signals.append(Signal(
+                type=SignalType.EXIT_MET,
+                actionable=True,
+                details=f"Exit conditions met: {'; '.join(reasons)}",
+            ))
+            recommendation = Recommendation(
+                action="burn_lp",
+                reasoning=f"Exit triggered: {'; '.join(reasons)}. Recommend unwinding LP position.",
+                parameters={
+                    "protocol": "aerodrome",
+                    "pool_id": best_pool.pool_id,
+                    "chain": "base",
+                },
+            )
 
-        Returns:
-            Schema-compliant order dictionary.
+        # --- Harvest signal ---
+        if aero_price is not None and aero_price >= HARVEST_MIN_AERO_PRICE:
+            signals.append(Signal(
+                type=SignalType.HARVEST_READY,
+                actionable=True,
+                details=(
+                    f"AERO price ${aero_price:.4f} >= "
+                    f"${HARVEST_MIN_AERO_PRICE:.2f}, harvest viable"
+                ),
+            ))
+            # Only set harvest recommendation if no exit recommendation
+            if recommendation is None or recommendation.action != "burn_lp":
+                if recommendation is None:
+                    recommendation = Recommendation(
+                        action="harvest",
+                        reasoning=(
+                            f"AERO at ${aero_price:.4f} exceeds harvest "
+                            f"threshold. Harvest and compound."
+                        ),
+                        parameters={
+                            "protocol": "aerodrome",
+                            "pool_id": best_pool.pool_id,
+                            "chain": "base",
+                        },
+                    )
+
+        return StrategyReport(
+            strategy_id=self.strategy_id,
+            timestamp=datetime.now(UTC).isoformat(),
+            observations=observations,
+            signals=signals,
+            recommendation=recommendation,
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _get_aero_price(self, prices: list[TokenPrice]) -> float | None:
+        """Get the most recent AERO price from the snapshot."""
+        aero_prices = [p for p in prices if p.token == "AERO"]
+        if not aero_prices:
+            return None
+        return max(aero_prices, key=lambda p: p.timestamp).price
+
+    def _get_aero_price_change(self, prices: list[TokenPrice]) -> float | None:
+        """Calculate AERO 24h price change from snapshot prices.
+
+        Looks for prices tagged with source containing '24h_ago' or
+        computes from oldest vs newest AERO price in the window.
         """
-        params: dict[str, Any] = {
-            "tokenIn": token_in,
-            "amount": amount,
-        }
-        if extra_params:
-            params.update(extra_params)
-
-        return {
-            "version": "1.0.0",
-            "orderId": uuid.uuid4().hex,
-            "correlationId": correlation_id,
-            "timestamp": datetime.now(UTC).isoformat(),
-            "chain": chain,
-            "protocol": "aerodrome",
-            "action": action,
-            "strategy": STRATEGY_ID,
-            "priority": "normal",
-            "params": params,
-            "limits": {
-                "maxGasWei": self.config.default_max_gas_wei,
-                "maxSlippageBps": self.config.default_max_slippage_bps,
-                "deadlineUnix": deadline,
-            },
-        }
+        aero_prices = [p for p in prices if p.token == "AERO"]
+        if len(aero_prices) < 2:
+            return None
+        sorted_prices = sorted(aero_prices, key=lambda p: p.timestamp)
+        oldest = sorted_prices[0].price
+        newest = sorted_prices[-1].price
+        if oldest == 0:
+            return None
+        return (newest - oldest) / oldest

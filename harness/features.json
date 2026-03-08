@@ -344,7 +344,7 @@
       "Constraints: max 30% portfolio, min $100 position, stable-stable only, harvest when AERO >$0.50",
       "Produces StrategyReport with observations, signals, recommendation"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "PORT-001",
