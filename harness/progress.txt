@@ -853,3 +853,34 @@ Remaining 8 features:
   Wave 6: HARNESS-002, TEST-001, DEPLOY-001, RISK-009
 
 Next: Wave 5 — data reconciliation, state persistence, P&L reporting, decision loop wiring
+
+--- Team Session 2026-03-08-03 (Wave 5: Data + State + Reporting + Loop) ---
+Lead: Claude Opus 4.6
+Agents: 4 (agent-harness001, agent-data004, agent-report001, agent-infra006)
+Waves: 1 (all independent)
+
+Wave 5 (4 agents):
+  agent-harness001: HARNESS-001 State persistence — MERGED (commit 50f78c1)
+    Wired PostgreSQL persistence for positions, trades, and decisions
+    process_result() records trades/positions to PG, persist_state() syncs on shutdown
+  agent-report001: REPORT-001 P&L attribution — MERGED (commit a339e0f)
+    Breakdown by strategy, protocol, asset, and time period
+  agent-data004: DATA-004 On-chain position reconciliation — MERGED (commit d105e66)
+    Query on-chain balances → compare DB positions → trust on-chain
+    PositionReconciler with provider abstraction, _MockProvider for tests
+  agent-infra006: INFRA-006 Decision loop wiring — MERGED (commit eb87d3e)
+    Decision gate: opens only when strategy reports have actionable signals
+    Report accumulation across cycles (latest report per strategy)
+    +209 lines of tests in test_main_loop.py
+
+Summary: 4/4 features completed, 0 deferred
+Baseline commit: d5c7e69
+Final commit: eb87d3e
+Features passing: 44/48 (up from 40)
+Tests: 1319 passed, 11 skipped
+verify.sh: PASS
+
+Remaining 4 features:
+  Wave 6: HARNESS-002, TEST-001, DEPLOY-001, RISK-009
+
+Next: Wave 6 — startup recovery, integration tests, Railway deployment, Safe on-chain guard
