@@ -370,7 +370,8 @@ class DecisionLoop:
             _logger.warning("TX failure breaker active — skipping cycle")
             return []
 
-        # 3. Synthesize insights
+        # 3. Synthesize insights (feed latest strategy reports first)
+        self.synthesizer.update_strategy_reports(self._latest_reports)
         snapshot = self.synthesizer.synthesize()
         snapshot_dict = snapshot.to_dict()
         snapshot_dict["correlationId"] = correlation_id

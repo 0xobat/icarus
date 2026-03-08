@@ -302,6 +302,15 @@ class InsightSynthesizer:
             maxlen=decision_history_size,
         )
         self._previous_metrics: dict[str, Any] | None = None
+        self._latest_reports: dict[str, Any] = {}
+
+    def update_strategy_reports(self, reports: dict[str, Any]) -> None:
+        """Update cached strategy reports for inclusion in snapshots.
+
+        Args:
+            reports: Dict mapping strategy_id to StrategyReport.
+        """
+        self._latest_reports = reports
 
     def record_decision(self, decision: dict[str, Any]) -> None:
         """Record a decision for inclusion in future snapshots.
@@ -378,17 +387,32 @@ class InsightSynthesizer:
             return {"open_count": 0, "details": []}
 
     def _collect_strategies(self) -> list[dict[str, Any]]:
-        """Collect active strategy specs and their current statuses."""
+        """Collect active strategy specs, statuses, and latest report content."""
         strategies: list[dict[str, Any]] = []
         try:
             statuses = self._lifecycle_manager._state.get_strategy_statuses()
             for strategy_id, status in statuses.items():
                 perf = self._lifecycle_manager.get_performance(strategy_id)
-                strategies.append({
+                entry: dict[str, Any] = {
                     "id": strategy_id,
                     "status": status,
                     "performance": perf.to_dict(),
-                })
+                }
+                if strategy_id in self._latest_reports:
+                    report = self._latest_reports[strategy_id]
+                    entry["latest_report"] = {
+                        "observations": [
+                            asdict(o) for o in report.observations
+                        ],
+                        "signals": [asdict(s) for s in report.signals],
+                        "recommendation": (
+                            asdict(report.recommendation)
+                            if report.recommendation
+                            else None
+                        ),
+                        "timestamp": report.timestamp,
+                    }
+                strategies.append(entry)
         except Exception as e:
             _logger.warning(
                 "Strategy collection failed",

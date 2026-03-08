@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock
@@ -657,3 +658,74 @@ class TestRiskStatusFromBreakers:
         synth = _make_synthesizer()
         result = synth._collect_risk_status()
         assert "timestamp" in result
+
+
+# ---------------------------------------------------------------------------
+# Synthesizer -- strategy report inclusion (Task 2)
+# ---------------------------------------------------------------------------
+
+
+class TestStrategyReportInclusion:
+
+    def test_strategies_include_report_content(self) -> None:
+        """Strategy section should include observations and signals."""
+        from strategies.base import (
+            Observation,
+            Signal,
+            SignalType,
+            StrategyReport,
+        )
+
+        lm = _make_lifecycle_manager({"STRAT-001": "active"})
+        synth = _make_synthesizer(lifecycle_manager=lm)
+        report = StrategyReport(
+            strategy_id="STRAT-001",
+            observations=[
+                Observation(metric="apy", value="0.05", context="Aave USDC"),
+            ],
+            signals=[
+                Signal(
+                    type=SignalType.ENTRY_MET,
+                    actionable=True,
+                    details="APY above threshold",
+                ),
+            ],
+            recommendation=None,
+            timestamp=datetime.now(UTC).isoformat(),
+        )
+        synth.update_strategy_reports({"STRAT-001": report})
+        result = synth._collect_strategies()
+        assert any(s.get("latest_report") for s in result)
+        rpt = next(s["latest_report"] for s in result if s.get("latest_report"))
+        assert "observations" in rpt
+        assert "signals" in rpt
+
+    def test_no_reports_still_works(self) -> None:
+        """Strategies without reports should not have latest_report key."""
+        lm = _make_lifecycle_manager({"STRAT-001": "active"})
+        synth = _make_synthesizer(lifecycle_manager=lm)
+        result = synth._collect_strategies()
+        assert not any(s.get("latest_report") for s in result)
+
+    def test_update_strategy_reports_replaces(self) -> None:
+        """update_strategy_reports should replace previous reports."""
+        from strategies.base import StrategyReport
+
+        synth = _make_synthesizer()
+        r1 = StrategyReport(
+            strategy_id="S1",
+            observations=[],
+            signals=[],
+            recommendation=None,
+            timestamp="t1",
+        )
+        synth.update_strategy_reports({"S1": r1})
+        r2 = StrategyReport(
+            strategy_id="S1",
+            observations=[],
+            signals=[],
+            recommendation=None,
+            timestamp="t2",
+        )
+        synth.update_strategy_reports({"S1": r2})
+        assert synth._latest_reports["S1"].timestamp == "t2"
