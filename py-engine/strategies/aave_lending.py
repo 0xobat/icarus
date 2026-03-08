@@ -35,7 +35,7 @@ GAS_AMORTIZATION_DAYS = 14
 MIN_POSITION_USD = 100
 MIN_MONTHLY_GAIN_USD = 1.0
 ESTIMATED_GAS_COST_USD = 10.0  # per TX
-TVL_DROP_THRESHOLD = 0.30  # 30% drop triggers circuit breaker
+# TVL exit is delegated to RISK-005 circuit breaker (tvl_monitor.py)
 
 
 class AaveLendingStrategy:
