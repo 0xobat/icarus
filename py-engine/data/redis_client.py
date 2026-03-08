@@ -119,13 +119,23 @@ class RedisManager:
         _log("redis_disconnected", "Disconnected from Redis")
 
     @property
+    def group(self) -> str:
+        """Consumer group name."""
+        return self._group
+
+    @property
+    def consumer(self) -> str:
+        """Consumer name within the group."""
+        return self._consumer
+
+    @property
     def client(self) -> redis.Redis:
         """Return the underlying Redis client instance."""
         if not self._client:
             raise RuntimeError("Redis not connected. Call connect() first.")
         return self._client
 
-    def _ensure_group(self, channel: str) -> None:
+    def ensure_group(self, channel: str) -> None:
         """Create consumer group for a stream if it doesn't exist.
 
         Uses MKSTREAM to create the stream if it doesn't exist yet.
@@ -191,7 +201,7 @@ class RedisManager:
         self._handlers[channel].append(handler)
 
         # Ensure consumer group exists
-        self._ensure_group(channel)
+        self.ensure_group(channel)
 
         # Start reader thread if not already running for this channel
         if channel not in self._reader_threads or not self._reader_threads[channel].is_alive():

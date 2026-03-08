@@ -467,11 +467,11 @@ def _get_pending_messages(
 
     try:
         client = redis.client
-        group = redis._group
-        consumer = redis._consumer
+        group = redis.group
+        consumer = redis.consumer
 
         # Ensure consumer group exists
-        redis._ensure_group(channel)
+        redis.ensure_group(channel)
 
         entries = client.xreadgroup(
             group, consumer,

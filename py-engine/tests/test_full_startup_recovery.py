@@ -198,12 +198,12 @@ class TestStreamReplay:
 
     def test_stream_error_records_error(self) -> None:
         redis = MagicMock()
-        redis._group = "py-engine"
-        redis._consumer = "py-engine-1"
+        redis.group = "py-engine"
+        redis.consumer = "py-engine-1"
         client = MagicMock()
         client.xreadgroup.side_effect = ConnectionError("Redis timeout")
         type(redis).client = PropertyMock(return_value=client)
-        redis._ensure_group.return_value = None
+        redis.ensure_group.return_value = None
 
         result = FullRecoveryResult()
         _recovery_replay_streams(redis, result)

@@ -125,13 +125,13 @@ class TestConsumerGroups:
         requires_redis(redis_mgr)
         assert redis_mgr is not None
 
-        # _ensure_group is called internally by subscribe, but test it directly
+        # ensure_group is called internally by subscribe, but test it directly
         test_stream = "test:consumer:group"
         try:
-            redis_mgr._ensure_group(test_stream)
+            redis_mgr.ensure_group(test_stream)
             # Verify the group exists
             groups = redis_mgr.client.xinfo_groups(test_stream)
-            assert any(g["name"] == redis_mgr._group for g in groups)
+            assert any(g["name"] == redis_mgr.group for g in groups)
         finally:
             redis_mgr.client.delete(test_stream)
 
@@ -141,9 +141,9 @@ class TestConsumerGroups:
 
         test_stream = "test:consumer:idempotent"
         try:
-            redis_mgr._ensure_group(test_stream)
+            redis_mgr.ensure_group(test_stream)
             # Should not raise on second call
-            redis_mgr._ensure_group(test_stream)
+            redis_mgr.ensure_group(test_stream)
         finally:
             redis_mgr.client.delete(test_stream)
 

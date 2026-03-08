@@ -37,6 +37,7 @@ class StrategyPerformance:
     max_drawdown: Decimal = Decimal(0)
     peak_value: Decimal = Decimal(0)
     current_value: Decimal = Decimal(0)
+    initial_value: Decimal = Decimal(0)
     returns: list[Decimal] = field(default_factory=list)
 
     def update(self, new_value: Decimal) -> None:
@@ -44,6 +45,7 @@ class StrategyPerformance:
         if self.peak_value == 0:
             self.peak_value = new_value
             self.current_value = new_value
+            self.initial_value = new_value
             return
 
         old_value = self.current_value
@@ -58,13 +60,7 @@ class StrategyPerformance:
             self.returns.append(ret)
 
         # P&L from initial
-        if self.peak_value > 0:
-            self.total_pnl = (
-                new_value - self.peak_value
-                + sum(r * self.peak_value for r in self.returns)
-                if self.returns
-                else new_value - self.peak_value
-            )
+        self.total_pnl = new_value - self.initial_value
 
         # Drawdown
         if self.peak_value > 0:
