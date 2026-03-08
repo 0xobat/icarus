@@ -479,7 +479,7 @@
       "Logs deviation details for audit",
       "Works in conjunction with price feed staleness detection"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-008",

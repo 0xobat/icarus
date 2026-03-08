@@ -22,6 +22,7 @@ from data.price_feed import PriceFeedManager
 from data.redis_client import CHANNELS, RedisManager
 from db.database import DatabaseConfig, DatabaseManager
 from db.repository import DatabaseRepository
+from harness.hold_mode import HoldMode
 from harness.state_manager import StateManager
 from monitoring.logger import get_logger
 from portfolio.allocator import PortfolioAllocator
@@ -30,6 +31,7 @@ from risk.drawdown_breaker import DrawdownBreaker
 from risk.exposure_limits import ExposureLimiter
 from risk.exposure_limits import load_config as load_exposure_config
 from risk.gas_spike_breaker import GasSpikeBreaker
+from risk.oracle_guard import OracleGuard
 from risk.tx_failure_monitor import TxFailureMonitor
 from strategies.lifecycle_manager import LifecycleManager
 
@@ -81,16 +83,22 @@ class DecisionLoop:
         )
         self.tracker = PositionTracker()
 
+        # Hold mode
+        self.hold_mode = HoldMode()
+
         # Risk circuit breakers
         self.drawdown = DrawdownBreaker(initial_value=total_capital)
         self.gas_spike = GasSpikeBreaker()
-        self.tx_failures = TxFailureMonitor()
+        self.tx_failures = TxFailureMonitor(hold_mode=self.hold_mode)
 
         # Exposure limits (env var configured)
         self.exposure = ExposureLimiter(
             total_capital=total_capital,
             config=load_exposure_config(),
         )
+
+        # Oracle manipulation guard
+        self.oracle_guard = OracleGuard(self.price_feed)
 
         # Data pipeline
         from data.defi_metrics import DeFiMetricsCollector
@@ -293,6 +301,19 @@ class DecisionLoop:
         # TX failure check
         if not self.tx_failures.can_execute():
             _logger.warning("TX failure monitor — blocking execution")
+            return []
+
+        # Oracle manipulation guard
+        oracle_result = self.oracle_guard.check()
+        if not oracle_result.safe:
+            _logger.warning(
+                "Oracle guard — blocking order",
+                extra={"data": {
+                    "reason": oracle_result.reason,
+                    "deviations": self.oracle_guard.get_deviations(),
+                    "stale": oracle_result.stale,
+                }},
+            )
             return []
 
         # Exposure limit check
