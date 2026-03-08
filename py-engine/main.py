@@ -133,6 +133,12 @@ class DecisionLoop:
             defi_metrics=self.defi_metrics,
             position_tracker=self.tracker,
             lifecycle_manager=self.lifecycle,
+            drawdown=self.drawdown,
+            gas_spike=self.gas_spike,
+            tx_failures=self.tx_failures,
+            position_loss=self.position_loss,
+            tvl_monitor=self.tvl_monitor,
+            hold_mode=self.hold_mode,
         )
         self.decision_engine = DecisionEngine()
 
@@ -364,7 +370,8 @@ class DecisionLoop:
             _logger.warning("TX failure breaker active — skipping cycle")
             return []
 
-        # 3. Synthesize insights
+        # 3. Synthesize insights (feed latest strategy reports first)
+        self.synthesizer.update_strategy_reports(self._latest_reports)
         snapshot = self.synthesizer.synthesize()
         snapshot_dict = snapshot.to_dict()
         snapshot_dict["correlationId"] = correlation_id

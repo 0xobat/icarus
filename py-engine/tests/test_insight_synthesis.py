@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock
@@ -562,3 +563,195 @@ class TestSynthesizerStrategyInclusion:
         synth = _make_synthesizer(lifecycle_manager=lm)
         snapshot = synth.synthesize()
         assert "performance" in snapshot.strategies[0]
+
+
+# ---------------------------------------------------------------------------
+# Synthesizer -- real circuit breaker states (Task 1)
+# ---------------------------------------------------------------------------
+
+
+def _make_drawdown():
+    mock = MagicMock()
+    mock.is_triggered.return_value = False
+    return mock
+
+
+def _make_gas_spike():
+    mock = MagicMock()
+    mock._is_active = False
+    return mock
+
+
+def _make_tx_failures():
+    mock = MagicMock()
+    mock.can_execute.return_value = True
+    return mock
+
+
+def _make_position_loss():
+    mock = MagicMock()
+    mock.is_any_in_cooldown.return_value = False
+    return mock
+
+
+def _make_hold_mode():
+    mock = MagicMock()
+    mock.is_active.return_value = False
+    return mock
+
+
+class TestRiskStatusFromBreakers:
+
+    def test_all_clear_no_breakers_active(self) -> None:
+        synth = _make_synthesizer(
+            drawdown=_make_drawdown(),
+            gas_spike=_make_gas_spike(),
+            tx_failures=_make_tx_failures(),
+            position_loss=_make_position_loss(),
+            hold_mode=_make_hold_mode(),
+        )
+        result = synth._collect_risk_status()
+        assert result["circuit_breakers_active"] is False
+        assert result["trading_paused"] is False
+
+    def test_drawdown_triggered(self) -> None:
+        dd = _make_drawdown()
+        dd.is_triggered.return_value = True
+        synth = _make_synthesizer(drawdown=dd)
+        result = synth._collect_risk_status()
+        assert result["circuit_breakers_active"] is True
+        assert result["drawdown_triggered"] is True
+        assert result["trading_paused"] is True
+
+    def test_gas_spike_active(self) -> None:
+        gs = _make_gas_spike()
+        gs._is_active = True
+        synth = _make_synthesizer(gas_spike=gs)
+        result = synth._collect_risk_status()
+        assert result["circuit_breakers_active"] is True
+        assert result["gas_spike_active"] is True
+
+    def test_tx_failures_paused(self) -> None:
+        tf = _make_tx_failures()
+        tf.can_execute.return_value = False
+        synth = _make_synthesizer(tx_failures=tf)
+        result = synth._collect_risk_status()
+        assert result["circuit_breakers_active"] is True
+        assert result["tx_failures_paused"] is True
+
+    def test_hold_mode_pauses_trading(self) -> None:
+        hm = _make_hold_mode()
+        hm.is_active.return_value = True
+        synth = _make_synthesizer(hold_mode=hm)
+        result = synth._collect_risk_status()
+        assert result["hold_mode_active"] is True
+        assert result["trading_paused"] is True
+
+    def test_no_breakers_passed_defaults_safe(self) -> None:
+        """When no breakers are injected, all report False."""
+        synth = _make_synthesizer()
+        result = synth._collect_risk_status()
+        assert result["circuit_breakers_active"] is False
+        assert result["trading_paused"] is False
+
+    def test_has_timestamp(self) -> None:
+        synth = _make_synthesizer()
+        result = synth._collect_risk_status()
+        assert "timestamp" in result
+
+
+# ---------------------------------------------------------------------------
+# Synthesizer -- strategy report inclusion (Task 2)
+# ---------------------------------------------------------------------------
+
+
+class TestStrategyReportInclusion:
+
+    def test_strategies_include_report_content(self) -> None:
+        """Strategy section should include observations and signals."""
+        from strategies.base import (
+            Observation,
+            Signal,
+            SignalType,
+            StrategyReport,
+        )
+
+        lm = _make_lifecycle_manager({"STRAT-001": "active"})
+        synth = _make_synthesizer(lifecycle_manager=lm)
+        report = StrategyReport(
+            strategy_id="STRAT-001",
+            observations=[
+                Observation(metric="apy", value="0.05", context="Aave USDC"),
+            ],
+            signals=[
+                Signal(
+                    type=SignalType.ENTRY_MET,
+                    actionable=True,
+                    details="APY above threshold",
+                ),
+            ],
+            recommendation=None,
+            timestamp=datetime.now(UTC).isoformat(),
+        )
+        synth.update_strategy_reports({"STRAT-001": report})
+        result = synth._collect_strategies()
+        assert any(s.get("latest_report") for s in result)
+        rpt = next(s["latest_report"] for s in result if s.get("latest_report"))
+        assert "observations" in rpt
+        assert "signals" in rpt
+
+    def test_no_reports_still_works(self) -> None:
+        """Strategies without reports should not have latest_report key."""
+        lm = _make_lifecycle_manager({"STRAT-001": "active"})
+        synth = _make_synthesizer(lifecycle_manager=lm)
+        result = synth._collect_strategies()
+        assert not any(s.get("latest_report") for s in result)
+
+
+# ---------------------------------------------------------------------------
+# Synthesizer -- objectives from STRATEGY.md (Task 3)
+# ---------------------------------------------------------------------------
+
+
+class TestObjectivesInclusion:
+
+    def test_snapshot_includes_objectives(self) -> None:
+        """Snapshot should include strategy objectives."""
+        synth = _make_synthesizer()
+        snapshot = synth.synthesize()
+        d = snapshot.to_dict()
+        assert "objectives" in d
+        assert d["objectives"] is not None
+        assert d["objectives"]["source"] == "STRATEGY.md"
+
+    def test_objectives_has_content_or_status(self) -> None:
+        """Objectives should have either content or status."""
+        synth = _make_synthesizer()
+        result = synth._collect_objectives()
+        assert "content" in result or "status" in result
+
+
+class TestStrategyReportReplaces:
+
+    def test_update_strategy_reports_replaces(self) -> None:
+        """update_strategy_reports should replace previous reports."""
+        from strategies.base import StrategyReport
+
+        synth = _make_synthesizer()
+        r1 = StrategyReport(
+            strategy_id="S1",
+            observations=[],
+            signals=[],
+            recommendation=None,
+            timestamp="t1",
+        )
+        synth.update_strategy_reports({"S1": r1})
+        r2 = StrategyReport(
+            strategy_id="S1",
+            observations=[],
+            signals=[],
+            recommendation=None,
+            timestamp="t2",
+        )
+        synth.update_strategy_reports({"S1": r2})
+        assert synth._latest_reports["S1"].timestamp == "t2"

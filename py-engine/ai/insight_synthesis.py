@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from monitoring.logger import get_logger
@@ -44,6 +45,7 @@ class InsightSnapshot:
     risk_status: dict[str, Any]
     strategies: list[dict[str, Any]]
     recent_decisions: list[dict[str, Any]]
+    objectives: dict[str, Any] | None = None
     timestamp: str = ""
     snapshot_version: str = "1.0.0"
 
@@ -279,6 +281,12 @@ class InsightSynthesizer:
         defi_metrics: Any,
         position_tracker: Any,
         lifecycle_manager: Any,
+        drawdown: Any = None,
+        gas_spike: Any = None,
+        tx_failures: Any = None,
+        position_loss: Any = None,
+        tvl_monitor: Any = None,
+        hold_mode: Any = None,
         decision_history_size: int = _DEFAULT_DECISION_HISTORY_SIZE,
     ) -> None:
         self._price_feed = price_feed
@@ -286,10 +294,25 @@ class InsightSynthesizer:
         self._defi_metrics = defi_metrics
         self._position_tracker = position_tracker
         self._lifecycle_manager = lifecycle_manager
+        self._drawdown = drawdown
+        self._gas_spike = gas_spike
+        self._tx_failures = tx_failures
+        self._position_loss = position_loss
+        self._tvl_monitor = tvl_monitor
+        self._hold_mode = hold_mode
         self._recent_decisions: deque[dict[str, Any]] = deque(
             maxlen=decision_history_size,
         )
         self._previous_metrics: dict[str, Any] | None = None
+        self._latest_reports: dict[str, Any] = {}
+
+    def update_strategy_reports(self, reports: dict[str, Any]) -> None:
+        """Update cached strategy reports for inclusion in snapshots.
+
+        Args:
+            reports: Dict mapping strategy_id to StrategyReport.
+        """
+        self._latest_reports = reports
 
     def record_decision(self, decision: dict[str, Any]) -> None:
         """Record a decision for inclusion in future snapshots.
@@ -366,17 +389,32 @@ class InsightSynthesizer:
             return {"open_count": 0, "details": []}
 
     def _collect_strategies(self) -> list[dict[str, Any]]:
-        """Collect active strategy specs and their current statuses."""
+        """Collect active strategy specs, statuses, and latest report content."""
         strategies: list[dict[str, Any]] = []
         try:
             statuses = self._lifecycle_manager._state.get_strategy_statuses()
             for strategy_id, status in statuses.items():
                 perf = self._lifecycle_manager.get_performance(strategy_id)
-                strategies.append({
+                entry: dict[str, Any] = {
                     "id": strategy_id,
                     "status": status,
                     "performance": perf.to_dict(),
-                })
+                }
+                if strategy_id in self._latest_reports:
+                    report = self._latest_reports[strategy_id]
+                    entry["latest_report"] = {
+                        "observations": [
+                            asdict(o) for o in report.observations
+                        ],
+                        "signals": [asdict(s) for s in report.signals],
+                        "recommendation": (
+                            asdict(report.recommendation)
+                            if report.recommendation
+                            else None
+                        ),
+                        "timestamp": report.timestamp,
+                    }
+                strategies.append(entry)
         except Exception as e:
             _logger.warning(
                 "Strategy collection failed",
@@ -385,17 +423,52 @@ class InsightSynthesizer:
         return strategies
 
     def _collect_risk_status(self) -> dict[str, Any]:
-        """Collect risk status as a simple summary.
+        """Collect risk status by querying actual circuit breaker states."""
+        dd_triggered = self._drawdown.is_triggered() if self._drawdown else False
+        gas_active = self._gas_spike._is_active if self._gas_spike else False
+        tx_paused = (
+            not self._tx_failures.can_execute() if self._tx_failures else False
+        )
+        pos_loss = (
+            self._position_loss.is_any_in_cooldown()
+            if self._position_loss
+            else False
+        )
+        hold_active = self._hold_mode.is_active() if self._hold_mode else False
 
-        In production this would query all circuit breakers. Here we provide
-        a basic structure that the decision engine expects.
-        """
+        any_active = dd_triggered or gas_active or tx_paused or pos_loss
+
         return {
-            "circuit_breakers_active": False,
-            "trading_paused": False,
-            "entries_paused": False,
+            "circuit_breakers_active": any_active,
+            "drawdown_triggered": dd_triggered,
+            "gas_spike_active": gas_active,
+            "tx_failures_paused": tx_paused,
+            "position_loss_cooldown": pos_loss,
+            "hold_mode_active": hold_active,
+            "trading_paused": any_active or hold_active,
+            "entries_paused": any_active or hold_active,
             "timestamp": datetime.now(UTC).isoformat(),
         }
+
+    def _collect_objectives(self) -> dict[str, Any]:
+        """Load strategy objectives from STRATEGY.md for prompt context."""
+        strategy_path = Path(__file__).parent.parent / "STRATEGY.md"
+        if not strategy_path.exists():
+            strategy_path = Path(__file__).parent.parent.parent / "STRATEGY.md"
+        if not strategy_path.exists():
+            return {"source": "STRATEGY.md", "status": "not_found"}
+        try:
+            content = strategy_path.read_text()
+            return {
+                "source": "STRATEGY.md",
+                "content": content[:2000],
+            }
+        except Exception as e:
+            _logger.warning(
+                "Failed to load STRATEGY.md",
+                extra={"data": {"error": str(e)}},
+            )
+            return {"source": "STRATEGY.md", "status": "read_error"}
 
     def synthesize(self) -> InsightSnapshot:
         """Collect, enrich, compress, and validate a full insight snapshot.
@@ -435,6 +508,9 @@ class InsightSynthesizer:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
+        # Step 4b: Collect strategy objectives
+        objectives = self._collect_objectives()
+
         # Step 5: Build snapshot
         snapshot = InsightSnapshot(
             market_data=market_data,
@@ -442,6 +518,7 @@ class InsightSynthesizer:
             risk_status=raw_risk,
             strategies=raw_strategies,
             recent_decisions=list(self._recent_decisions),
+            objectives=objectives,
         )
 
         # Step 6: Validate before returning
