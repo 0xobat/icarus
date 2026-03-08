@@ -69,7 +69,7 @@
       "DATABASE_URL environment variable configuration",
       "In-memory cache loaded at startup, kept current from execution:results"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "INFRA-006",

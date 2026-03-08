@@ -157,6 +157,97 @@ class Alert(Base):
     )
 
 
+class PortfolioPosition(Base):
+    """Individual portfolio position tracked over its lifecycle.
+
+    Maps to the Position dataclass in portfolio/position_tracker.py but
+    provides persistent storage in PostgreSQL for startup recovery.
+    """
+
+    __tablename__ = "portfolio_positions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    position_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    strategy: Mapped[str] = mapped_column(String(64), nullable=False)
+    protocol: Mapped[str] = mapped_column(String(64), nullable=False)
+    chain: Mapped[str] = mapped_column(String(32), nullable=False)
+    asset: Mapped[str] = mapped_column(String(32), nullable=False)
+    entry_price: Mapped[float] = mapped_column(Numeric(precision=36, scale=18), nullable=False)
+    entry_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    amount: Mapped[float] = mapped_column(Numeric(precision=36, scale=18), nullable=False)
+    current_value: Mapped[float] = mapped_column(Numeric(precision=36, scale=18), nullable=False)
+    unrealized_pnl: Mapped[float] = mapped_column(
+        Numeric(precision=36, scale=18), nullable=False, default=0
+    )
+    realized_pnl: Mapped[float | None] = mapped_column(
+        Numeric(precision=36, scale=18), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    close_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    protocol_data_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_positions_strategy", "strategy"),
+        Index("ix_positions_status", "status"),
+        Index("ix_positions_protocol", "protocol"),
+        Index("ix_positions_chain", "chain"),
+    )
+
+
+class StrategyStatus(Base):
+    """Active/inactive status for each registered strategy.
+
+    Persists strategy status across restarts. Loaded into memory at startup
+    and updated when strategies are toggled.
+    """
+
+    __tablename__ = "strategy_statuses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (
+        Index("ix_strategy_statuses_strategy_id", "strategy_id"),
+        Index("ix_strategy_statuses_status", "status"),
+    )
+
+
+class DecisionAuditLog(Base):
+    """Audit log for Claude API decisions.
+
+    Records every decision cycle including the prompt context, Claude's
+    response, orders produced, and whether they passed the verification gate.
+    """
+
+    __tablename__ = "decision_audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    correlation_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    decision_action: Mapped[str] = mapped_column(String(32), nullable=False)
+    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    strategy_reports_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    orders_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    passed_verification: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    risk_flags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_decision_audit_timestamp", "timestamp"),
+        Index("ix_decision_audit_correlation_id", "correlation_id"),
+        Index("ix_decision_audit_action", "decision_action"),
+    )
+
+
 class SchemaVersion(Base):
     """Track applied schema migrations for version control.
 

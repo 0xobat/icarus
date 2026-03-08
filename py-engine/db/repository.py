@@ -19,7 +19,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from db.database import DatabaseManager
-from db.models import Alert, PortfolioSnapshot, StrategyPerformance, Trade
+from db.models import (
+    Alert,
+    DecisionAuditLog,
+    PortfolioPosition,
+    PortfolioSnapshot,
+    StrategyPerformance,
+    StrategyStatus,
+    Trade,
+)
 from monitoring.logger import get_logger
 
 _logger = get_logger("db.repository", enable_file=False)
@@ -514,3 +522,373 @@ class DatabaseRepository:
             return list(session.execute(stmt).scalars().all())
         finally:
             session.close()
+
+    # ------------------------------------------------------------------
+    # Portfolio Positions
+    # ------------------------------------------------------------------
+
+    def save_position(self, pos_data: dict[str, Any]) -> PortfolioPosition:
+        """Save or update a portfolio position.
+
+        If a position with the same ``position_id`` exists, it is updated.
+        Otherwise a new row is inserted.
+
+        Args:
+            pos_data: Dictionary with position fields. Required keys:
+                ``position_id``, ``strategy``, ``protocol``, ``chain``,
+                ``asset``, ``entry_price``, ``amount``, ``current_value``.
+
+        Returns:
+            The saved PortfolioPosition ORM instance.
+        """
+        session: Session = self._db.get_session()
+        try:
+            existing = session.execute(
+                select(PortfolioPosition).where(
+                    PortfolioPosition.position_id == pos_data["position_id"]
+                )
+            ).scalars().first()
+
+            protocol_data = pos_data.get("protocol_data")
+            protocol_data_json = pos_data.get("protocol_data_json")
+            if protocol_data_json is None and protocol_data is not None:
+                protocol_data_json = json.dumps(protocol_data)
+
+            if existing is not None:
+                existing.current_value = self._to_decimal(pos_data["current_value"])
+                existing.unrealized_pnl = self._to_decimal(
+                    pos_data.get("unrealized_pnl", 0)
+                )
+                existing.realized_pnl = self._to_optional_decimal(
+                    pos_data.get("realized_pnl")
+                )
+                existing.status = pos_data.get("status", existing.status)
+                existing.amount = self._to_decimal(pos_data["amount"])
+                if pos_data.get("close_time") is not None:
+                    existing.close_time = pos_data["close_time"]
+                if protocol_data_json is not None:
+                    existing.protocol_data_json = protocol_data_json
+                session.commit()
+                session.refresh(existing)
+                return existing
+
+            position = PortfolioPosition(
+                position_id=pos_data["position_id"],
+                strategy=pos_data["strategy"],
+                protocol=pos_data["protocol"],
+                chain=pos_data["chain"],
+                asset=pos_data["asset"],
+                entry_price=self._to_decimal(pos_data["entry_price"]),
+                entry_time=pos_data.get("entry_time", datetime.now(UTC)),
+                amount=self._to_decimal(pos_data["amount"]),
+                current_value=self._to_decimal(pos_data["current_value"]),
+                unrealized_pnl=self._to_decimal(pos_data.get("unrealized_pnl", 0)),
+                realized_pnl=self._to_optional_decimal(pos_data.get("realized_pnl")),
+                status=pos_data.get("status", "open"),
+                close_time=pos_data.get("close_time"),
+                protocol_data_json=protocol_data_json,
+            )
+            session.add(position)
+            session.commit()
+            session.refresh(position)
+
+            _logger.info(
+                "Position saved",
+                extra={"data": {
+                    "position_id": position.position_id,
+                    "strategy": position.strategy,
+                    "status": position.status,
+                }},
+            )
+            return position
+        except Exception:
+            session.rollback()
+            _logger.exception("Failed to save position")
+            raise
+        finally:
+            session.close()
+
+    def get_positions(
+        self,
+        *,
+        strategy: str | None = None,
+        protocol: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[PortfolioPosition]:
+        """Query portfolio positions with optional filters.
+
+        Args:
+            strategy: Filter by strategy name.
+            protocol: Filter by protocol.
+            status: Filter by position status (open/closed).
+            limit: Maximum number of results (default 100).
+
+        Returns:
+            List of PortfolioPosition instances.
+        """
+        session: Session = self._db.get_session()
+        try:
+            stmt = select(PortfolioPosition)
+            if strategy is not None:
+                stmt = stmt.where(PortfolioPosition.strategy == strategy)
+            if protocol is not None:
+                stmt = stmt.where(PortfolioPosition.protocol == protocol)
+            if status is not None:
+                stmt = stmt.where(PortfolioPosition.status == status)
+            stmt = stmt.order_by(PortfolioPosition.entry_time.desc()).limit(limit)
+            return list(session.execute(stmt).scalars().all())
+        finally:
+            session.close()
+
+    def get_position(self, position_id: str) -> PortfolioPosition | None:
+        """Get a single position by position_id.
+
+        Args:
+            position_id: The unique position identifier.
+
+        Returns:
+            The PortfolioPosition, or None if not found.
+        """
+        session: Session = self._db.get_session()
+        try:
+            return session.execute(
+                select(PortfolioPosition).where(
+                    PortfolioPosition.position_id == position_id
+                )
+            ).scalars().first()
+        finally:
+            session.close()
+
+    # ------------------------------------------------------------------
+    # Strategy Statuses
+    # ------------------------------------------------------------------
+
+    def save_strategy_status(
+        self, strategy_id: str, status: str = "active"
+    ) -> StrategyStatus:
+        """Save or update a strategy's active/inactive status.
+
+        Args:
+            strategy_id: The strategy identifier (e.g. ``LEND-001``).
+            status: ``active`` or ``inactive``.
+
+        Returns:
+            The saved StrategyStatus ORM instance.
+        """
+        session: Session = self._db.get_session()
+        try:
+            existing = session.execute(
+                select(StrategyStatus).where(
+                    StrategyStatus.strategy_id == strategy_id
+                )
+            ).scalars().first()
+
+            if existing is not None:
+                existing.status = status
+                existing.updated_at = datetime.now(UTC)
+                session.commit()
+                session.refresh(existing)
+                return existing
+
+            ss = StrategyStatus(
+                strategy_id=strategy_id,
+                status=status,
+                updated_at=datetime.now(UTC),
+            )
+            session.add(ss)
+            session.commit()
+            session.refresh(ss)
+
+            _logger.info(
+                "Strategy status saved",
+                extra={"data": {"strategy_id": strategy_id, "status": status}},
+            )
+            return ss
+        except Exception:
+            session.rollback()
+            _logger.exception("Failed to save strategy status")
+            raise
+        finally:
+            session.close()
+
+    def get_strategy_statuses(self) -> list[StrategyStatus]:
+        """Return all strategy statuses.
+
+        Returns:
+            List of all StrategyStatus records.
+        """
+        session: Session = self._db.get_session()
+        try:
+            stmt = select(StrategyStatus).order_by(StrategyStatus.strategy_id)
+            return list(session.execute(stmt).scalars().all())
+        finally:
+            session.close()
+
+    def get_strategy_status(self, strategy_id: str) -> StrategyStatus | None:
+        """Get a single strategy status by strategy_id.
+
+        Args:
+            strategy_id: The strategy identifier.
+
+        Returns:
+            The StrategyStatus, or None if not found.
+        """
+        session: Session = self._db.get_session()
+        try:
+            return session.execute(
+                select(StrategyStatus).where(
+                    StrategyStatus.strategy_id == strategy_id
+                )
+            ).scalars().first()
+        finally:
+            session.close()
+
+    # ------------------------------------------------------------------
+    # Decision Audit Log
+    # ------------------------------------------------------------------
+
+    def record_decision(self, decision_data: dict[str, Any]) -> DecisionAuditLog:
+        """Record a decision cycle for audit.
+
+        Args:
+            decision_data: Dictionary with decision details. Required keys:
+                ``correlation_id``, ``decision_action``. Optional keys:
+                ``timestamp``, ``reasoning``, ``strategy_reports``,
+                ``orders``, ``passed_verification``, ``risk_flags``,
+                ``prompt_tokens``, ``completion_tokens``.
+
+        Returns:
+            The created DecisionAuditLog ORM instance.
+        """
+        session: Session = self._db.get_session()
+        try:
+            reports = decision_data.get("strategy_reports")
+            reports_json = decision_data.get("strategy_reports_json")
+            if reports_json is None and reports is not None:
+                reports_json = json.dumps(reports)
+
+            orders = decision_data.get("orders")
+            orders_json = decision_data.get("orders_json")
+            if orders_json is None and orders is not None:
+                orders_json = json.dumps(orders)
+
+            risk_flags = decision_data.get("risk_flags")
+            risk_flags_json = decision_data.get("risk_flags_json")
+            if risk_flags_json is None and risk_flags is not None:
+                risk_flags_json = json.dumps(risk_flags)
+
+            entry = DecisionAuditLog(
+                correlation_id=decision_data["correlation_id"],
+                timestamp=decision_data.get("timestamp", datetime.now(UTC)),
+                decision_action=decision_data["decision_action"],
+                reasoning=decision_data.get("reasoning"),
+                strategy_reports_json=reports_json,
+                orders_json=orders_json,
+                passed_verification=decision_data.get("passed_verification", True),
+                risk_flags_json=risk_flags_json,
+                prompt_tokens=decision_data.get("prompt_tokens"),
+                completion_tokens=decision_data.get("completion_tokens"),
+            )
+            session.add(entry)
+            session.commit()
+            session.refresh(entry)
+
+            _logger.info(
+                "Decision recorded",
+                extra={"data": {
+                    "correlation_id": entry.correlation_id,
+                    "action": entry.decision_action,
+                    "passed_verification": entry.passed_verification,
+                }},
+            )
+            return entry
+        except Exception:
+            session.rollback()
+            _logger.exception("Failed to record decision")
+            raise
+        finally:
+            session.close()
+
+    def get_decisions(
+        self,
+        *,
+        since: datetime | None = None,
+        action: str | None = None,
+        limit: int = 100,
+    ) -> list[DecisionAuditLog]:
+        """Query decision audit log entries.
+
+        Args:
+            since: Return only decisions after this timestamp.
+            action: Filter by decision action type.
+            limit: Maximum number of results (default 100).
+
+        Returns:
+            List of DecisionAuditLog instances, ordered by timestamp descending.
+        """
+        session: Session = self._db.get_session()
+        try:
+            stmt = select(DecisionAuditLog)
+            if since is not None:
+                stmt = stmt.where(DecisionAuditLog.timestamp >= since)
+            if action is not None:
+                stmt = stmt.where(DecisionAuditLog.decision_action == action)
+            stmt = stmt.order_by(DecisionAuditLog.timestamp.desc()).limit(limit)
+            return list(session.execute(stmt).scalars().all())
+        finally:
+            session.close()
+
+    # ------------------------------------------------------------------
+    # In-memory cache
+    # ------------------------------------------------------------------
+
+    def load_cache(self) -> dict[str, Any]:
+        """Load portfolio state into an in-memory cache dict.
+
+        Loads open positions, strategy statuses, and latest portfolio
+        snapshot from the database for fast in-memory access.
+
+        Returns:
+            Dictionary with ``positions``, ``strategy_statuses``, and
+            ``latest_snapshot`` keys.
+        """
+        positions = self.get_positions(status="open")
+        statuses = self.get_strategy_statuses()
+        snapshot = self.get_latest_snapshot()
+
+        cache: dict[str, Any] = {
+            "positions": {
+                p.position_id: {
+                    "position_id": p.position_id,
+                    "strategy": p.strategy,
+                    "protocol": p.protocol,
+                    "chain": p.chain,
+                    "asset": p.asset,
+                    "entry_price": str(p.entry_price),
+                    "amount": str(p.amount),
+                    "current_value": str(p.current_value),
+                    "unrealized_pnl": str(p.unrealized_pnl),
+                    "status": p.status,
+                }
+                for p in positions
+            },
+            "strategy_statuses": {
+                s.strategy_id: s.status for s in statuses
+            },
+            "latest_snapshot": {
+                "total_value_usd": str(snapshot.total_value_usd),
+                "drawdown_from_peak": str(snapshot.drawdown_from_peak),
+                "timestamp": snapshot.timestamp.isoformat(),
+            } if snapshot else None,
+        }
+
+        _logger.info(
+            "Cache loaded from database",
+            extra={"data": {
+                "open_positions": len(cache["positions"]),
+                "strategies": len(cache["strategy_statuses"]),
+                "has_snapshot": cache["latest_snapshot"] is not None,
+            }},
+        )
+        return cache
