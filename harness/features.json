@@ -618,7 +618,7 @@
       "Time-period filtering (daily, weekly, monthly, custom range)",
       "Data sourced from trade history in PostgreSQL"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "TEST-001",

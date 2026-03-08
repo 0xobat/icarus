@@ -33,6 +33,18 @@ def _ensure_aware(dt: datetime) -> datetime:
 
 
 @dataclass
+class PnLSummary:
+    """Aggregated P&L summary across a group of trades."""
+
+    total_pnl: Decimal
+    trade_count: int
+    gas_costs: Decimal
+    net_pnl: Decimal
+    win_rate: Decimal
+    total_volume: Decimal
+
+
+@dataclass
 class StrategyPnL:
     """P&L attribution for a single strategy."""
 
@@ -69,6 +81,18 @@ class ChainPnL:
 
 
 @dataclass
+class AssetPnL:
+    """P&L attribution for a single asset."""
+
+    asset: str
+    pnl_usd: Decimal
+    gas_cost_usd: Decimal
+    trade_count: int
+    net_pnl_usd: Decimal
+    contribution_pct: Decimal = Decimal("0")
+
+
+@dataclass
 class PeriodPnL:
     """P&L for a specific time period."""
 
@@ -79,6 +103,19 @@ class PeriodPnL:
     gas_cost_usd: Decimal
     trade_count: int
     net_pnl_usd: Decimal
+
+
+@dataclass
+class PnLReport:
+    """Full P&L report combining all attribution dimensions for a period."""
+
+    period_name: str
+    start: datetime
+    end: datetime
+    by_strategy: dict[str, PnLSummary]
+    by_protocol: dict[str, PnLSummary]
+    by_asset: dict[str, PnLSummary]
+    totals: PnLSummary
 
 
 class PnLAttributionEngine:
@@ -296,6 +333,192 @@ class PnLAttributionEngine:
 
         return results
 
+    def get_attribution_by_asset(
+        self,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[AssetPnL]:
+        """Compute P&L attribution grouped by asset.
+
+        Groups trades by the ``asset_in`` field.
+
+        Args:
+            since: Start of analysis period.
+            until: End of analysis period.
+
+        Returns:
+            List of ``AssetPnL`` entries, one per asset.
+        """
+        trades = self._get_trades(since=since, until=until)
+
+        groups: dict[str, dict[str, Any]] = {}
+        for trade in trades:
+            key = trade.asset_in
+            if key not in groups:
+                groups[key] = {
+                    "pnl": Decimal("0"),
+                    "gas": Decimal("0"),
+                    "count": 0,
+                }
+            groups[key]["pnl"] += self._trade_pnl(trade)
+            groups[key]["gas"] += self._gas_cost_usd(trade)
+            groups[key]["count"] += 1
+
+        total_pnl = sum(g["pnl"] for g in groups.values())
+
+        results: list[AssetPnL] = []
+        for key, data in groups.items():
+            net = data["pnl"] - data["gas"]
+            contribution = Decimal("0")
+            if total_pnl != 0:
+                contribution = (data["pnl"] / abs(total_pnl)) * Decimal("100")
+            results.append(AssetPnL(
+                asset=key,
+                pnl_usd=data["pnl"],
+                gas_cost_usd=data["gas"],
+                trade_count=data["count"],
+                net_pnl_usd=net,
+                contribution_pct=contribution,
+            ))
+
+        return results
+
+    def _build_pnl_summary(self, trades: list[Any]) -> PnLSummary:
+        """Build an aggregated PnLSummary from a list of trades.
+
+        Args:
+            trades: List of Trade ORM instances.
+
+        Returns:
+            Aggregated PnLSummary.
+        """
+        total_pnl = Decimal("0")
+        gas_costs = Decimal("0")
+        total_volume = Decimal("0")
+        wins = 0
+
+        for trade in trades:
+            pnl = self._trade_pnl(trade)
+            total_pnl += pnl
+            gas_costs += self._gas_cost_usd(trade)
+            amount_in = Decimal(str(trade.amount_in)) if trade.amount_in else Decimal("0")
+            total_volume += amount_in
+            if pnl > 0:
+                wins += 1
+
+        count = len(trades)
+        win_rate = Decimal(str(wins)) / Decimal(str(count)) if count > 0 else Decimal("0")
+
+        return PnLSummary(
+            total_pnl=total_pnl,
+            trade_count=count,
+            gas_costs=gas_costs,
+            net_pnl=total_pnl - gas_costs,
+            win_rate=win_rate,
+            total_volume=total_volume,
+        )
+
+    def _group_summaries(
+        self, trades: list[Any], key_fn: Any
+    ) -> dict[str, PnLSummary]:
+        """Group trades by a key function and build PnLSummary per group.
+
+        Args:
+            trades: List of Trade ORM instances.
+            key_fn: Callable that extracts a grouping key from a trade.
+
+        Returns:
+            Dict mapping group key to PnLSummary.
+        """
+        groups: dict[str, list[Any]] = {}
+        for trade in trades:
+            k = key_fn(trade)
+            groups.setdefault(k, []).append(trade)
+
+        return {k: self._build_pnl_summary(v) for k, v in groups.items()}
+
+    def for_period(
+        self,
+        start: datetime,
+        end: datetime,
+        period_name: str | None = None,
+    ) -> PnLReport:
+        """Generate a full P&L report for a custom time range.
+
+        Args:
+            start: Start of the period (inclusive).
+            end: End of the period (inclusive).
+            period_name: Optional label for the period. Defaults to
+                ``"start_date to end_date"``.
+
+        Returns:
+            PnLReport with all three breakdowns and totals.
+        """
+        start = _ensure_aware(start)
+        end = _ensure_aware(end)
+
+        if period_name is None:
+            period_name = f"{start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}"
+
+        trades = self._get_trades(since=start, until=end)
+
+        return PnLReport(
+            period_name=period_name,
+            start=start,
+            end=end,
+            by_strategy=self._group_summaries(trades, lambda t: t.strategy),
+            by_protocol=self._group_summaries(trades, lambda t: t.protocol),
+            by_asset=self._group_summaries(trades, lambda t: t.asset_in),
+            totals=self._build_pnl_summary(trades),
+        )
+
+    def daily(self, date: datetime) -> PnLReport:
+        """Generate a P&L report for a single day.
+
+        Args:
+            date: Any datetime within the target day.
+
+        Returns:
+            PnLReport for that day.
+        """
+        date = _ensure_aware(date)
+        start = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=1)
+        return self.for_period(start, end, period_name=start.strftime("%Y-%m-%d"))
+
+    def weekly(self, week_start: datetime) -> PnLReport:
+        """Generate a P&L report for a week starting from the given date.
+
+        Args:
+            week_start: Start of the week.
+
+        Returns:
+            PnLReport for the 7-day period.
+        """
+        week_start = _ensure_aware(week_start)
+        start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(weeks=1)
+        return self.for_period(
+            start, end, period_name=f"W{start.strftime('%Y-%m-%d')}"
+        )
+
+    def monthly(self, year: int, month: int) -> PnLReport:
+        """Generate a P&L report for a calendar month.
+
+        Args:
+            year: The year.
+            month: The month (1-12).
+
+        Returns:
+            PnLReport for the calendar month.
+        """
+        start = datetime(year, month, 1, tzinfo=UTC)
+        if month == 12:
+            end = datetime(year + 1, 1, 1, tzinfo=UTC)
+        else:
+            end = datetime(year, month + 1, 1, tzinfo=UTC)
+        return self.for_period(start, end, period_name=start.strftime("%Y-%m"))
+
     def get_time_series(
         self,
         period: str = "daily",
@@ -399,6 +622,7 @@ class PnLAttributionEngine:
         attribution_data: list[StrategyPnL]
         | list[ProtocolPnL]
         | list[ChainPnL]
+        | list[AssetPnL]
         | list[PeriodPnL],
         output_path: str | None = None,
     ) -> str:
@@ -436,6 +660,11 @@ class PnLAttributionEngine:
         elif isinstance(first, ChainPnL):
             headers = [
                 "chain", "pnl_usd", "gas_cost_usd", "trade_count",
+                "net_pnl_usd", "contribution_pct",
+            ]
+        elif isinstance(first, AssetPnL):
+            headers = [
+                "asset", "pnl_usd", "gas_cost_usd", "trade_count",
                 "net_pnl_usd", "contribution_pct",
             ]
         elif isinstance(first, PeriodPnL):
@@ -478,6 +707,7 @@ class PnLAttributionEngine:
         attribution_data: list[StrategyPnL]
         | list[ProtocolPnL]
         | list[ChainPnL]
+        | list[AssetPnL]
         | list[PeriodPnL],
     ) -> str:
         """Export attribution data to JSON format.

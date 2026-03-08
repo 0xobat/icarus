@@ -1,4 +1,4 @@
-"""Tests for the P&L attribution engine (REPORT-002)."""
+"""Tests for the P&L attribution engine (REPORT-001)."""
 
 from __future__ import annotations
 
@@ -13,9 +13,11 @@ import pytest
 from db.database import DatabaseConfig, DatabaseManager
 from db.repository import DatabaseRepository
 from reporting.pnl_attribution import (
+    AssetPnL,
     ChainPnL,
     PeriodPnL,
     PnLAttributionEngine,
+    PnLReport,
     ProtocolPnL,
     StrategyPnL,
 )
@@ -496,3 +498,299 @@ class TestEdgeCases:
         )
         assert len(result) == 1
         assert result[0].trade_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Attribution by Asset
+# ---------------------------------------------------------------------------
+
+class TestAttributionByAsset:
+    def test_no_trades_returns_empty(self, pnl_engine):
+        result = pnl_engine.get_attribution_by_asset()
+        assert result == []
+
+    def test_single_asset(self, pnl_engine, repo):
+        _make_trade(repo, asset_in="USDC", amount_in="1000", amount_out="1100")
+        result = pnl_engine.get_attribution_by_asset()
+        assert len(result) == 1
+        assert isinstance(result[0], AssetPnL)
+        assert result[0].asset == "USDC"
+        assert result[0].pnl_usd == Decimal("100")
+
+    def test_multiple_assets(self, pnl_engine, repo):
+        _make_trade(
+            repo, asset_in="USDC", amount_in="1000", amount_out="1100",
+            trade_id="t1",
+        )
+        _make_trade(
+            repo, asset_in="USDbC", amount_in="2000", amount_out="2200",
+            trade_id="t2",
+        )
+        _make_trade(
+            repo, asset_in="DAI", amount_in="500", amount_out="520",
+            trade_id="t3",
+        )
+        result = pnl_engine.get_attribution_by_asset()
+        assert len(result) == 3
+        assets = {r.asset for r in result}
+        assert assets == {"USDC", "USDbC", "DAI"}
+
+    def test_asset_gas_cost(self, pnl_engine, repo):
+        _make_trade(
+            repo, asset_in="USDC",
+            gas_used=150000, gas_price_wei=30000000000,
+        )
+        result = pnl_engine.get_attribution_by_asset()
+        # gas = 150000 * 30e9 / 1e18 * 2000 = $9
+        assert result[0].gas_cost_usd == Decimal("9")
+
+    def test_asset_contribution_pct(self, pnl_engine, repo):
+        _make_trade(
+            repo, asset_in="USDC",
+            amount_in="1000", amount_out="1200",
+            trade_id="t1",
+        )
+        _make_trade(
+            repo, asset_in="DAI",
+            amount_in="1000", amount_out="1300",
+            trade_id="t2",
+        )
+        result = pnl_engine.get_attribution_by_asset()
+        total = sum(r.contribution_pct for r in result)
+        assert abs(total - Decimal("100")) < Decimal("1")
+
+    def test_asset_csv_export(self, pnl_engine, repo):
+        _make_trade(repo, asset_in="USDC")
+        data = pnl_engine.get_attribution_by_asset()
+        csv_content = pnl_engine.export_csv(data)
+        assert "asset" in csv_content
+        assert "USDC" in csv_content
+
+    def test_asset_json_export(self, pnl_engine, repo):
+        _make_trade(repo, asset_in="USDC")
+        data = pnl_engine.get_attribution_by_asset()
+        json_str = pnl_engine.export_json(data)
+        parsed = json.loads(json_str)
+        assert len(parsed) == 1
+        assert parsed[0]["asset"] == "USDC"
+
+
+# ---------------------------------------------------------------------------
+# PnL Report (for_period, daily, weekly, monthly)
+# ---------------------------------------------------------------------------
+
+class TestPnLReport:
+    def test_for_period_returns_report(self, pnl_engine, repo):
+        now = datetime.now(UTC)
+        _make_trade(
+            repo, strategy="LEND-001", protocol="aave_v3", asset_in="USDC",
+            amount_in="1000", amount_out="1100",
+            timestamp=now - timedelta(days=2),
+            trade_id="t1",
+        )
+        report = pnl_engine.for_period(
+            start=now - timedelta(days=5),
+            end=now,
+        )
+        assert isinstance(report, PnLReport)
+        assert "LEND-001" in report.by_strategy
+        assert "aave_v3" in report.by_protocol
+        assert "USDC" in report.by_asset
+        assert report.totals.trade_count == 1
+        assert report.totals.total_pnl == Decimal("100")
+
+    def test_for_period_custom_name(self, pnl_engine, repo):
+        now = datetime.now(UTC)
+        report = pnl_engine.for_period(
+            start=now - timedelta(days=1),
+            end=now,
+            period_name="custom",
+        )
+        assert report.period_name == "custom"
+
+    def test_for_period_empty(self, pnl_engine):
+        now = datetime.now(UTC)
+        report = pnl_engine.for_period(
+            start=now - timedelta(days=1),
+            end=now,
+        )
+        assert report.totals.trade_count == 0
+        assert report.totals.total_pnl == Decimal("0")
+        assert report.by_strategy == {}
+        assert report.by_protocol == {}
+        assert report.by_asset == {}
+
+    def test_for_period_multiple_strategies(self, pnl_engine, repo):
+        now = datetime.now(UTC)
+        _make_trade(
+            repo, strategy="LEND-001", protocol="aave_v3", asset_in="USDC",
+            amount_in="1000", amount_out="1100",
+            timestamp=now - timedelta(days=1),
+            trade_id="t1",
+        )
+        _make_trade(
+            repo, strategy="LP-001", protocol="aerodrome", asset_in="DAI",
+            amount_in="2000", amount_out="2300",
+            timestamp=now - timedelta(hours=12),
+            trade_id="t2",
+        )
+        report = pnl_engine.for_period(
+            start=now - timedelta(days=5),
+            end=now,
+        )
+        assert len(report.by_strategy) == 2
+        assert len(report.by_protocol) == 2
+        assert len(report.by_asset) == 2
+        assert report.totals.trade_count == 2
+        assert report.totals.total_pnl == Decimal("400")
+
+    def test_daily_report(self, pnl_engine, repo):
+        now = datetime.now(UTC)
+        _make_trade(
+            repo, amount_in="1000", amount_out="1050",
+            timestamp=now.replace(hour=12, minute=0, second=0, microsecond=0),
+            trade_id="t1",
+        )
+        report = pnl_engine.daily(now)
+        assert isinstance(report, PnLReport)
+        assert report.period_name == now.strftime("%Y-%m-%d")
+        assert report.totals.trade_count == 1
+        assert report.totals.total_pnl == Decimal("50")
+
+    def test_weekly_report(self, pnl_engine, repo):
+        now = datetime.now(UTC)
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        _make_trade(
+            repo, amount_in="1000", amount_out="1200",
+            timestamp=start + timedelta(days=2),
+            trade_id="t1",
+        )
+        report = pnl_engine.weekly(start)
+        assert isinstance(report, PnLReport)
+        assert report.period_name.startswith("W")
+        assert report.totals.trade_count == 1
+
+    def test_monthly_report(self, pnl_engine, repo):
+        _make_trade(
+            repo, amount_in="1000", amount_out="1150",
+            timestamp=datetime(2026, 3, 15, tzinfo=UTC),
+            trade_id="t1",
+        )
+        report = pnl_engine.monthly(2026, 3)
+        assert isinstance(report, PnLReport)
+        assert report.period_name == "2026-03"
+        assert report.totals.trade_count == 1
+        assert report.totals.total_pnl == Decimal("150")
+
+    def test_monthly_december_boundary(self, pnl_engine, repo):
+        _make_trade(
+            repo, amount_in="500", amount_out="600",
+            timestamp=datetime(2025, 12, 20, tzinfo=UTC),
+            trade_id="t1",
+        )
+        report = pnl_engine.monthly(2025, 12)
+        assert report.totals.trade_count == 1
+        assert report.start == datetime(2025, 12, 1, tzinfo=UTC)
+        assert report.end == datetime(2026, 1, 1, tzinfo=UTC)
+
+
+# ---------------------------------------------------------------------------
+# PnLSummary
+# ---------------------------------------------------------------------------
+
+class TestPnLSummary:
+    def test_win_rate(self, pnl_engine, repo):
+        now = datetime.now(UTC)
+        # Win: +100
+        _make_trade(
+            repo, amount_in="1000", amount_out="1100",
+            timestamp=now - timedelta(hours=2),
+            trade_id="t1",
+        )
+        # Loss: -50
+        _make_trade(
+            repo, amount_in="1000", amount_out="950",
+            timestamp=now - timedelta(hours=1),
+            trade_id="t2",
+        )
+        # Win: +200
+        _make_trade(
+            repo, amount_in="1000", amount_out="1200",
+            timestamp=now,
+            trade_id="t3",
+        )
+        report = pnl_engine.for_period(
+            start=now - timedelta(days=1),
+            end=now + timedelta(hours=1),
+        )
+        # 2 wins out of 3 trades
+        assert report.totals.win_rate == Decimal("2") / Decimal("3")
+
+    def test_total_volume(self, pnl_engine, repo):
+        now = datetime.now(UTC)
+        _make_trade(
+            repo, amount_in="1000", amount_out="1100",
+            timestamp=now - timedelta(hours=1),
+            trade_id="t1",
+        )
+        _make_trade(
+            repo, amount_in="2000", amount_out="2100",
+            timestamp=now,
+            trade_id="t2",
+        )
+        report = pnl_engine.for_period(
+            start=now - timedelta(days=1),
+            end=now + timedelta(hours=1),
+        )
+        assert report.totals.total_volume == Decimal("3000")
+
+    def test_net_pnl_subtracts_gas(self, pnl_engine, repo):
+        now = datetime.now(UTC)
+        _make_trade(
+            repo, amount_in="1000", amount_out="1100",
+            gas_used=100000, gas_price_wei=20000000000,
+            timestamp=now,
+            trade_id="t1",
+        )
+        report = pnl_engine.for_period(
+            start=now - timedelta(hours=1),
+            end=now + timedelta(hours=1),
+        )
+        assert report.totals.total_pnl == Decimal("100")
+        assert report.totals.gas_costs == Decimal("4")
+        assert report.totals.net_pnl == Decimal("96")
+
+    def test_all_losses(self, pnl_engine, repo):
+        now = datetime.now(UTC)
+        _make_trade(
+            repo, amount_in="1000", amount_out="900",
+            timestamp=now - timedelta(hours=1),
+            trade_id="t1",
+        )
+        _make_trade(
+            repo, amount_in="500", amount_out="450",
+            timestamp=now,
+            trade_id="t2",
+        )
+        report = pnl_engine.for_period(
+            start=now - timedelta(days=1),
+            end=now + timedelta(hours=1),
+        )
+        assert report.totals.total_pnl == Decimal("-150")
+        assert report.totals.win_rate == Decimal("0")
+
+    def test_single_trade_report(self, pnl_engine, repo):
+        now = datetime.now(UTC)
+        _make_trade(
+            repo, strategy="LEND-001", protocol="aave_v3", asset_in="USDC",
+            amount_in="500", amount_out="525",
+            timestamp=now,
+            trade_id="t1",
+        )
+        report = pnl_engine.for_period(
+            start=now - timedelta(hours=1),
+            end=now + timedelta(hours=1),
+        )
+        assert report.totals.trade_count == 1
+        assert report.totals.win_rate == Decimal("1")
+        assert report.by_strategy["LEND-001"].total_pnl == Decimal("25")
