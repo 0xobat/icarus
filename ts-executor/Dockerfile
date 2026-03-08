@@ -26,5 +26,5 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 COPY --from=base /app/dist ./dist
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "process.exit(0)"
+  CMD pgrep -f "node dist/index.js" > /dev/null || exit 1
 CMD ["node", "dist/index.js"]

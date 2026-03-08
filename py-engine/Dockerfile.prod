@@ -17,5 +17,5 @@ COPY shared/schemas/ ./shared/schemas/
 # ── Production target ──
 FROM base AS prod
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD python -c "import sys; sys.exit(0)"
+  CMD pgrep -f "python.*main.py" > /dev/null || exit 1
 CMD ["uv", "run", "--", "python", "-u", "main.py"]
