@@ -46,8 +46,7 @@
     },
     "params": {
       "type": "object",
-      "description": "Action-specific parameters (token addresses, amounts, etc.)",
-      "required": ["tokenIn", "amount"],
+      "description": "Action-specific parameters (token addresses, amounts, etc.). All fields optional — validated per-action in TS executor.",
       "properties": {
         "tokenIn": { "type": "string" },
         "tokenOut": { "type": "string" },
@@ -74,11 +73,6 @@
           "description": "Unix timestamp deadline for TX inclusion"
         }
       }
-    },
-    "useFlashbotsProtect": {
-      "type": "boolean",
-      "default": true,
-      "description": "Route through Flashbots Protect private mempool"
     }
   },
   "additionalProperties": false
