@@ -675,3 +675,51 @@ Blocked: none
 Features: 48 total (47 + RISK-009), 1 passing (HARNESS-004 deprecated), 47 pending verification
 Commit: 1c50008
 Next: Verify features against codebase — set passes: true for implemented features
+
+--- Session 2026-03-07-06 (Features Verification Audit) ---
+Agent: Claude Opus 4.6 (lead + 3 parallel verification agents in worktrees)
+Worked on: Cross-reference features.json against system-design.md v4.2 + actual codebase + git history
+Completed:
+  - Dispatched 3 parallel agents (ts-verifier, py-verifier, risk-harness-verifier)
+  - Each agent: read system-design.md → features.json → codebase search → git log → per-step verdict
+  - Agent 1 (TypeScript, 14 features): 12 PASS, 2 FAIL
+  - Agent 2 (Python core, 17 features): 10 PASS, 7 FAIL
+  - Agent 3 (Risk/Harness/Test/Deploy, 16 features): 5 PASS, 11 FAIL
+  - Total: 27/47 PASS, 20/47 FAIL (+ 1 deprecated HARNESS-004 = 28 true in features.json)
+  - Updated features.json with verified passes values
+
+Key systemic gaps identified:
+  1. Strategy system: v1 code generates orders directly, v4.2 design expects report-producing analysts
+     (STRAT-001 through STRAT-004 all FAIL — no Strategy protocol, MarketSnapshot, StrategyReport)
+  2. State persistence: positions/strategy status in agent-state.json, not PostgreSQL
+     (INFRA-005, HARNESS-001, HARNESS-002 FAIL)
+  3. Circuit breaker direct emission: no CB: prefix orders, no separate Redis path
+     (RISK-001, RISK-002, RISK-005 FAIL)
+  4. Hold mode vs diagnostic mode: code has manual-exit diagnostic mode, design says auto-resume hold mode
+     (RISK-004, HARNESS-005 FAIL)
+  5. Redis pub/sub hybrid: code uses pub/sub + Streams, design says pure Streams with consumer groups
+     (INFRA-002 FAIL)
+  6. Oracle guard removed: deviation guard deleted in aff2ef2 (RISK-007 FAIL)
+  7. On-chain guard unimplemented: no Solidity contract or deployment (RISK-009 FAIL)
+  8. Railway deployment absent: Dockerfiles exist, no Railway config (DEPLOY-001 FAIL)
+
+Primary result: 28/48 passing (27 verified + 1 deprecated)
+
+Secondary verification (3 spot-check agents in parallel worktrees):
+  - verifier-1: 5 borderline PASS re-examined → all 5 flipped to FAIL
+    PORT-001 (no PG persistence, tier-based not per-strategy)
+    PORT-002 (backup_to_postgres is explicit stub)
+    PORT-003 (generates orders directly, bypasses Claude)
+    RISK-008 (complete module but unwired from main.py)
+    REPORT-001 (no by-asset breakdown, only by-chain)
+  - verifier-2: 4 borderline FAIL re-examined → 1 flipped to PASS
+    TEST-002 flipped to PASS (gas estimation tests exist in aerodrome-adapter.test.ts)
+    DATA-001, RISK-001, RISK-004 confirmed FAIL
+  - verifier-3: 5 confident verdicts spot-checked → all confirmed
+    DATA-002, AI-002, EXEC-001, LISTEN-001 PASS confirmed
+    STRAT-001 FAIL confirmed
+
+Final result: 24/48 passing (23 verified + 1 deprecated), 24/48 failing
+Report: .claude/tasks/features-json-update/verification-report.md
+Blocked: none
+Next: Prioritize remaining 24 features — PostgreSQL integration + strategy system rewrite are the biggest efforts

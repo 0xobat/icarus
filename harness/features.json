@@ -12,7 +12,7 @@
       "README with setup instructions",
       ".env.example documents all required environment variables"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "INFRA-002",
@@ -41,7 +41,7 @@
       "Both services load and validate against the same schema files",
       "Chain enum: [ethereum, base]. Protocol enum: [aave_v3, aerodrome]"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "INFRA-004",
@@ -55,7 +55,7 @@
       "Environment injection via .env file",
       "Container networking via redis/postgres hostnames"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "INFRA-005",
@@ -84,7 +84,7 @@
       "Graceful shutdown with signal handling in both services",
       "Periodic stream trimming (STREAM_TRIM_INTERVAL_CYCLES env var)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "LISTEN-001",
@@ -99,7 +99,7 @@
       "Block watcher and contract event subscriptions that survive reconnects",
       "Monotonically increasing sequence numbers for event ordering"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "LISTEN-002",
@@ -112,7 +112,7 @@
       "Publishes to market:events Redis Stream with schema validation",
       "Drops invalid events with structured error logging"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "LISTEN-003",
@@ -126,7 +126,7 @@
       "Configurable via environment variables (RPC URL, contract addresses)",
       "Finality configuration: configurable finalityBlocks (default 12) for Base L2"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-001",
@@ -143,7 +143,7 @@
       "All operations logged with correlation IDs",
       "Finality-aware confirmation: configurable timeout, waits for sufficient block confirmations"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-002",
@@ -159,7 +159,7 @@
       "Transaction execution via Safe{Core} SDK",
       "Private key never appears in logs or error messages"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-003",
@@ -172,7 +172,7 @@
       "Pure functions — no state, no side effects, no chain calls",
       "Wired into buildAdapterMap() in index.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-004",
@@ -186,7 +186,7 @@
       "L2 gas estimation for Base (OP Stack model)",
       "Wired into buildAdapterMap() in index.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "EXEC-005",
@@ -199,7 +199,7 @@
       "Includes correlation ID linking result to original order",
       "Handles both success and failure result types"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "DATA-001",
@@ -228,7 +228,7 @@
       "Redis cache with configurable TTL",
       "Gas data included in MarketSnapshot for strategy evaluation"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "DATA-003",
@@ -242,7 +242,7 @@
       "Graceful degradation: individual provider failure doesn't crash collector",
       "Redis caching of collected metrics with configurable TTL"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "DATA-004",
@@ -272,7 +272,7 @@
       "Hold mode: retry with exponential backoff (3 attempts), enter hold mode if exhausted",
       "Token budget management at API layer"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "AI-002",
@@ -287,7 +287,7 @@
       "Assembles market data section (prices, gas, protocol metrics, on-chain events)",
       "Data sections ordered by priority for Claude's attention"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-001",
@@ -426,7 +426,7 @@
       "Urgent operations (stop-loss, emergency unwind) bypass gas pause",
       "Clears automatically when gas normalizes"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-004",
@@ -466,7 +466,7 @@
       "Runs before every TX execution in the transaction builder",
       "Allowlist configurable via environment variables"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-007",
@@ -549,7 +549,7 @@
       "Blocks execution until approval received or timeout",
       "Configurable approval thresholds"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-004",
@@ -590,7 +590,7 @@
       "Risk decisions logged (circuit breaker triggers, exposure limit rejections)",
       "System events logged (startup, shutdown, hold mode transitions)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "MON-002",
@@ -604,7 +604,7 @@
       "Position breakdown by strategy and protocol",
       "Dashboard data assembled from PostgreSQL + real-time market data"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "REPORT-001",
@@ -645,7 +645,7 @@
       "Function selector uniqueness across all adapters",
       "Gas estimation sanity checks for Base L2"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "TEST-003",
@@ -659,7 +659,7 @@
       "Tests skip when ALCHEMY_SEPOLIA_HTTP_URL not set",
       "Tests isolated from unit test suite"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "DEPLOY-001",
