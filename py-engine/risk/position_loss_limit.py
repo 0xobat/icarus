@@ -13,6 +13,7 @@ falling back to in-memory dict for testing.
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -269,6 +270,26 @@ class PositionLossLimit:
             return None
         return remaining
 
+    def is_any_in_cooldown(self, now: datetime | None = None) -> bool:
+        """Check if any strategy is currently in cooldown.
+
+        Returns:
+            True if at least one strategy has an active cooldown.
+        """
+        current = now or datetime.now(UTC)
+        for cooldown_until in self._cooldowns.values():
+            if current < cooldown_until:
+                return True
+        if self._redis is not None:
+            try:
+                client = self._redis.client
+                for strategy_id in list(self._cooldowns.keys()):
+                    if client.exists(f"cooldown:{strategy_id}"):
+                        return True
+            except Exception:
+                pass
+        return False
+
     def can_open_position(
         self, strategy_id: str, now: datetime | None = None,
     ) -> bool:
@@ -373,7 +394,7 @@ class PositionLossLimit:
                     "amount": position_value,
                 },
                 "limits": {
-                    "maxGasWei": "500000000000000",
+                    "maxGasWei": os.environ.get("MAX_GAS_WEI", "500000000000000"),
                     "maxSlippageBps": 50,
                     "deadlineUnix": int(time.time()) + 300,
                 },

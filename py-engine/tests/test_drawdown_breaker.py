@@ -328,3 +328,36 @@ class TestCustomThresholds:
         )
         b.update(Decimal("8999"))
         assert b.trading_halted
+
+
+# ---------------------------------------------------------------------------
+# is_triggered() method (used by InsightSynthesizer)
+# ---------------------------------------------------------------------------
+class TestIsTriggered:
+
+    def test_not_triggered_initially(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        assert b.is_triggered() is False
+
+    def test_not_triggered_at_warning(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        b.update(Decimal("8400"))  # 16% drawdown — warning only
+        assert b.entries_paused is True
+        assert b.is_triggered() is False
+
+    def test_triggered_at_critical(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        b.update(Decimal("7900"))  # 21% drawdown — critical
+        assert b.is_triggered() is True
+
+    def test_triggered_stays_after_recovery(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        b.update(Decimal("7900"))  # trigger critical
+        b.update(Decimal("9500"))  # price recovers but halt stays
+        assert b.is_triggered() is True
+
+    def test_cleared_after_manual_restart(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        b.update(Decimal("7900"))
+        b.manual_restart()
+        assert b.is_triggered() is False

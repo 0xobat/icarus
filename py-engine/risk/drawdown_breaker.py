@@ -7,6 +7,7 @@ overridden programmatically — requires manual restart.
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -173,6 +174,10 @@ class DrawdownBreaker:
         """Check if new position entries are allowed."""
         return not self._entries_paused and not self._trading_halted
 
+    def is_triggered(self) -> bool:
+        """Check if the drawdown breaker has been triggered (warning or critical)."""
+        return self._trading_halted
+
     def should_unwind_all(self) -> bool:
         """Check if all positions should be unwound to stablecoins."""
         return self._trading_halted
@@ -217,7 +222,7 @@ class DrawdownBreaker:
                     "amount": str(pos.get("value", pos.get("amount", "0"))),
                 },
                 "limits": {
-                    "maxGasWei": "500000000000000",
+                    "maxGasWei": os.environ.get("MAX_GAS_WEI", "500000000000000"),
                     "maxSlippageBps": 50,
                     "deadlineUnix": now_unix + 300,
                 },

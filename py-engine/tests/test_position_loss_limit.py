@@ -558,3 +558,38 @@ class TestRedisTTLCooldown:
         call_args = redis_mgr.client.set.call_args
         assert call_args[0][0] == "cooldown:LEND-001"
         assert call_args[1]["ex"] == 86400
+
+
+# ---------------------------------------------------------------------------
+# is_any_in_cooldown() (used by InsightSynthesizer)
+# ---------------------------------------------------------------------------
+class TestIsAnyInCooldown:
+
+    def test_no_cooldowns(self) -> None:
+        lim = PositionLossLimit()
+        assert lim.is_any_in_cooldown() is False
+
+    def test_active_cooldown(self) -> None:
+        lim = PositionLossLimit()
+        lim.record_loss_event(
+            position_id="p1",
+            strategy_id="STRAT-001",
+            asset="ETH",
+            entry_price=Decimal("2000"),
+            exit_price=Decimal("1700"),
+            entry_time=datetime.now(UTC).isoformat(),
+        )
+        assert lim.is_any_in_cooldown() is True
+
+    def test_expired_cooldown(self) -> None:
+        lim = PositionLossLimit(cooldown_hours=1)
+        lim.record_loss_event(
+            position_id="p1",
+            strategy_id="STRAT-001",
+            asset="ETH",
+            entry_price=Decimal("2000"),
+            exit_price=Decimal("1700"),
+            entry_time=datetime.now(UTC).isoformat(),
+        )
+        future = datetime.now(UTC) + timedelta(hours=2)
+        assert lim.is_any_in_cooldown(now=future) is False
