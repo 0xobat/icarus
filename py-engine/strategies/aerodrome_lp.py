@@ -76,8 +76,11 @@ class AerodromeLpStrategy:
         signals: list[Signal] = []
         recommendation: Recommendation | None = None
 
-        # Find Aerodrome pools
-        aero_pools = [p for p in snapshot.pools if p.protocol == "aerodrome"]
+        # Find Aerodrome stable pools only
+        aero_pools = [
+            p for p in snapshot.pools
+            if p.protocol == "aerodrome" and self._is_stable_pair(p.pool_id)
+        ]
 
         # Find AERO price
         aero_price = self._get_aero_price(snapshot.prices)
@@ -247,6 +250,30 @@ class AerodromeLpStrategy:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_stable_pair(pool_id: str) -> bool:
+        """Check if a pool_id corresponds to a known stable pair.
+
+        Extracts token symbols from the pool_id and checks against
+        STABLE_PAIRS. Pool IDs use lowercase with hyphens (e.g.
+        ``usdc-usdbc-stable``). Pools explicitly tagged as volatile
+        are always rejected.
+        """
+        pid = pool_id.lower()
+        # Explicitly volatile pools are never stable
+        if pid.endswith("-volatile"):
+            return False
+        # Strip suffix to extract token pair
+        base = pid.replace("-stable", "")
+        parts = base.split("-")
+        if len(parts) < 2:
+            return True  # single-token id, can't determine — allow
+        a, b = parts[0].upper(), parts[1].upper()
+        return any(
+            (pa.upper(), pb.upper()) == (a, b) or (pa.upper(), pb.upper()) == (b, a)
+            for pa, pb in STABLE_PAIRS
+        )
 
     def _get_aero_price(self, prices: list[TokenPrice]) -> float | None:
         """Get the most recent AERO price from the snapshot."""

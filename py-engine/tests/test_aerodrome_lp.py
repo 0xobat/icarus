@@ -17,6 +17,7 @@ from strategies.aerodrome_lp import (
     MIN_POSITION_USD,
     MIN_TVL_ENTRY,
     MIN_TVL_EXIT,
+    STABLE_PAIRS,
     STRATEGY_ID,
     AerodromeLpStrategy,
 )
@@ -383,6 +384,57 @@ class TestReportStructure:
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+
+class TestStablePairFiltering:
+    """Volatile pairs must be excluded from evaluation."""
+
+    def test_volatile_pair_no_entry_signal(self):
+        """Volatile pair (vAMM-ETH/USDC) should NOT get entry signal."""
+        s = AerodromeLpStrategy()
+        snapshot = _make_snapshot(
+            pools=[_make_pool(pool_id="eth-usdc-volatile", apy=0.10, tvl=5_000_000)],
+        )
+        report = s.evaluate(snapshot)
+        entry_signals = [sig for sig in report.signals if sig.type == SignalType.ENTRY_MET]
+        assert len(entry_signals) == 0
+        assert report.recommendation is None
+
+    def test_stable_pair_still_gets_entry(self):
+        """Known stable pair still triggers entry when conditions are met."""
+        s = AerodromeLpStrategy()
+        snapshot = _make_snapshot(
+            pools=[_make_pool(pool_id="usdc-dai-stable", apy=0.05, tvl=1_000_000)],
+        )
+        report = s.evaluate(snapshot)
+        entry_signals = [sig for sig in report.signals if sig.type == SignalType.ENTRY_MET]
+        assert len(entry_signals) == 1
+
+    def test_mixed_pools_only_stable_evaluated(self):
+        """When both volatile and stable pools exist, only stable is evaluated."""
+        s = AerodromeLpStrategy()
+        pools = [
+            _make_pool(pool_id="eth-usdc-volatile", apy=0.20, tvl=10_000_000),
+            _make_pool(pool_id="usdc-usdbc-stable", apy=0.05, tvl=1_000_000),
+        ]
+        snapshot = _make_snapshot(pools=pools)
+        report = s.evaluate(snapshot)
+        # Best pool should be the stable one (volatile filtered out)
+        apr_obs = [o for o in report.observations if o.metric == "aerodrome_best_pool_apr"]
+        assert "0.0500" in apr_obs[0].value
+
+    def test_is_stable_pair_helper(self):
+        """_is_stable_pair correctly identifies stable vs volatile pool IDs."""
+        s = AerodromeLpStrategy()
+        # All STABLE_PAIRS entries should be recognized
+        for a, b in STABLE_PAIRS:
+            pool_id = f"{a.lower()}-{b.lower()}-stable"
+            assert s._is_stable_pair(pool_id) is True
+        # Reversed order should also work
+        assert s._is_stable_pair("dai-usdc-stable") is True
+        # Volatile / unknown pairs
+        assert s._is_stable_pair("eth-usdc-volatile") is False
+        assert s._is_stable_pair("weth-aero-volatile") is False
+
 
 class TestConstants:
     def test_strategy_id(self):

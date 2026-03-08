@@ -16,8 +16,9 @@ from strategies.base import (
     Signal,
     SignalType,
     StrategyReport,
+    TokenPrice,
 )
-from strategies.manager import StrategyManager
+from strategies.manager import StrategyManager, _slice_snapshot
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -316,3 +317,78 @@ class TestSyncWithDiscovered:
         row = repo.get_strategy_status("FAKE-002")
         assert row is not None
         assert row.status == "inactive"
+
+
+# ---------------------------------------------------------------------------
+# Tests: data_window pre-slicing
+# ---------------------------------------------------------------------------
+
+
+class RecordingStrategy:
+    """Strategy that records the snapshot it receives."""
+
+    strategy_id = "REC-001"
+    eval_interval = timedelta(minutes=1)
+    data_window = timedelta(hours=1)
+
+    received_snapshot: MarketSnapshot | None = None
+
+    def evaluate(self, snapshot: MarketSnapshot) -> StrategyReport:
+        RecordingStrategy.received_snapshot = snapshot
+        return StrategyReport(
+            strategy_id=self.strategy_id,
+            timestamp=snapshot.timestamp.isoformat(),
+            observations=[],
+            signals=[],
+        )
+
+
+class TestDataWindowSlicing:
+    def test_slice_snapshot_filters_old_prices(self):
+        now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        recent = TokenPrice(token="ETH", price=3000.0, source="test", timestamp=now - timedelta(minutes=30))
+        old = TokenPrice(token="BTC", price=90000.0, source="test", timestamp=now - timedelta(hours=2))
+        snapshot = MarketSnapshot(
+            prices=[recent, old],
+            gas=GasInfo(current_gwei=1.0, avg_24h_gwei=1.0),
+            pools=[],
+            timestamp=now,
+        )
+        sliced = _slice_snapshot(snapshot, timedelta(hours=1))
+        assert len(sliced.prices) == 1
+        assert sliced.prices[0].token == "ETH"
+
+    def test_slice_snapshot_keeps_all_pools(self):
+        """Pools have no timestamp — all should pass through."""
+        from strategies.base import PoolState
+
+        now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        snapshot = MarketSnapshot(
+            prices=[],
+            gas=GasInfo(current_gwei=1.0, avg_24h_gwei=1.0),
+            pools=[PoolState(protocol="aave", pool_id="1", tvl=1e6, apy=0.05)],
+            timestamp=now,
+        )
+        sliced = _slice_snapshot(snapshot, timedelta(hours=1))
+        assert len(sliced.pools) == 1
+
+    def test_evaluate_all_slices_by_strategy_window(self, repo):
+        """A strategy with 1h window should not see 2h-old price data."""
+        RecordingStrategy.received_snapshot = None
+        mgr = StrategyManager(repo, {"REC-001": RecordingStrategy})
+
+        now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        recent = TokenPrice(token="ETH", price=3000.0, source="test", timestamp=now - timedelta(minutes=30))
+        old = TokenPrice(token="BTC", price=90000.0, source="test", timestamp=now - timedelta(hours=2))
+        snapshot = MarketSnapshot(
+            prices=[recent, old],
+            gas=GasInfo(current_gwei=1.0, avg_24h_gwei=1.0),
+            pools=[],
+            timestamp=now,
+        )
+        asyncio.run(mgr.evaluate_all(snapshot))
+
+        received = RecordingStrategy.received_snapshot
+        assert received is not None
+        assert len(received.prices) == 1
+        assert received.prices[0].token == "ETH"

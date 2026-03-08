@@ -232,7 +232,7 @@ class TVLMonitor:
 
         current_tvl = snapshots[-1].tvl_usd
         drop_pct = (peak_tvl - current_tvl) / peak_tvl
-        return drop_pct >= self._config.critical_threshold
+        return drop_pct > self._config.critical_threshold
 
     def is_healthy(self, protocol: str, chain: str) -> bool:
         """Check if a protocol's TVL is within normal range.
@@ -419,7 +419,7 @@ class TVLMonitor:
         Returns:
             One of "normal", "warning", or "critical".
         """
-        if drop_pct >= self._config.critical_threshold:
+        if drop_pct > self._config.critical_threshold:
             return "critical"
         if drop_pct >= self._config.warning_threshold:
             return "warning"
