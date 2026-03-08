@@ -8,6 +8,7 @@ snapshots per protocol. Trigger emergency withdrawal when TVL drops
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from collections import defaultdict
@@ -380,7 +381,7 @@ class TVLMonitor:
                     "amount": amount,
                 },
                 "limits": {
-                    "maxGasWei": "500000000000000",
+                    "maxGasWei": os.environ.get("MAX_GAS_WEI", "500000000000000"),
                     "maxSlippageBps": 50,
                     "deadlineUnix": deadline,
                 },

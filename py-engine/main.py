@@ -39,6 +39,7 @@ from risk.oracle_guard import OracleGuard
 from risk.position_loss_limit import PositionLossLimit
 from risk.tvl_monitor import TVLMonitor
 from risk.tx_failure_monitor import TxFailureMonitor
+from strategies import discover_strategies
 from strategies.base import (
     GasInfo,
     MarketSnapshot,
@@ -52,6 +53,11 @@ from strategies.lifecycle_manager import LifecycleManager
 _logger = get_logger("main", enable_file=False)
 
 _shutdown = False
+
+
+def _positions_as_dicts(positions: list[Any]) -> list[dict[str, Any]]:
+    """Convert Position objects (or dicts) to plain dicts for circuit breakers."""
+    return [p.to_dict() if hasattr(p, "to_dict") else p for p in positions]
 
 
 def _handle_signal(sig: int, _frame: object) -> None:
@@ -314,7 +320,7 @@ class DecisionLoop:
 
         # Check per-position loss limits (circuit breaker — direct emission)
         loss_orders = self.position_loss.generate_close_orders(
-            positions=self.tracker.query(),
+            positions=_positions_as_dicts(self.tracker.query()),
             price_map=price_map,
             correlation_id=correlation_id,
         )
@@ -350,7 +356,7 @@ class DecisionLoop:
                 )
 
         tvl_orders = self.tvl_monitor.generate_withdrawal_orders(
-            positions=self.tracker.query(),
+            positions=_positions_as_dicts(self.tracker.query()),
             correlation_id=correlation_id,
         )
         if tvl_orders:
@@ -606,7 +612,7 @@ class DecisionLoop:
             return None  # Cannot check without order details; allow through
 
         # Sync limiter state with current portfolio
-        positions = self.tracker.query()
+        positions = _positions_as_dicts(self.tracker.query())
         pos_dict = {
             p.get("id", f"pos_{i}"): {
                 "value_usd": p.get("current_value", p.get("value_usd", 0)),
@@ -669,7 +675,7 @@ class DecisionLoop:
                 if k not in {"chain", "protocol", "action", "priority"}
             },
             "limits": params.get("limits", {
-                "maxGasWei": "500000000000000",
+                "maxGasWei": os.environ.get("MAX_GAS_WEI", "500000000000000"),
                 "maxSlippageBps": 50,
                 "deadlineUnix": int(time.time()) + 300,
             }),
@@ -687,7 +693,7 @@ class DecisionLoop:
             List of withdrawal orders for every open position.
         """
         return self.drawdown.get_unwind_orders(
-            positions=self.tracker.query(),
+            positions=_positions_as_dicts(self.tracker.query()),
             correlation_id=correlation_id,
         )
 
@@ -817,6 +823,18 @@ def main() -> None:
 
     redis, db_manager, repository, state = _create_components()
     loop = DecisionLoop(redis, db_manager, repository, state)
+
+    # Discover and register strategies
+    discovered = discover_strategies()
+    for sid, cls in discovered.items():
+        try:
+            loop.register_strategy(cls())
+            _logger.info("Strategy registered", extra={"data": {"strategy_id": sid}})
+        except Exception:
+            _logger.warning(
+                "Failed to instantiate strategy",
+                extra={"data": {"strategy_id": sid}},
+            )
 
     # Run startup recovery before entering main loop
     recovery_result = loop.startup_recovery()
