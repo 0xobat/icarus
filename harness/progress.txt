@@ -754,3 +754,22 @@ Verdict changes (2 features flipped from PASS to FAIL):
 Final result: 22/48 passing (21 verified + 1 deprecated), 26/48 failing
 Commit: docs(icarus): independent verification — 22/48 passing, flip INFRA-006 + RISK-006 to false
 Next: Prioritize remaining 26 features — PostgreSQL integration + strategy system rewrite are the biggest efforts
+
+--- Session 2026-03-08-strat003 ---
+Agent: Claude Opus 4.6
+Worked on: STRAT-003 — LEND-001 Aave lending strategy rewrite
+Completed:
+  - Rewrote py-engine/strategies/aave_lending.py to implement Strategy protocol
+  - strategy_id='LEND-001', eval_interval=15min, data_window=24h
+  - evaluate(MarketSnapshot) → StrategyReport with observations, signals, recommendation
+  - Entry: APY >= 0.5%, TVL >= $1M, no gas spike (>3x avg)
+  - Exit: best APY < 1.0% floor → withdraw recommendation
+  - Pool filtering: aave_v3 protocol, whitelisted assets (USDC, USDbC), TVL >= $1M
+  - No order generation — strategy is an analyst producing reports
+  - Rewrote py-engine/tests/test_aave_lending.py (30 tests covering protocol conformance, observations, signals, recommendations, filtering, constants)
+  - Updated py-engine/tests/test_integration_e2e.py to use new Strategy protocol API
+  - Updated py-engine/tests/test_integration_schema_validation.py TestCrossServiceValidation
+  - STRAT-003 passes: true in features.json
+Notes:
+  - 5 pre-existing failures in test_main_loop.py::TestRiskGate (oracle guard mock issue, not related to this change)
+  - Position-size-dependent constraints (gas amortization, monthly gain) are reported as observations but enforced by decision gate

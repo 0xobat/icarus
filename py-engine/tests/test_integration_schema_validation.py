@@ -193,83 +193,72 @@ class TestTypeMismatches:
 # ---------------------------------------------------------------------------
 
 class TestCrossServiceValidation:
-    """Prove that AaveLendingStrategy output passes execution-orders schema."""
+    """Prove that AaveLendingStrategy produces valid StrategyReports."""
 
     def _make_strategy(self):
-        """Build AaveLendingStrategy with minimal mocked dependencies."""
-        from portfolio.allocator import PortfolioAllocator
-        from portfolio.position_tracker import PositionTracker
-        from strategies.aave_lending import AaveLendingConfig, AaveLendingStrategy
+        """Build AaveLendingStrategy (no dependencies — strategies are analysts)."""
+        from strategies.aave_lending import AaveLendingStrategy
 
-        allocator = PortfolioAllocator(
-            total_capital=Decimal("10000"),
+        return AaveLendingStrategy()
+
+    def _make_snapshot(self):
+        from datetime import UTC, datetime
+
+        from strategies.base import GasInfo, MarketSnapshot, PoolState
+
+        return MarketSnapshot(
+            prices=[],
+            gas=GasInfo(current_gwei=0.05, avg_24h_gwei=0.05),
+            pools=[
+                PoolState(
+                    protocol="aave_v3",
+                    pool_id="USDC",
+                    tvl=5_000_000,
+                    apy=0.045,
+                    utilization=0.80,
+                ),
+            ],
+            timestamp=datetime(2026, 3, 8, 12, 0, 0, tzinfo=UTC),
         )
-        tracker = PositionTracker()
-        config = AaveLendingConfig(
-            min_position_value_usd=Decimal("50"),
-        )
-        return AaveLendingStrategy(allocator, tracker, config)
 
-    def _make_markets(self):
-        from strategies.aave_lending import AaveMarket
+    def test_strategy_report_has_required_fields(self) -> None:
+        """Strategy report includes all required fields."""
+        from strategies.base import StrategyReport
 
-        return [
-            AaveMarket(
-                asset="USDC",
-                supply_apy=Decimal("0.045"),
-                available_liquidity=Decimal("1000000"),
-                utilization_rate=Decimal("0.80"),
-                chain="base",
-            ),
-        ]
-
-    def test_generated_order_passes_schema(self) -> None:
-        """An order from AaveLendingStrategy validates against execution-orders schema."""
         strategy = self._make_strategy()
-        markets = self._make_markets()
-        orders = strategy.generate_orders(markets, correlation_id="test-corr-001")
+        report = strategy.evaluate(self._make_snapshot())
 
-        assert len(orders) >= 1, "Strategy should generate at least one supply order"
+        assert isinstance(report, StrategyReport)
+        assert report.strategy_id == "LEND-001"
+        assert report.timestamp is not None
+        assert isinstance(report.observations, list)
+        assert isinstance(report.signals, list)
 
-        for order in orders:
-            valid, errors = validate("execution-orders", order)
-            assert valid is True, (
-                f"Strategy-generated order failed schema validation: {errors}"
-            )
-
-    def test_generated_order_has_required_fields(self) -> None:
-        """Strategy output includes all fields the schema requires."""
+    def test_strategy_report_observations_present(self) -> None:
+        """Strategy produces observations about market state."""
         strategy = self._make_strategy()
-        orders = strategy.generate_orders(self._make_markets())
+        report = strategy.evaluate(self._make_snapshot())
 
-        assert len(orders) >= 1
-        order = orders[0]
+        assert len(report.observations) >= 1
+        # Gas observation always present
+        gas_obs = [o for o in report.observations if o.metric == "gas_current_gwei"]
+        assert len(gas_obs) == 1
 
-        required_fields = [
-            "version", "orderId", "correlationId", "timestamp",
-            "chain", "protocol", "action", "params", "limits",
-        ]
-        for field in required_fields:
-            assert field in order, f"Missing required field: {field}"
+    def test_strategy_report_entry_signal_on_good_market(self) -> None:
+        """Strategy produces entry signal on eligible pool."""
+        from strategies.base import SignalType
 
-    def test_generated_order_limits_valid(self) -> None:
-        """Strategy output limits pass schema constraints."""
         strategy = self._make_strategy()
-        orders = strategy.generate_orders(self._make_markets())
+        report = strategy.evaluate(self._make_snapshot())
 
-        assert len(orders) >= 1
-        limits = orders[0]["limits"]
+        entry_signals = [s for s in report.signals if s.type == SignalType.ENTRY_MET]
+        assert len(entry_signals) == 1
+        assert entry_signals[0].actionable is True
 
-        assert isinstance(limits["maxSlippageBps"], int)
-        assert 0 <= limits["maxSlippageBps"] <= 1000
-        assert isinstance(limits["deadlineUnix"], int)
-        assert isinstance(limits["maxGasWei"], str)
-
-    def test_validate_or_raise_passes_for_strategy_output(self) -> None:
-        """validate_or_raise does not throw for strategy-generated orders."""
+    def test_strategy_report_recommendation_on_entry(self) -> None:
+        """Strategy produces supply recommendation when entry conditions met."""
         strategy = self._make_strategy()
-        orders = strategy.generate_orders(self._make_markets())
+        report = strategy.evaluate(self._make_snapshot())
 
-        assert len(orders) >= 1
-        for order in orders:
-            validate_or_raise("execution-orders", order)
+        assert report.recommendation is not None
+        assert report.recommendation.action == "supply"

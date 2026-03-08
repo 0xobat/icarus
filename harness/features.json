@@ -330,7 +330,7 @@
       "Constraints: max 70% portfolio, min $100 position, net monthly gain after gas >$1",
       "Produces StrategyReport with observations, signals, recommendation"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-004",
