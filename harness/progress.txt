@@ -814,4 +814,42 @@ Remaining 12 features:
 
 Next: Resume with Wave 4 — circuit breakers (RISK-001/002/005) + rebalancing (PORT-003)
 
-(Agent session entries merged during Wave 4 — see team session entry below)
+--- Team Session 2026-03-08-02 (Wave 4: Circuit Breakers + Rebalancing) ---
+Lead: Claude Opus 4.6
+Agents: 4 (agent-risk001, agent-risk002, agent-risk005, agent-port003)
+Waves: 1 (all independent)
+
+Wave 4 (4 agents):
+  agent-risk001: RISK-001 Drawdown CB — MERGED (commit 43bd642)
+    Updated get_unwind_orders() to produce schema-compliant orders with CB:drawdown prefix
+    +3 tests (35 total drawdown tests)
+  agent-risk002: RISK-002 Position loss CB — MERGED (commit d39e8c1)
+    Added generate_close_orders() with CB:position_loss prefix, Redis TTL cooldowns
+    Wired into main.py run_cycle() before drawdown check
+    +14 tests (37 total position loss tests)
+  agent-risk005: RISK-005 TVL drop CB — MERGED (commit 28bf1e3)
+    Added generate_withdrawal_orders() with CB:tvl_drop prefix, active position filtering
+    Wired into main.py run_cycle() after drawdown check
+    +13 tests (47 total TVL monitor tests)
+  agent-port003: PORT-003 Rebalancing engine — MERGED (committed to dev directly)
+    Added evaluate() returning StrategyReport-compatible signals (rebalance_needed)
+    Added get_current_allocations()/get_target_allocations() to allocator
+    Wired into main.py run_cycle() step 3b for synthesis
+    +9 tests (39 total rebalancer tests)
+
+Merge conflicts resolved:
+  - progress.txt: agent entries consolidated (append-only, team lead writes summary)
+  - main.py imports: both PositionLossLimit + TVLMonitor imports kept
+
+Summary: 4/4 features completed, 0 deferred
+Baseline commit: 538d7d7
+Final commit: 74b3d30
+Features passing: 40/48 (up from 36)
+Tests: 1253 passed, 11 skipped
+verify.sh: PASS
+
+Remaining 8 features:
+  Wave 5: DATA-004, HARNESS-001, REPORT-001, INFRA-006
+  Wave 6: HARNESS-002, TEST-001, DEPLOY-001, RISK-009
+
+Next: Wave 5 — data reconciliation, state persistence, P&L reporting, decision loop wiring
