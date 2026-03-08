@@ -1,4 +1,14 @@
-"""Rebalancing engine — detect drift, generate gas-aware rebalancing orders."""
+"""Rebalancing engine — detect drift, produce rebalance signals for decision pipeline.
+
+The rebalancer is an analyst: it detects allocation drift and produces
+``rebalance_needed`` signals compatible with the Strategy protocol's report
+format.  The actual rebalancing decisions go through the normal decision
+pipeline (Claude decides specifics).
+
+Legacy ``generate_orders()`` is preserved for backward compatibility but the
+primary interface is ``evaluate()``, which returns observations, signals, and
+recommendations for the insight synthesizer.
+"""
 
 from __future__ import annotations
 
@@ -253,7 +263,138 @@ class PortfolioRebalancer:
         _logger.info("Rebalance recorded, cooldown started")
 
     # ------------------------------------------------------------------
-    # Order generation
+    # Signal evaluation (primary interface — PORT-003)
+    # ------------------------------------------------------------------
+
+    def evaluate(
+        self,
+        current_allocations: dict[str, Decimal],
+        target_allocations: dict[str, Decimal],
+        total_value_usd: Decimal,
+        protocol_map: dict[str, str] | None = None,
+        chain_map: dict[str, str] | None = None,
+    ) -> dict:
+        """Evaluate portfolio drift and produce a rebalance report.
+
+        Returns a dict compatible with StrategyReport signal format.
+        The report flows into the insight snapshot so Claude can reason
+        about rebalancing through the normal decision pipeline.
+
+        Args:
+            current_allocations: Position key to current allocation fraction.
+            target_allocations: Position key to target allocation fraction.
+            total_value_usd: Total portfolio value in USD.
+            protocol_map: Optional mapping of position key to protocol name.
+            chain_map: Optional mapping of position key to chain name.
+
+        Returns:
+            Dict with ``observations``, ``signals``, and ``recommendation``
+            keys, compatible with the StrategyReport structure.
+        """
+        observations: list[dict[str, str]] = []
+        signals: list[dict] = []
+        recommendation: dict | None = None
+
+        all_keys = set(current_allocations) | set(target_allocations)
+
+        drifted_keys: list[dict] = []
+        for key in sorted(all_keys):
+            cur = current_allocations.get(key, Decimal(0))
+            tgt = target_allocations.get(key, Decimal(0))
+            drift = cur - tgt
+
+            # Record an observation for every tracked position
+            drift_pct = drift * 100
+            observations.append({
+                "metric": f"allocation_drift_{key}",
+                "value": f"{drift_pct:+.1f}%",
+                "context": (
+                    f"{key} allocation at {cur * 100:.1f}%, "
+                    f"target is {tgt * 100:.1f}%, "
+                    f"drift {drift_pct:+.1f}%"
+                ),
+            })
+
+            if abs(drift) > self._config.drift_threshold_pct:
+                amount_usd = abs(drift) * total_value_usd
+                if amount_usd >= self._config.min_trade_usd:
+                    drifted_keys.append({
+                        "key": key,
+                        "drift": drift,
+                        "amount_usd": amount_usd,
+                        "current_pct": cur,
+                        "target_pct": tgt,
+                        "protocol": (protocol_map or {}).get(key, "unknown"),
+                        "chain": (chain_map or {}).get(key, "base"),
+                    })
+
+        actionable = len(drifted_keys) > 0 and self.can_rebalance()
+
+        if drifted_keys:
+            # Sort by largest drift first
+            drifted_keys.sort(key=lambda d: d["amount_usd"], reverse=True)
+
+            details_parts = []
+            for d in drifted_keys:
+                direction = "over" if d["drift"] > 0 else "under"
+                details_parts.append(
+                    f"{d['key']} {direction}-allocated by "
+                    f"{abs(d['drift']) * 100:.1f}% "
+                    f"(${d['amount_usd']:.0f})"
+                )
+
+            signals.append({
+                "type": "rebalance_needed",
+                "actionable": actionable,
+                "details": "; ".join(details_parts),
+            })
+
+            # Build recommendation with suggested adjustments
+            parameters: dict = {"adjustments": []}
+            for d in drifted_keys:
+                direction = "decrease" if d["drift"] > 0 else "increase"
+                parameters["adjustments"].append({
+                    "token": d["key"],
+                    "direction": direction,
+                    "amount_usd": str(d["amount_usd"]),
+                    "current_pct": str(d["current_pct"]),
+                    "target_pct": str(d["target_pct"]),
+                    "protocol": d["protocol"],
+                    "chain": d["chain"],
+                })
+
+            recommendation = {
+                "action": "rebalance",
+                "reasoning": (
+                    f"{len(drifted_keys)} position(s) drifted beyond "
+                    f"{self._config.drift_threshold_pct * 100:.0f}% threshold"
+                ),
+                "parameters": parameters,
+            }
+
+            _logger.info(
+                "Rebalance signal produced",
+                extra={"data": {
+                    "drifted_count": len(drifted_keys),
+                    "actionable": actionable,
+                    "total_drift_usd": str(
+                        sum(d["amount_usd"] for d in drifted_keys)
+                    ),
+                }},
+            )
+        else:
+            _logger.debug("No significant drift detected")
+
+        return {
+            "strategy_id": "rebalancer",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "observations": observations,
+            "signals": signals,
+            "recommendation": recommendation,
+        }
+
+    # ------------------------------------------------------------------
+    # Order generation (legacy — kept for backward compatibility)
     # ------------------------------------------------------------------
 
     def generate_orders(

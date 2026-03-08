@@ -27,11 +27,13 @@ from harness.state_manager import StateManager
 from monitoring.logger import get_logger
 from portfolio.allocator import PortfolioAllocator
 from portfolio.position_tracker import PositionTracker
+from portfolio.rebalancer import PortfolioRebalancer
 from risk.drawdown_breaker import DrawdownBreaker
 from risk.exposure_limits import ExposureLimiter
 from risk.exposure_limits import load_config as load_exposure_config
 from risk.gas_spike_breaker import GasSpikeBreaker
 from risk.oracle_guard import OracleGuard
+from risk.position_loss_limit import PositionLossLimit
 from risk.tx_failure_monitor import TxFailureMonitor
 from strategies.lifecycle_manager import LifecycleManager
 
@@ -82,12 +84,14 @@ class DecisionLoop:
             total_capital,
         )
         self.tracker = PositionTracker()
+        self.rebalancer = PortfolioRebalancer()
 
         # Hold mode
         self.hold_mode = HoldMode()
 
         # Risk circuit breakers
         self.drawdown = DrawdownBreaker(initial_value=total_capital)
+        self.position_loss = PositionLossLimit(redis=redis)
         self.gas_spike = GasSpikeBreaker()
         self.tx_failures = TxFailureMonitor(hold_mode=self.hold_mode)
 
@@ -157,6 +161,19 @@ class DecisionLoop:
         }
         self.tracker.update_prices(price_map)
 
+        # Check per-position loss limits (circuit breaker — direct emission)
+        loss_orders = self.position_loss.generate_close_orders(
+            positions=self.tracker.query(),
+            price_map=price_map,
+            correlation_id=correlation_id,
+        )
+        if loss_orders:
+            _logger.warning(
+                "Position loss limit triggered",
+                extra={"data": {"order_count": len(loss_orders)}},
+            )
+            return loss_orders
+
         # 2. Check circuit breakers before any decision
         portfolio_value = Decimal(
             self.tracker.get_summary().get("total_value", "0"),
@@ -185,6 +202,33 @@ class DecisionLoop:
         snapshot_dict = snapshot.to_dict()
         snapshot_dict["correlationId"] = correlation_id
         snapshot_dict["market_event"] = event
+
+        # 3b. Evaluate portfolio drift and include rebalance signals
+        current_allocs = self.allocator.get_current_allocations()
+        target_allocs = self.allocator.get_target_allocations()
+        rebalance_report = self.rebalancer.evaluate(
+            current_allocations=current_allocs,
+            target_allocations=target_allocs,
+            total_value_usd=portfolio_value,
+        )
+        snapshot_dict["rebalance_report"] = rebalance_report
+
+        # Surface actionable rebalance signals for the decision gate
+        for sig in rebalance_report.get("signals", []):
+            if sig.get("actionable"):
+                active_signals = snapshot_dict.get("active_signals")
+                if not isinstance(active_signals, list):
+                    active_signals = []
+                    snapshot_dict["active_signals"] = active_signals
+                active_signals.append({
+                    "type": sig["type"],
+                    "strategy_id": "rebalancer",
+                    "details": sig.get("details", ""),
+                    "parameters": (
+                        rebalance_report.get("recommendation", {})
+                        .get("parameters", {})
+                    ),
+                })
 
         # 4. Decide — deterministic fast-path or Claude API
         decision = self._decide(snapshot_dict)

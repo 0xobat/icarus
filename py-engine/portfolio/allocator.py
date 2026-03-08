@@ -312,6 +312,30 @@ class PortfolioAllocator:
         """
         self._allocations[strategy_id] = Decimal(str(amount))
 
+    def get_current_allocations(self) -> dict[str, Decimal]:
+        """Return current allocation fractions per strategy.
+
+        Each value is the fraction of total capital currently allocated
+        to that strategy (e.g. ``Decimal('0.35')`` for 35%).
+
+        Returns:
+            Mapping of strategy_id to current allocation fraction.
+        """
+        if self.total_capital <= 0:
+            return {sid: Decimal(0) for sid in self.config.strategy_limits}
+        return {
+            sid: self._strategy_allocated(sid) / self.total_capital
+            for sid in self.config.strategy_limits
+        }
+
+    def get_target_allocations(self) -> dict[str, Decimal]:
+        """Return target allocation fractions per strategy from STRATEGY.md limits.
+
+        Returns:
+            Mapping of strategy_id to maximum allocation fraction.
+        """
+        return dict(self.config.strategy_limits)
+
     def get_exposure_summary(self) -> dict[str, Any]:
         """Return allocation summary (legacy alias for get_allocation_summary)."""
         return self.get_allocation_summary()

@@ -329,3 +329,119 @@ class TestEdgeCases:
     def test_default_config_when_none(self) -> None:
         rb = PortfolioRebalancer()
         assert rb.config.drift_threshold_pct == Decimal("0.05")
+
+
+# ---------------------------------------------------------------------------
+# Evaluate — signal-based interface (PORT-003)
+# ---------------------------------------------------------------------------
+
+class TestEvaluate:
+
+    def test_no_drift_produces_no_signals(self) -> None:
+        rb = PortfolioRebalancer(_default_config())
+        current = {"LEND-001": Decimal("0.50"), "LP-001": Decimal("0.30")}
+        target = {"LEND-001": Decimal("0.50"), "LP-001": Decimal("0.30")}
+        report = rb.evaluate(current, target, total_value_usd=Decimal("10000"))
+
+        assert report["strategy_id"] == "rebalancer"
+        assert len(report["observations"]) == 2
+        assert report["signals"] == []
+        assert report["recommendation"] is None
+
+    def test_drift_produces_rebalance_needed_signal(self) -> None:
+        rb = PortfolioRebalancer(_default_config())
+        current = {"LEND-001": Decimal("0.75"), "LP-001": Decimal("0.15")}
+        target = {"LEND-001": Decimal("0.60"), "LP-001": Decimal("0.30")}
+        report = rb.evaluate(current, target, total_value_usd=Decimal("10000"))
+
+        assert len(report["signals"]) == 1
+        sig = report["signals"][0]
+        assert sig["type"] == "rebalance_needed"
+        assert sig["actionable"] is True
+        assert "LEND-001" in sig["details"]
+        assert "LP-001" in sig["details"]
+
+    def test_signal_not_actionable_during_cooldown(self) -> None:
+        rb = PortfolioRebalancer(_default_config())
+        rb.record_rebalance()
+        current = {"LEND-001": Decimal("0.80")}
+        target = {"LEND-001": Decimal("0.60")}
+        report = rb.evaluate(current, target, total_value_usd=Decimal("10000"))
+
+        assert len(report["signals"]) == 1
+        assert report["signals"][0]["actionable"] is False
+
+    def test_signal_actionable_after_cooldown(self) -> None:
+        config = RebalanceConfig(cooldown_seconds=1)
+        rb = PortfolioRebalancer(config)
+        rb.record_rebalance()
+        with patch.object(time, "monotonic", return_value=time.monotonic() + 2):
+            current = {"LEND-001": Decimal("0.80")}
+            target = {"LEND-001": Decimal("0.60")}
+            report = rb.evaluate(current, target, total_value_usd=Decimal("10000"))
+            assert report["signals"][0]["actionable"] is True
+
+    def test_observations_include_all_positions(self) -> None:
+        rb = PortfolioRebalancer(_default_config())
+        current = {"LEND-001": Decimal("0.52"), "LP-001": Decimal("0.28")}
+        target = {"LEND-001": Decimal("0.50"), "LP-001": Decimal("0.30")}
+        report = rb.evaluate(current, target, total_value_usd=Decimal("10000"))
+
+        # Two positions, two observations (even though drift is below threshold)
+        assert len(report["observations"]) == 2
+        metrics = [o["metric"] for o in report["observations"]]
+        assert "allocation_drift_LEND-001" in metrics
+        assert "allocation_drift_LP-001" in metrics
+
+    def test_recommendation_contains_adjustments(self) -> None:
+        rb = PortfolioRebalancer(_default_config())
+        current = {"LEND-001": Decimal("0.80")}
+        target = {"LEND-001": Decimal("0.60")}
+        report = rb.evaluate(
+            current, target,
+            total_value_usd=Decimal("10000"),
+            protocol_map={"LEND-001": "aave_v3"},
+            chain_map={"LEND-001": "base"},
+        )
+
+        rec = report["recommendation"]
+        assert rec is not None
+        assert rec["action"] == "rebalance"
+        assert "drifted beyond" in rec["reasoning"]
+        adjustments = rec["parameters"]["adjustments"]
+        assert len(adjustments) == 1
+        adj = adjustments[0]
+        assert adj["token"] == "LEND-001"
+        assert adj["direction"] == "decrease"
+        assert Decimal(adj["amount_usd"]) == Decimal("2000")
+        assert adj["protocol"] == "aave_v3"
+        assert adj["chain"] == "base"
+
+    def test_dust_trades_excluded_from_signals(self) -> None:
+        config = RebalanceConfig(min_trade_usd=Decimal("200"))
+        rb = PortfolioRebalancer(config)
+        # 6% drift on $1000 = $60, below $200 min
+        current = {"LEND-001": Decimal("0.56")}
+        target = {"LEND-001": Decimal("0.50")}
+        report = rb.evaluate(current, target, total_value_usd=Decimal("1000"))
+
+        assert report["signals"] == []
+        assert report["recommendation"] is None
+
+    def test_report_has_timestamp(self) -> None:
+        rb = PortfolioRebalancer(_default_config())
+        report = rb.evaluate({}, {}, total_value_usd=Decimal("0"))
+        assert "timestamp" in report
+        assert report["timestamp"] != ""
+
+    def test_multiple_drifts_sorted_largest_first_in_recommendation(self) -> None:
+        rb = PortfolioRebalancer(_default_config())
+        current = {"LEND-001": Decimal("0.40"), "LP-001": Decimal("0.50")}
+        target = {"LEND-001": Decimal("0.25"), "LP-001": Decimal("0.10")}
+        report = rb.evaluate(current, target, total_value_usd=Decimal("10000"))
+
+        adjustments = report["recommendation"]["parameters"]["adjustments"]
+        assert len(adjustments) == 2
+        # LP-001 drift=40% ($4000) > LEND-001 drift=15% ($1500)
+        assert adjustments[0]["token"] == "LP-001"
+        assert adjustments[1]["token"] == "LEND-001"

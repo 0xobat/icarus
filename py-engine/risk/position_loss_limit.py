@@ -3,16 +3,27 @@
 Every position has tracked entry value. At >10% loss: close position,
 strategy enters 24h cooldown. Cooldown enforced — strategy cannot open
 new positions until expiry.
+
+Direct emission: generates CB:position_loss orders to close affected
+positions, bypassing the decision gate and Claude API.
+
+Cooldowns stored as Redis TTL keys when a Redis client is provided,
+falling back to in-memory dict for testing.
 """
 
 from __future__ import annotations
 
+import time
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from monitoring.logger import get_logger
+
+if TYPE_CHECKING:
+    from data.redis_client import RedisManager
 
 _logger = get_logger("position-loss-limit", enable_file=False)
 
@@ -65,6 +76,8 @@ class PositionLossLimit:
     - At >10% loss: close position, strategy enters 24h cooldown
     - Cooldown enforced — strategy cannot open new positions until expiry
     - Loss events logged with full context
+    - Direct emission of CB:position_loss orders (bypasses decision gate)
+    - Redis TTL-based cooldowns when redis client provided (survives restarts)
     """
 
     def __init__(
@@ -72,9 +85,11 @@ class PositionLossLimit:
         *,
         loss_threshold: Decimal = DEFAULT_LOSS_THRESHOLD,
         cooldown_hours: int = DEFAULT_COOLDOWN_HOURS,
+        redis: RedisManager | None = None,
     ) -> None:
         self._loss_threshold = loss_threshold
         self._cooldown_hours = cooldown_hours
+        self._redis = redis
         self._cooldowns: dict[str, datetime] = {}
         self._loss_events: list[LossEvent] = []
 
@@ -140,7 +155,12 @@ class PositionLossLimit:
         exit_price: Decimal,
         entry_time: str,
     ) -> LossEvent:
-        """Record a loss event and start strategy cooldown."""
+        """Record a loss event and start strategy cooldown.
+
+        When a Redis client is configured, sets a TTL key
+        ``cooldown:{strategy_id}`` with EX = cooldown_hours * 3600
+        so cooldowns survive restarts.
+        """
         now = datetime.now(UTC)
         loss_pct = (
             (entry_price - exit_price) / entry_price
@@ -167,9 +187,32 @@ class PositionLossLimit:
         )
         self._loss_events.append(event)
 
-        # Start cooldown for this strategy
+        # Start in-memory cooldown for this strategy
         cooldown_until = now + timedelta(hours=self._cooldown_hours)
         self._cooldowns[strategy_id] = cooldown_until
+
+        # Set Redis TTL key if redis client available
+        if self._redis is not None:
+            try:
+                client = self._redis.client
+                ttl_seconds = self._cooldown_hours * 3600
+                client.set(
+                    f"cooldown:{strategy_id}",
+                    now.isoformat(),
+                    ex=ttl_seconds,
+                )
+                _logger.info(
+                    "Redis cooldown key set",
+                    extra={"data": {
+                        "key": f"cooldown:{strategy_id}",
+                        "ttl_seconds": ttl_seconds,
+                    }},
+                )
+            except Exception:
+                _logger.warning(
+                    "Failed to set Redis cooldown key — using in-memory only",
+                    extra={"data": {"strategy_id": strategy_id}},
+                )
 
         _logger.warning(
             "Position closed — loss limit breached",
@@ -189,7 +232,21 @@ class PositionLossLimit:
     def is_strategy_in_cooldown(
         self, strategy_id: str, now: datetime | None = None,
     ) -> bool:
-        """Check if a strategy is in cooldown period."""
+        """Check if a strategy is in cooldown period.
+
+        When Redis is configured, checks the TTL key first. Falls
+        back to the in-memory dict.
+        """
+        # Check Redis TTL key first if available
+        if self._redis is not None:
+            try:
+                client = self._redis.client
+                if client.exists(f"cooldown:{strategy_id}"):
+                    return True
+            except Exception:
+                pass  # Fall through to in-memory check
+
+        # In-memory fallback
         cooldown_until = self._cooldowns.get(strategy_id)
         if cooldown_until is None:
             return False
@@ -247,3 +304,90 @@ class PositionLossLimit:
                 results.append(check)
 
         return results
+
+    def generate_close_orders(
+        self,
+        *,
+        positions: list[dict[str, Any]],
+        price_map: dict[str, Decimal],
+        correlation_id: str,
+    ) -> list[dict[str, Any]]:
+        """Generate CB:position_loss orders for positions exceeding loss limit.
+
+        Checks all positions, records loss events for breached ones, and
+        returns schema-compliant execution orders for direct emission to
+        Redis (bypassing the decision gate and Claude API).
+
+        Args:
+            positions: List of position dicts with id, asset, entry_price,
+                protocol, strategy_id, entry_time, current_value fields.
+            price_map: Maps asset names to current prices.
+            correlation_id: Correlation ID for tracing.
+
+        Returns:
+            List of execution-orders-schema-compliant order dicts.
+        """
+        checks = self.check_all_positions(positions, price_map)
+        if not checks:
+            return []
+
+        # Build lookup by position_id for enrichment
+        pos_lookup: dict[str, dict[str, Any]] = {}
+        for pos in positions:
+            pos_lookup[pos.get("id", "unknown")] = pos
+
+        orders: list[dict[str, Any]] = []
+        for check in checks:
+            pos = pos_lookup.get(check.position_id, {})
+            asset = pos.get("asset", "unknown")
+            strategy_id = pos.get("strategy_id", "unknown")
+            entry_price = Decimal(str(pos.get("entry_price", 0)))
+            current_price = price_map.get(asset, Decimal(0))
+            protocol = pos.get("protocol", "aave_v3")
+            entry_time = pos.get("entry_time", datetime.now(UTC).isoformat())
+            position_value = str(pos.get("current_value", pos.get("amount", "0")))
+
+            # Record the loss event and start cooldown
+            self.record_loss_event(
+                position_id=check.position_id,
+                strategy_id=strategy_id,
+                asset=asset,
+                entry_price=entry_price,
+                exit_price=current_price,
+                entry_time=entry_time,
+            )
+
+            # Generate schema-compliant order
+            order = {
+                "version": "1.0.0",
+                "orderId": uuid.uuid4().hex,
+                "correlationId": correlation_id,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "chain": "base",
+                "protocol": protocol,
+                "action": "withdraw",
+                "strategy": "CB:position_loss",
+                "priority": "urgent",
+                "params": {
+                    "tokenIn": asset,
+                    "amount": position_value,
+                },
+                "limits": {
+                    "maxGasWei": "500000000000000",
+                    "maxSlippageBps": 50,
+                    "deadlineUnix": int(time.time()) + 300,
+                },
+            }
+            orders.append(order)
+
+            _logger.warning(
+                "CB:position_loss order generated",
+                extra={"data": {
+                    "position_id": check.position_id,
+                    "strategy_id": strategy_id,
+                    "loss_pct": str(check.loss_pct),
+                    "orderId": order["orderId"],
+                }},
+            )
+
+        return orders

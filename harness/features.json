@@ -384,7 +384,7 @@
       "Produces rebalance_needed signal for strategy reports",
       "Rebalance decisions go through normal decision pipeline (Claude decides specifics)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-001",
@@ -412,7 +412,7 @@
       "24h cooldown via Redis TTL key (e.g. cooldown:LEND-001 EX 86400)",
       "Cooldown auto-expires, survives restarts via Redis persistent volume"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-003",

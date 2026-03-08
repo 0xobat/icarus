@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import MagicMock
 
 from risk.position_loss_limit import (
     DEFAULT_COOLDOWN_HOURS,
@@ -274,3 +275,286 @@ class TestBatchCheck:
         }
         results = lim.check_all_positions(positions, price_map)
         assert len(results) == 2
+
+
+# ---------------------------------------------------------------------------
+# Direct emission — generate_close_orders
+# ---------------------------------------------------------------------------
+class TestGenerateCloseOrders:
+
+    def _make_positions(self) -> list[dict]:
+        return [
+            {
+                "id": "pos-1",
+                "asset": "ETH",
+                "entry_price": "2000",
+                "current_value": "1700",
+                "protocol": "aave_v3",
+                "strategy_id": "LEND-001",
+                "entry_time": datetime.now(UTC).isoformat(),
+            },
+            {
+                "id": "pos-2",
+                "asset": "USDC",
+                "entry_price": "1",
+                "current_value": "0.99",
+                "protocol": "aerodrome",
+                "strategy_id": "LP-001",
+                "entry_time": datetime.now(UTC).isoformat(),
+            },
+        ]
+
+    def test_generates_orders_for_breached_positions(self) -> None:
+        lim = _make_limiter()
+        positions = self._make_positions()
+        price_map = {
+            "ETH": Decimal("1700"),   # 15% loss — breaches
+            "USDC": Decimal("0.99"),  # 1% loss — safe
+        }
+        orders = lim.generate_close_orders(
+            positions=positions,
+            price_map=price_map,
+            correlation_id="cid-test",
+        )
+        assert len(orders) == 1
+        order = orders[0]
+        assert order["strategy"] == "CB:position_loss"
+        assert order["action"] == "withdraw"
+        assert order["priority"] == "urgent"
+        assert order["chain"] == "base"
+        assert order["protocol"] == "aave_v3"
+        assert order["params"]["tokenIn"] == "ETH"
+        assert order["params"]["amount"] == "1700"
+
+    def test_schema_fields_present(self) -> None:
+        lim = _make_limiter()
+        positions = self._make_positions()
+        price_map = {"ETH": Decimal("1700"), "USDC": Decimal("0.99")}
+        orders = lim.generate_close_orders(
+            positions=positions,
+            price_map=price_map,
+            correlation_id="cid-schema",
+        )
+        assert len(orders) == 1
+        order = orders[0]
+        # All required schema fields
+        assert order["version"] == "1.0.0"
+        assert "orderId" in order
+        assert len(order["orderId"]) > 0
+        assert order["correlationId"] == "cid-schema"
+        assert "timestamp" in order
+        assert order["chain"] in ("ethereum", "base")
+        assert order["protocol"] in ("aave_v3", "aerodrome")
+        assert order["action"] == "withdraw"
+        assert order["strategy"] == "CB:position_loss"
+        assert order["priority"] in ("urgent", "normal", "low")
+        # Limits
+        assert "limits" in order
+        assert "maxGasWei" in order["limits"]
+        assert "maxSlippageBps" in order["limits"]
+        assert "deadlineUnix" in order["limits"]
+        assert isinstance(order["limits"]["deadlineUnix"], int)
+
+    def test_records_loss_events_when_orders_generated(self) -> None:
+        lim = _make_limiter()
+        positions = self._make_positions()
+        price_map = {"ETH": Decimal("1700"), "USDC": Decimal("0.99")}
+        lim.generate_close_orders(
+            positions=positions,
+            price_map=price_map,
+            correlation_id="cid-loss",
+        )
+        assert len(lim.loss_events) == 1
+        event = lim.loss_events[0]
+        assert event.position_id == "pos-1"
+        assert event.strategy_id == "LEND-001"
+        assert event.asset == "ETH"
+
+    def test_cooldown_started_after_order(self) -> None:
+        lim = _make_limiter()
+        positions = self._make_positions()
+        price_map = {"ETH": Decimal("1700"), "USDC": Decimal("0.99")}
+        lim.generate_close_orders(
+            positions=positions,
+            price_map=price_map,
+            correlation_id="cid-cd",
+        )
+        assert lim.is_strategy_in_cooldown("LEND-001")
+        assert not lim.is_strategy_in_cooldown("LP-001")
+
+    def test_no_orders_when_no_breach(self) -> None:
+        lim = _make_limiter()
+        positions = self._make_positions()
+        price_map = {
+            "ETH": Decimal("1950"),   # 2.5% loss — safe
+            "USDC": Decimal("0.99"),  # 1% loss — safe
+        }
+        orders = lim.generate_close_orders(
+            positions=positions,
+            price_map=price_map,
+            correlation_id="cid-safe",
+        )
+        assert orders == []
+        assert len(lim.loss_events) == 0
+
+    def test_multiple_breaches_generate_multiple_orders(self) -> None:
+        lim = _make_limiter()
+        positions = [
+            {
+                "id": "pos-1",
+                "asset": "ETH",
+                "entry_price": "2000",
+                "current_value": "1700",
+                "protocol": "aave_v3",
+                "strategy_id": "LEND-001",
+                "entry_time": datetime.now(UTC).isoformat(),
+            },
+            {
+                "id": "pos-2",
+                "asset": "WBTC",
+                "entry_price": "50000",
+                "current_value": "42000",
+                "protocol": "aerodrome",
+                "strategy_id": "LP-001",
+                "entry_time": datetime.now(UTC).isoformat(),
+            },
+        ]
+        price_map = {
+            "ETH": Decimal("1700"),    # 15% loss
+            "WBTC": Decimal("42000"),  # 16% loss
+        }
+        orders = lim.generate_close_orders(
+            positions=positions,
+            price_map=price_map,
+            correlation_id="cid-multi",
+        )
+        assert len(orders) == 2
+        assert len(lim.loss_events) == 2
+        strategies = {o["strategy"] for o in orders}
+        assert strategies == {"CB:position_loss"}
+
+
+# ---------------------------------------------------------------------------
+# Redis TTL cooldown
+# ---------------------------------------------------------------------------
+class TestRedisTTLCooldown:
+
+    def _mock_redis(self) -> MagicMock:
+        """Create a mock RedisManager with mock client."""
+        redis_mgr = MagicMock()
+        mock_client = MagicMock()
+        redis_mgr.client = mock_client
+        return redis_mgr
+
+    def test_sets_redis_ttl_key_on_loss_event(self) -> None:
+        redis_mgr = self._mock_redis()
+        lim = _make_limiter(redis=redis_mgr, cooldown_hours=24)
+        lim.record_loss_event(
+            position_id="p1",
+            strategy_id="LEND-001",
+            asset="ETH",
+            entry_price=Decimal("2000"),
+            exit_price=Decimal("1780"),
+            entry_time=datetime.now(UTC).isoformat(),
+        )
+        redis_mgr.client.set.assert_called_once()
+        call_args = redis_mgr.client.set.call_args
+        assert call_args[0][0] == "cooldown:LEND-001"
+        assert call_args[1]["ex"] == 24 * 3600
+
+    def test_checks_redis_for_cooldown(self) -> None:
+        redis_mgr = self._mock_redis()
+        redis_mgr.client.exists.return_value = True
+        lim = _make_limiter(redis=redis_mgr)
+        assert lim.is_strategy_in_cooldown("LEND-001")
+        redis_mgr.client.exists.assert_called_with("cooldown:LEND-001")
+
+    def test_falls_back_to_memory_when_redis_not_in_cooldown(self) -> None:
+        redis_mgr = self._mock_redis()
+        redis_mgr.client.exists.return_value = False
+        lim = _make_limiter(redis=redis_mgr)
+        # No in-memory cooldown either
+        assert not lim.is_strategy_in_cooldown("LEND-001")
+
+    def test_redis_cooldown_survives_without_memory(self) -> None:
+        """Redis says in cooldown even though in-memory dict is empty."""
+        redis_mgr = self._mock_redis()
+        redis_mgr.client.exists.return_value = True
+        lim = _make_limiter(redis=redis_mgr)
+        # In-memory has nothing, but Redis says yes
+        assert lim.is_strategy_in_cooldown("LEND-001")
+
+    def test_no_redis_uses_memory_only(self) -> None:
+        """Without redis parameter, only in-memory cooldowns are used."""
+        lim = _make_limiter()
+        assert not lim.is_strategy_in_cooldown("LEND-001")
+        lim.record_loss_event(
+            position_id="p1",
+            strategy_id="LEND-001",
+            asset="ETH",
+            entry_price=Decimal("100"),
+            exit_price=Decimal("85"),
+            entry_time=datetime.now(UTC).isoformat(),
+        )
+        assert lim.is_strategy_in_cooldown("LEND-001")
+
+    def test_redis_error_falls_back_to_memory(self) -> None:
+        """When Redis raises, fall back to in-memory cooldown."""
+        redis_mgr = self._mock_redis()
+        redis_mgr.client.exists.side_effect = Exception("connection lost")
+        lim = _make_limiter(redis=redis_mgr)
+        # Record a loss to set in-memory cooldown
+        lim.record_loss_event(
+            position_id="p1",
+            strategy_id="LEND-001",
+            asset="ETH",
+            entry_price=Decimal("100"),
+            exit_price=Decimal("85"),
+            entry_time=datetime.now(UTC).isoformat(),
+        )
+        # Redis errors but in-memory says cooldown active
+        assert lim.is_strategy_in_cooldown("LEND-001")
+
+    def test_redis_set_error_does_not_crash(self) -> None:
+        """When Redis SET fails, the loss event is still recorded."""
+        redis_mgr = self._mock_redis()
+        redis_mgr.client.set.side_effect = Exception("connection lost")
+        lim = _make_limiter(redis=redis_mgr)
+        event = lim.record_loss_event(
+            position_id="p1",
+            strategy_id="LEND-001",
+            asset="ETH",
+            entry_price=Decimal("100"),
+            exit_price=Decimal("85"),
+            entry_time=datetime.now(UTC).isoformat(),
+        )
+        assert event is not None
+        assert len(lim.loss_events) == 1
+        # In-memory cooldown still works
+        assert lim.is_strategy_in_cooldown("LEND-001")
+
+    def test_generate_close_orders_sets_redis_cooldown(self) -> None:
+        """generate_close_orders sets Redis TTL via record_loss_event."""
+        redis_mgr = self._mock_redis()
+        lim = _make_limiter(redis=redis_mgr, cooldown_hours=24)
+        positions = [
+            {
+                "id": "pos-1",
+                "asset": "ETH",
+                "entry_price": "2000",
+                "current_value": "1700",
+                "protocol": "aave_v3",
+                "strategy_id": "LEND-001",
+                "entry_time": datetime.now(UTC).isoformat(),
+            },
+        ]
+        price_map = {"ETH": Decimal("1700")}
+        lim.generate_close_orders(
+            positions=positions,
+            price_map=price_map,
+            correlation_id="cid-redis",
+        )
+        redis_mgr.client.set.assert_called_once()
+        call_args = redis_mgr.client.set.call_args
+        assert call_args[0][0] == "cooldown:LEND-001"
+        assert call_args[1]["ex"] == 86400

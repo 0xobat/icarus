@@ -813,3 +813,26 @@ Remaining 12 features:
   Wave 6: HARNESS-002, TEST-001, DEPLOY-001, RISK-009
 
 Next: Resume with Wave 4 — circuit breakers (RISK-001/002/005) + rebalancing (PORT-003)
+
+---
+
+## Session: 2026-03-08 — PORT-003 Rebalancing Engine
+
+Feature: PORT-003 — Rebalancing engine with drift signals for decision pipeline
+
+Changes:
+- `py-engine/portfolio/rebalancer.py`: Added `evaluate()` method that produces
+  StrategyReport-compatible dicts with observations (per-position drift), signals
+  (`rebalance_needed` with actionable flag gated by cooldown), and recommendations
+  (suggested adjustments with direction/amount/protocol). Legacy `generate_orders()`
+  preserved for backward compatibility.
+- `py-engine/portfolio/allocator.py`: Added `get_current_allocations()` and
+  `get_target_allocations()` helper methods to expose allocation fractions.
+- `py-engine/main.py`: Wired `PortfolioRebalancer` into `DecisionLoop.__init__`
+  and `run_cycle()` step 3b — evaluates drift during synthesis phase, includes
+  rebalance report in snapshot, surfaces actionable signals to decision gate.
+- `py-engine/tests/test_rebalancer.py`: Added 9 tests for `evaluate()` covering
+  no-drift, drift signals, cooldown gating, observations, recommendations,
+  dust filtering, timestamps, and multi-drift sorting.
+
+Result: 39 rebalancer tests pass, 1237 total tests pass, verify.sh PASS
