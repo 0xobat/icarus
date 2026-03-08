@@ -8,6 +8,8 @@ snapshots per protocol. Trigger emergency withdrawal when TVL drops
 
 from __future__ import annotations
 
+import time
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -284,6 +286,118 @@ class TVLMonitor:
                     "chain": chain,
                 }},
             )
+
+    def get_active_protocols(
+        self, positions: list[dict[str, Any]],
+    ) -> set[str]:
+        """Extract protocol identifiers from active positions.
+
+        Args:
+            positions: List of position dicts from PositionTracker.query().
+
+        Returns:
+            Set of protocol identifiers that have active positions.
+        """
+        protocols: set[str] = set()
+        for pos in positions:
+            protocol = pos.get("protocol", "")
+            if protocol:
+                protocols.add(protocol)
+        return protocols
+
+    def check_active_protocols(
+        self,
+        positions: list[dict[str, Any]],
+        chain: str = "base",
+    ) -> dict[str, dict[str, Any]]:
+        """Check TVL health only for protocols with active positions.
+
+        Args:
+            positions: List of position dicts from PositionTracker.query().
+            chain: Chain to check (default "base").
+
+        Returns:
+            Dict mapping protocol to check_protocol result, only for
+            protocols with active positions.
+        """
+        active = self.get_active_protocols(positions)
+        results: dict[str, dict[str, Any]] = {}
+        for protocol in active:
+            results[protocol] = self.check_protocol(protocol, chain)
+        return results
+
+    def generate_withdrawal_orders(
+        self,
+        positions: list[dict[str, Any]],
+        correlation_id: str,
+    ) -> list[dict[str, Any]]:
+        """Generate schema-compliant CB:tvl_drop withdrawal orders.
+
+        Checks which protocols have breached the critical TVL threshold,
+        filters positions to only those on affected protocols, and generates
+        one withdrawal order per affected position.
+
+        Args:
+            positions: List of position dicts from PositionTracker.query().
+            correlation_id: Correlation ID for tracing.
+
+        Returns:
+            List of execution-orders-schema-compliant withdrawal orders.
+        """
+        targets = self.get_withdrawal_targets()
+        if not targets:
+            return []
+
+        # Build set of affected protocol names
+        affected_protocols: set[str] = set()
+        for protocol, _chain in targets:
+            affected_protocols.add(protocol)
+
+        orders: list[dict[str, Any]] = []
+        now = datetime.now(UTC).isoformat()
+        deadline = int(time.time()) + 300
+
+        for pos in positions:
+            pos_protocol = pos.get("protocol", "")
+            if pos_protocol not in affected_protocols:
+                continue
+
+            asset = pos.get("asset", pos.get("tokenIn", "unknown"))
+            amount = str(pos.get("current_value", pos.get("value_usd", "0")))
+
+            order: dict[str, Any] = {
+                "version": "1.0.0",
+                "orderId": uuid.uuid4().hex,
+                "correlationId": correlation_id,
+                "timestamp": now,
+                "chain": pos.get("chain", "base"),
+                "protocol": pos_protocol,
+                "action": "withdraw",
+                "strategy": "CB:tvl_drop",
+                "priority": "urgent",
+                "params": {
+                    "tokenIn": asset,
+                    "amount": amount,
+                },
+                "limits": {
+                    "maxGasWei": "500000000000000",
+                    "maxSlippageBps": 50,
+                    "deadlineUnix": deadline,
+                },
+            }
+            orders.append(order)
+
+            _logger.warning(
+                "CB:tvl_drop withdrawal order generated",
+                extra={"data": {
+                    "protocol": pos_protocol,
+                    "asset": asset,
+                    "amount": amount,
+                    "orderId": order["orderId"],
+                }},
+            )
+
+        return orders
 
     def _prune_window(self, key: tuple[str, str]) -> None:
         """Remove snapshots older than the rolling window.

@@ -453,7 +453,7 @@
       "Orders schema-validated before publishing",
       "Only monitors protocols where the system has active positions"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-006",

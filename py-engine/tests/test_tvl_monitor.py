@@ -380,3 +380,192 @@ class TestEdgeCases:
         assert result["status"] == "normal"
         # Current TVL should be the latest snapshot
         assert result["current_tvl"] == Decimal("9900000")
+
+
+# ---------------------------------------------------------------------------
+# Active protocol filtering (Step 5)
+# ---------------------------------------------------------------------------
+class TestActiveProtocolFiltering:
+
+    def test_get_active_protocols_from_positions(self) -> None:
+        m = _make_monitor()
+        positions = [
+            {"protocol": "aave_v3", "asset": "ETH", "current_value": 5000},
+            {"protocol": "aerodrome", "asset": "USDC", "current_value": 3000},
+        ]
+        active = m.get_active_protocols(positions)
+        assert active == {"aave_v3", "aerodrome"}
+
+    def test_get_active_protocols_empty_positions(self) -> None:
+        m = _make_monitor()
+        active = m.get_active_protocols([])
+        assert active == set()
+
+    def test_get_active_protocols_skips_empty_protocol(self) -> None:
+        m = _make_monitor()
+        positions = [
+            {"protocol": "aave_v3", "asset": "ETH"},
+            {"protocol": "", "asset": "USDC"},
+            {"asset": "DAI"},
+        ]
+        active = m.get_active_protocols(positions)
+        assert active == {"aave_v3"}
+
+    def test_check_active_protocols_only_checks_active(self) -> None:
+        m = _make_monitor()
+        m.record_tvl("aave_v3", "base", Decimal("10000000"), "defi_metrics")
+        m.record_tvl("aerodrome", "base", Decimal("5000000"), "defi_metrics")
+        m.record_tvl("lido", "base", Decimal("20000000"), "defi_metrics")
+
+        positions = [
+            {"protocol": "aave_v3", "asset": "ETH"},
+        ]
+        results = m.check_active_protocols(positions, chain="base")
+        assert "aave_v3" in results
+        assert "aerodrome" not in results
+        assert "lido" not in results
+
+
+# ---------------------------------------------------------------------------
+# Withdrawal order generation (Steps 3 & 4)
+# ---------------------------------------------------------------------------
+class TestGenerateWithdrawalOrders:
+
+    def test_generates_orders_for_affected_positions(self) -> None:
+        m = _make_monitor()
+        # Create critical TVL drop for aave_v3
+        m.record_tvl("aave_v3", "base", Decimal("10000000"), "defi_metrics")
+        m.record_tvl("aave_v3", "base", Decimal("6000000"), "defi_metrics")  # 40% drop
+
+        positions = [
+            {"protocol": "aave_v3", "asset": "ETH", "current_value": 5000, "chain": "base"},
+            {"protocol": "aerodrome", "asset": "USDC", "current_value": 3000, "chain": "base"},
+        ]
+        orders = m.generate_withdrawal_orders(positions, "corr-123")
+        assert len(orders) == 1
+        order = orders[0]
+        assert order["protocol"] == "aave_v3"
+        assert order["action"] == "withdraw"
+        assert order["strategy"] == "CB:tvl_drop"
+
+    def test_orders_have_all_required_schema_fields(self) -> None:
+        m = _make_monitor()
+        m.record_tvl("aave_v3", "base", Decimal("10000000"), "defi_metrics")
+        m.record_tvl("aave_v3", "base", Decimal("5000000"), "defi_metrics")  # 50% drop
+
+        positions = [
+            {"protocol": "aave_v3", "asset": "WETH", "current_value": 2000, "chain": "base"},
+        ]
+        orders = m.generate_withdrawal_orders(positions, "corr-456")
+        assert len(orders) == 1
+        order = orders[0]
+
+        # Required schema fields
+        assert order["version"] == "1.0.0"
+        assert "orderId" in order and len(order["orderId"]) > 0
+        assert order["correlationId"] == "corr-456"
+        assert "timestamp" in order
+        assert order["chain"] == "base"
+        assert order["protocol"] == "aave_v3"
+        assert order["action"] == "withdraw"
+        assert order["strategy"] == "CB:tvl_drop"
+        assert order["priority"] == "urgent"
+
+        # Params
+        assert "params" in order
+        assert order["params"]["tokenIn"] == "WETH"
+        assert order["params"]["amount"] == "2000"
+
+        # Limits
+        assert "limits" in order
+        assert order["limits"]["maxGasWei"] == "500000000000000"
+        assert order["limits"]["maxSlippageBps"] == 50
+        assert isinstance(order["limits"]["deadlineUnix"], int)
+
+    def test_no_orders_when_no_critical_drop(self) -> None:
+        m = _make_monitor()
+        m.record_tvl("aave_v3", "base", Decimal("10000000"), "defi_metrics")
+        m.record_tvl("aave_v3", "base", Decimal("9000000"), "defi_metrics")  # 10% drop
+
+        positions = [
+            {"protocol": "aave_v3", "asset": "ETH", "current_value": 5000},
+        ]
+        orders = m.generate_withdrawal_orders(positions, "corr-789")
+        assert orders == []
+
+    def test_no_orders_when_no_positions_on_affected_protocol(self) -> None:
+        m = _make_monitor()
+        m.record_tvl("aave_v3", "base", Decimal("10000000"), "defi_metrics")
+        m.record_tvl("aave_v3", "base", Decimal("5000000"), "defi_metrics")  # 50% drop
+
+        positions = [
+            {"protocol": "aerodrome", "asset": "USDC", "current_value": 3000},
+        ]
+        orders = m.generate_withdrawal_orders(positions, "corr-000")
+        assert orders == []
+
+    def test_no_orders_when_no_positions(self) -> None:
+        m = _make_monitor()
+        m.record_tvl("aave_v3", "base", Decimal("10000000"), "defi_metrics")
+        m.record_tvl("aave_v3", "base", Decimal("5000000"), "defi_metrics")
+
+        orders = m.generate_withdrawal_orders([], "corr-empty")
+        assert orders == []
+
+    def test_multiple_positions_on_affected_protocol(self) -> None:
+        m = _make_monitor()
+        m.record_tvl("aave_v3", "base", Decimal("10000000"), "defi_metrics")
+        m.record_tvl("aave_v3", "base", Decimal("6000000"), "defi_metrics")
+
+        positions = [
+            {"protocol": "aave_v3", "asset": "ETH", "current_value": 5000, "chain": "base"},
+            {"protocol": "aave_v3", "asset": "USDC", "current_value": 2000, "chain": "base"},
+            {"protocol": "aerodrome", "asset": "DAI", "current_value": 1000, "chain": "base"},
+        ]
+        orders = m.generate_withdrawal_orders(positions, "corr-multi")
+        assert len(orders) == 2
+        protocols = {o["protocol"] for o in orders}
+        assert protocols == {"aave_v3"}
+        assets = {o["params"]["tokenIn"] for o in orders}
+        assert assets == {"ETH", "USDC"}
+
+    def test_multiple_protocols_affected(self) -> None:
+        m = _make_monitor()
+        # Both protocols breach critical
+        m.record_tvl("aave_v3", "base", Decimal("10000000"), "defi_metrics")
+        m.record_tvl("aave_v3", "base", Decimal("5000000"), "defi_metrics")
+        m.record_tvl("aerodrome", "base", Decimal("8000000"), "defi_metrics")
+        m.record_tvl("aerodrome", "base", Decimal("4000000"), "defi_metrics")
+
+        positions = [
+            {"protocol": "aave_v3", "asset": "ETH", "current_value": 5000, "chain": "base"},
+            {"protocol": "aerodrome", "asset": "USDC", "current_value": 3000, "chain": "base"},
+        ]
+        orders = m.generate_withdrawal_orders(positions, "corr-both")
+        assert len(orders) == 2
+        protocols = {o["protocol"] for o in orders}
+        assert protocols == {"aave_v3", "aerodrome"}
+
+    def test_each_order_has_unique_order_id(self) -> None:
+        m = _make_monitor()
+        m.record_tvl("aave_v3", "base", Decimal("10000000"), "defi_metrics")
+        m.record_tvl("aave_v3", "base", Decimal("5000000"), "defi_metrics")
+
+        positions = [
+            {"protocol": "aave_v3", "asset": "ETH", "current_value": 5000, "chain": "base"},
+            {"protocol": "aave_v3", "asset": "USDC", "current_value": 2000, "chain": "base"},
+        ]
+        orders = m.generate_withdrawal_orders(positions, "corr-ids")
+        order_ids = [o["orderId"] for o in orders]
+        assert len(set(order_ids)) == len(order_ids)
+
+    def test_strategy_field_has_cb_prefix(self) -> None:
+        m = _make_monitor()
+        m.record_tvl("aave_v3", "base", Decimal("10000000"), "defi_metrics")
+        m.record_tvl("aave_v3", "base", Decimal("5000000"), "defi_metrics")
+
+        positions = [
+            {"protocol": "aave_v3", "asset": "ETH", "current_value": 5000, "chain": "base"},
+        ]
+        orders = m.generate_withdrawal_orders(positions, "corr-cb")
+        assert all(o["strategy"].startswith("CB:") for o in orders)
