@@ -279,6 +279,12 @@ class InsightSynthesizer:
         defi_metrics: Any,
         position_tracker: Any,
         lifecycle_manager: Any,
+        drawdown: Any = None,
+        gas_spike: Any = None,
+        tx_failures: Any = None,
+        position_loss: Any = None,
+        tvl_monitor: Any = None,
+        hold_mode: Any = None,
         decision_history_size: int = _DEFAULT_DECISION_HISTORY_SIZE,
     ) -> None:
         self._price_feed = price_feed
@@ -286,6 +292,12 @@ class InsightSynthesizer:
         self._defi_metrics = defi_metrics
         self._position_tracker = position_tracker
         self._lifecycle_manager = lifecycle_manager
+        self._drawdown = drawdown
+        self._gas_spike = gas_spike
+        self._tx_failures = tx_failures
+        self._position_loss = position_loss
+        self._tvl_monitor = tvl_monitor
+        self._hold_mode = hold_mode
         self._recent_decisions: deque[dict[str, Any]] = deque(
             maxlen=decision_history_size,
         )
@@ -385,15 +397,30 @@ class InsightSynthesizer:
         return strategies
 
     def _collect_risk_status(self) -> dict[str, Any]:
-        """Collect risk status as a simple summary.
+        """Collect risk status by querying actual circuit breaker states."""
+        dd_triggered = self._drawdown.is_triggered() if self._drawdown else False
+        gas_active = self._gas_spike._is_active if self._gas_spike else False
+        tx_paused = (
+            not self._tx_failures.can_execute() if self._tx_failures else False
+        )
+        pos_loss = (
+            self._position_loss.is_any_in_cooldown()
+            if self._position_loss
+            else False
+        )
+        hold_active = self._hold_mode.is_active() if self._hold_mode else False
 
-        In production this would query all circuit breakers. Here we provide
-        a basic structure that the decision engine expects.
-        """
+        any_active = dd_triggered or gas_active or tx_paused or pos_loss
+
         return {
-            "circuit_breakers_active": False,
-            "trading_paused": False,
-            "entries_paused": False,
+            "circuit_breakers_active": any_active,
+            "drawdown_triggered": dd_triggered,
+            "gas_spike_active": gas_active,
+            "tx_failures_paused": tx_paused,
+            "position_loss_cooldown": pos_loss,
+            "hold_mode_active": hold_active,
+            "trading_paused": any_active or hold_active,
+            "entries_paused": any_active or hold_active,
             "timestamp": datetime.now(UTC).isoformat(),
         }
 

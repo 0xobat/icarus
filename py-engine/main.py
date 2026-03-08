@@ -133,6 +133,12 @@ class DecisionLoop:
             defi_metrics=self.defi_metrics,
             position_tracker=self.tracker,
             lifecycle_manager=self.lifecycle,
+            drawdown=self.drawdown,
+            gas_spike=self.gas_spike,
+            tx_failures=self.tx_failures,
+            position_loss=self.position_loss,
+            tvl_monitor=self.tvl_monitor,
+            hold_mode=self.hold_mode,
         )
         self.decision_engine = DecisionEngine()
 
