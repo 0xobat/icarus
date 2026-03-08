@@ -1,30 +1,28 @@
-FROM node:22-alpine AS base
+# Railway production Dockerfile for ts-executor
+# Build context: repository root (set via railway.toml)
+FROM node:22-alpine AS build
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
 # Install dependencies
-COPY package.json pnpm-lock.yaml ./
+COPY ts-executor/package.json ts-executor/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Copy source
-COPY tsconfig.json ./
-COPY src/ src/
+COPY ts-executor/tsconfig.json ./
+COPY ts-executor/src/ src/
 
 # Build
 RUN pnpm build
-
-# ── Development target (hot-reload via tsx watch) ──
-FROM base AS dev
-COPY --from=base /app /app
-CMD ["pnpm", "dev"]
 
 # ── Production target ──
 FROM node:22-alpine AS prod
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
+COPY ts-executor/package.json ts-executor/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
-COPY --from=base /app/dist ./dist
+COPY --from=build /app/dist ./dist
+COPY shared/schemas/ ./shared/schemas/
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "process.exit(0)"
 CMD ["node", "dist/index.js"]

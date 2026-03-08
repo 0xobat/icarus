@@ -1,0 +1,38 @@
+# Railway deployment configuration for Icarus
+# Deploy trigger: git push to main → container rebuild
+# Rollback: Railway built-in mechanism (redeploy previous image)
+#
+# Setup:
+#   1. Create Railway project, link this repo
+#   2. Add Redis plugin (persistent volume at /data)
+#   3. Add PostgreSQL plugin (persistent volume at /var/lib/postgresql/data)
+#   4. Create two services: py-engine, ts-executor (configs below)
+#   5. Set environment variables per .env.example
+#   6. Railway auto-injects REDIS_URL and DATABASE_URL from plugins
+#
+# Persistent volumes:
+#   - Redis: Railway plugin manages persistence and volume automatically
+#   - PostgreSQL: Railway plugin manages persistence and volume automatically
+#   - Both services are stateless — all state in Redis/PostgreSQL
+
+# ── Python decision engine ──
+[services.py-engine]
+
+[services.py-engine.build]
+dockerfilePath = "py-engine/Dockerfile.prod"
+target = "prod"
+
+[services.py-engine.deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+# ── TypeScript chain executor ──
+[services.ts-executor]
+
+[services.ts-executor.build]
+dockerfilePath = "ts-executor/Dockerfile.prod"
+target = "prod"
+
+[services.ts-executor.deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
