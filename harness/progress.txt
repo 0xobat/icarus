@@ -884,3 +884,38 @@ Remaining 4 features:
   Wave 6: HARNESS-002, TEST-001, DEPLOY-001, RISK-009
 
 Next: Wave 6 — startup recovery, integration tests, Railway deployment, Safe on-chain guard
+
+--- Team Session 2026-03-08-04 (Wave 6: Integration + Deploy — FINAL) ---
+Lead: Claude Opus 4.6
+Agents: 4 (agent-harness002, agent-test001, agent-deploy001, agent-risk009)
+Waves: 1 (all independent)
+
+Wave 6 (4 agents):
+  agent-risk009: RISK-009 Safe on-chain guard — MERGED (commit dcc9585)
+    AllowlistGuard.sol with ITransactionGuard interface, owner-managed allowlist
+    Deploy script with Base mainnet addresses (Aave V3, Aerodrome, USDC, USDbC, DAI)
+    +18 tests
+  agent-harness002: HARNESS-002 Startup recovery — MERGED (commit 31f6482)
+    run_startup_recovery(): PG load → Redis XREADGROUP replay → on-chain reconcile → health check
+    FullRecoveryResult dataclass, hold mode on failure, wired into DecisionLoop.main()
+    +29 tests
+  agent-test001: TEST-001 Integration test suite — MERGED (commit f611bc7)
+    E2E lifecycle (5), CB integration (5), schema validation (15), startup recovery (7)
+    All mocked — no external dependencies
+    +32 tests
+  agent-deploy001: DEPLOY-001 Railway deployment — MERGED (commit 5fcee46)
+    Dockerfile.prod for both services (repo-root context, shared/schemas)
+    HEALTHCHECK added to existing Dockerfiles
+    railway.toml with service definitions, restart policies, volume setup docs
+
+Summary: 4/4 features completed, 0 deferred
+Baseline commit: aeb21e6
+Final commit: 5fcee46
+Features passing: 48/48 (ALL COMPLETE)
+Tests: 1380 passed, 11 skipped
+verify.sh: PASS
+
+=== PROJECT COMPLETE ===
+All 48 features implemented across 6 waves (3 team sessions).
+Total test count: 1,380 (1,190 Python + 190 TypeScript)
+All features verified via harness/verify.sh.
