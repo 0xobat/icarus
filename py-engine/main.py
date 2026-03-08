@@ -12,6 +12,8 @@ import signal
 import sys
 import time
 import uuid
+from dataclasses import asdict
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -36,6 +38,14 @@ from risk.oracle_guard import OracleGuard
 from risk.position_loss_limit import PositionLossLimit
 from risk.tvl_monitor import TVLMonitor
 from risk.tx_failure_monitor import TxFailureMonitor
+from strategies.base import (
+    GasInfo,
+    MarketSnapshot,
+    PoolState,
+    Strategy,
+    StrategyReport,
+    TokenPrice,
+)
 from strategies.lifecycle_manager import LifecycleManager
 
 _logger = get_logger("main", enable_file=False)
@@ -84,7 +94,7 @@ class DecisionLoop:
         self.allocator = PortfolioAllocator(
             total_capital,
         )
-        self.tracker = PositionTracker()
+        self.tracker = self._load_positions()
         self.rebalancer = PortfolioRebalancer()
 
         # Hold mode
@@ -128,6 +138,118 @@ class DecisionLoop:
         self._adjustment_made = False
         self._cycle_count = 0
         self._trim_interval = int(os.environ.get("STREAM_TRIM_INTERVAL_CYCLES", "100"))
+
+        # Strategy evaluation state (INFRA-006)
+        self._strategies: dict[str, Strategy] = {}
+        self._latest_reports: dict[str, StrategyReport] = {}
+        self._last_evaluated: dict[str, datetime] = {}
+
+    def _load_positions(self) -> PositionTracker:
+        """Load positions from PostgreSQL into a new tracker.
+
+        Falls back to an empty tracker if the database load fails.
+
+        Returns:
+            A PositionTracker populated from PostgreSQL.
+        """
+        try:
+            tracker = PositionTracker.from_database(self.repository)
+            _logger.info("Positions loaded from PostgreSQL on startup")
+            return tracker
+        except Exception:
+            _logger.exception("Failed to load positions from PostgreSQL — starting empty")
+            return PositionTracker(repository=self.repository)
+
+    def register_strategy(self, strategy: Strategy) -> None:
+        """Register a strategy instance for evaluation in the decision loop.
+
+        Args:
+            strategy: A Strategy-conforming instance.
+        """
+        self._strategies[strategy.strategy_id] = strategy
+
+    def _evaluate_strategies(
+        self, prices: dict[str, Any], gas: Any,
+    ) -> list[StrategyReport]:
+        """Evaluate strategies whose eval_interval has elapsed.
+
+        Builds a MarketSnapshot from current data and calls evaluate()
+        on each due strategy.
+
+        Args:
+            prices: Raw price data from PriceFeedManager.
+            gas: Gas data from GasMonitor.
+
+        Returns:
+            List of new StrategyReports produced this cycle.
+        """
+        if not self._strategies:
+            return []
+
+        now = datetime.now(UTC)
+
+        # Build MarketSnapshot for strategy consumption
+        token_prices = [
+            TokenPrice(
+                token=token,
+                price=float(data.get("price_usd", 0)) if isinstance(data, dict) else 0.0,
+                source="aggregated",
+                timestamp=now,
+            )
+            for token, data in prices.items()
+        ]
+
+        gas_info = GasInfo(
+            current_gwei=float(getattr(gas, "standard", 30)) if gas else 30.0,
+            avg_24h_gwei=float(self.gas_monitor.get_rolling_average() or 30),
+        )
+
+        pools: list[PoolState] = []
+        for protocol in ("aave", "aerodrome"):
+            try:
+                metrics = self.defi_metrics.get_metrics(protocol)
+                if metrics and isinstance(metrics, dict):
+                    for market in metrics.get("markets", []):
+                        pools.append(PoolState(
+                            protocol=protocol,
+                            pool_id=market.get("symbol", "unknown"),
+                            tvl=float(market.get("tvl", 0)),
+                            apy=float(market.get("supply_apy", 0)),
+                            utilization=(
+                                float(market["utilization_rate"])
+                                if "utilization_rate" in market else None
+                            ),
+                        ))
+            except Exception:
+                pass
+
+        snapshot = MarketSnapshot(
+            prices=token_prices,
+            gas=gas_info,
+            pools=pools,
+            timestamp=now,
+        )
+
+        reports: list[StrategyReport] = []
+        for sid, strategy in self._strategies.items():
+            last = self._last_evaluated.get(sid)
+            if last is not None and (now - last) < strategy.eval_interval:
+                continue
+            try:
+                report = strategy.evaluate(snapshot)
+                self._last_evaluated[sid] = now
+                reports.append(report)
+                _logger.info(
+                    "Strategy evaluated",
+                    extra={"data": {"strategy_id": sid}},
+                )
+            except Exception as e:
+                _logger.warning(
+                    "Strategy evaluation failed",
+                    extra={"data": {"strategy_id": sid, "error": str(e)}},
+                )
+
+        return reports
 
     def run_cycle(self, event: dict[str, Any]) -> list[dict[str, Any]]:
         """Execute one decision cycle for a market event.
@@ -256,7 +378,18 @@ class DecisionLoop:
                     ),
                 })
 
-        # 4. Decide — deterministic fast-path or Claude API
+        # 3c. Evaluate strategies and accumulate reports
+        strategy_reports = self._evaluate_strategies(prices, gas)
+        for report in strategy_reports:
+            self._latest_reports[report.strategy_id] = report
+
+        # Include all accumulated reports in snapshot for Claude
+        if self._latest_reports:
+            snapshot_dict["strategy_reports"] = [
+                asdict(r) for r in self._latest_reports.values()
+            ]
+
+        # 4. Decide — decision gate based on strategy reports
         decision = self._decide(snapshot_dict)
 
         if decision.action == DecisionAction.HOLD:
@@ -268,7 +401,10 @@ class DecisionLoop:
         # 5. Risk gate — every non-hold decision must pass
         orders = self._apply_risk_gate(decision, correlation_id)
 
-        # 6. Record decision for future insight synthesis
+        # 6. Record decision in audit log
+        self._record_decision(correlation_id, decision, orders)
+
+        # 7. Record decision for future insight synthesis
         self.synthesizer.record_decision(decision.to_dict())
 
         # Periodic stream maintenance
@@ -292,10 +428,10 @@ class DecisionLoop:
                 _logger.debug("Stream trim failed for %s", channel)
 
     def _decide(self, snapshot: dict[str, Any]) -> Decision:
-        """Choose between deterministic fast-path and Claude API.
+        """Decision gate — opens only when actionable signals exist.
 
-        Simple threshold crossings (clear signals, single strategy) bypass
-        the Claude API. Ambiguous situations invoke the full AI engine.
+        Hold mode keeps the gate closed regardless. When open, uses
+        deterministic fast-path for simple cases, Claude API for complex.
 
         Args:
             snapshot: The insight snapshot with market context.
@@ -303,21 +439,37 @@ class DecisionLoop:
         Returns:
             A Decision object with action and reasoning.
         """
-        signals = snapshot.get("active_signals", [])
-        signal_count = len(signals) if isinstance(signals, list) else 0
-
-        # Fast-path: no signals → hold
-        if signal_count == 0:
+        # Hold mode: gate stays closed regardless of signals
+        if self.hold_mode.is_active():
             return Decision(
                 action=DecisionAction.HOLD,
                 strategy="system",
-                reasoning="No active signals",
+                reasoning="Hold mode active — gate closed",
+                confidence=1.0,
+            )
+
+        # Decision gate: check strategy reports for actionable signals
+        has_actionable_report = any(
+            any(sig.actionable for sig in report.signals)
+            for report in self._latest_reports.values()
+        )
+
+        # Also check rebalancer active_signals (non-strategy signals)
+        active_signals = snapshot.get("active_signals", [])
+        signal_count = len(active_signals) if isinstance(active_signals, list) else 0
+
+        # Gate closed: no actionable signals from any source
+        if not has_actionable_report and signal_count == 0:
+            return Decision(
+                action=DecisionAction.HOLD,
+                strategy="system",
+                reasoning="No actionable signals",
                 confidence=1.0,
             )
 
         # Fast-path: single clear signal with high urgency
-        if signal_count == 1 and isinstance(signals[0], dict):
-            sig = signals[0]
+        if signal_count == 1 and isinstance(active_signals[0], dict):
+            sig = active_signals[0]
             if sig.get("urgency", "low") == "critical":
                 return Decision(
                     action=DecisionAction.ADJUST,
@@ -536,6 +688,9 @@ class DecisionLoop:
                 details=result.get("error", ""),
             )
 
+        # Persist trade to PostgreSQL
+        self._record_trade(result, status)
+
         _logger.info(
             "Execution result processed",
             extra={"data": {
@@ -546,8 +701,63 @@ class DecisionLoop:
 
     def persist_state(self) -> None:
         """Save all operational state for recovery."""
+        try:
+            self.tracker.sync_all_to_db()
+        except Exception:
+            _logger.exception("Failed to sync positions to PostgreSQL on shutdown")
         self.state.save()
         _logger.debug("State persisted")
+
+    def _record_trade(self, result: dict[str, Any], status: str) -> None:
+        """Persist an execution result as a trade record in PostgreSQL.
+
+        Args:
+            result: The execution result message.
+            status: The transaction status (confirmed/failed).
+        """
+        try:
+            params = result.get("params", {})
+            self.repository.record_trade({
+                "trade_id": result.get("orderId", uuid.uuid4().hex),
+                "correlation_id": result.get("correlationId", ""),
+                "strategy": result.get("strategy", "unknown"),
+                "protocol": result.get("protocol", "unknown"),
+                "chain": result.get("chain", "base"),
+                "action": result.get("action", "unknown"),
+                "asset_in": params.get("tokenIn", "unknown"),
+                "amount_in": params.get("amount", "0"),
+                "tx_hash": result.get("txHash"),
+                "gas_used": result.get("gasUsed"),
+                "status": status,
+                "error_message": result.get("error"),
+            })
+        except Exception:
+            _logger.exception("Failed to record trade to PostgreSQL")
+
+    def _record_decision(
+        self,
+        correlation_id: str,
+        decision: Decision,
+        orders: list[dict[str, Any]],
+    ) -> None:
+        """Persist a decision cycle to the audit log in PostgreSQL.
+
+        Args:
+            correlation_id: Correlation ID for tracing.
+            decision: The decision that was made.
+            orders: The orders produced (may be empty if risk-blocked).
+        """
+        try:
+            self.repository.record_decision({
+                "correlation_id": correlation_id,
+                "decision_action": decision.action.value
+                if hasattr(decision.action, "value") else str(decision.action),
+                "reasoning": decision.reasoning,
+                "orders": orders,
+                "passed_verification": len(orders) > 0,
+            })
+        except Exception:
+            _logger.exception("Failed to record decision to PostgreSQL")
 
 
 def _create_components() -> (

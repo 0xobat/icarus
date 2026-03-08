@@ -521,7 +521,7 @@
       "Circuit breaker cooldowns in Redis TTL keys (auto-expire)",
       "System status (normal/hold) in Redis"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-002",
