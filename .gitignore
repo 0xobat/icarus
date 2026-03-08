@@ -35,3 +35,4 @@ coverage/
 
 # Database
 *.db
+.claude/worktrees/
