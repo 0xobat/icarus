@@ -506,7 +506,7 @@
       "Verify on-chain guard matches application-level allowlist (RISK-006)",
       "Guard rejects transactions targeting non-allowlisted contracts at the EVM level"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "HARNESS-001",
