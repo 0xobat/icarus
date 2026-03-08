@@ -24,9 +24,11 @@ from db.database import DatabaseConfig, DatabaseManager
 from db.repository import DatabaseRepository
 from harness.state_manager import StateManager
 from monitoring.logger import get_logger
-from portfolio.allocator import AllocatorConfig, PortfolioAllocator
+from portfolio.allocator import PortfolioAllocator
 from portfolio.position_tracker import PositionTracker
 from risk.drawdown_breaker import DrawdownBreaker
+from risk.exposure_limits import ExposureLimiter
+from risk.exposure_limits import load_config as load_exposure_config
 from risk.gas_spike_breaker import GasSpikeBreaker
 from risk.tx_failure_monitor import TxFailureMonitor
 from strategies.lifecycle_manager import LifecycleManager
@@ -75,7 +77,7 @@ class DecisionLoop:
         # Portfolio
         total_capital = Decimal(os.environ.get("TOTAL_CAPITAL", "10000"))
         self.allocator = PortfolioAllocator(
-            total_capital, {}, AllocatorConfig(),
+            total_capital,
         )
         self.tracker = PositionTracker()
 
@@ -83,6 +85,12 @@ class DecisionLoop:
         self.drawdown = DrawdownBreaker(initial_value=total_capital)
         self.gas_spike = GasSpikeBreaker()
         self.tx_failures = TxFailureMonitor()
+
+        # Exposure limits (env var configured)
+        self.exposure = ExposureLimiter(
+            total_capital=total_capital,
+            config=load_exposure_config(),
+        )
 
         # Data pipeline
         from data.defi_metrics import DeFiMetricsCollector
@@ -287,6 +295,11 @@ class DecisionLoop:
             _logger.warning("TX failure monitor — blocking execution")
             return []
 
+        # Exposure limit check
+        exposure_result = self._check_exposure(decision)
+        if exposure_result is not None:
+            return exposure_result
+
         self._adjustment_made = True
 
         _logger.info(
@@ -300,6 +313,59 @@ class DecisionLoop:
 
         # Convert decision to execution orders
         return self._decision_to_orders(decision, correlation_id)
+
+    def _check_exposure(
+        self, decision: Decision,
+    ) -> list[dict[str, Any]] | None:
+        """Check exposure limits for a decision.
+
+        Updates the limiter with current positions and capital, then validates
+        the proposed order. Returns empty list if blocked, None if OK.
+
+        Args:
+            decision: The decision to validate.
+
+        Returns:
+            Empty list if exposure blocked, None if check passed.
+        """
+        params = decision.params or {}
+        protocol = params.get("protocol", decision.strategy or "unknown")
+        asset = params.get("asset", "")
+        value_usd = params.get("value_usd", 0)
+
+        if not asset or not value_usd:
+            return None  # Cannot check without order details; allow through
+
+        # Sync limiter state with current portfolio
+        positions = self.tracker.query()
+        pos_dict = {
+            p.get("id", f"pos_{i}"): {
+                "value_usd": p.get("current_value", p.get("value_usd", 0)),
+                "protocol": p.get("protocol", "unknown"),
+                "asset": p.get("asset", "unknown"),
+            }
+            for i, p in enumerate(positions)
+        }
+        self.exposure.update_positions(pos_dict)
+        portfolio_value = Decimal(
+            self.tracker.get_summary().get("total_value", "0"),
+        )
+        if portfolio_value > 0:
+            self.exposure.update_capital(portfolio_value)
+
+        order = {"value_usd": value_usd, "protocol": protocol, "asset": asset}
+        result = self.exposure.check_order(order)
+        if not result.allowed:
+            _logger.warning(
+                "Exposure limit breaker — blocking order",
+                extra={"data": {
+                    "reason": result.reason,
+                    "limit_type": result.limit_type,
+                }},
+            )
+            return []
+
+        return None
 
     def _decision_to_orders(
         self, decision: Decision, correlation_id: str,

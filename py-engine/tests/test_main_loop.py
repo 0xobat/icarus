@@ -28,6 +28,7 @@ def _mock_db() -> tuple[MagicMock, MagicMock]:
     db_manager.close = MagicMock()
     repository = MagicMock()
     repository.get_trades = MagicMock(return_value=[])
+    repository.get_positions = MagicMock(return_value=[])
     return db_manager, repository
 
 
@@ -79,6 +80,7 @@ class TestDecisionLoopInit:
         assert loop.drawdown is not None
         assert loop.gas_spike is not None
         assert loop.tx_failures is not None
+        assert loop.exposure is not None
         assert loop.lifecycle is not None
         assert loop.synthesizer is not None
         assert loop.decision_engine is not None
@@ -251,6 +253,52 @@ class TestRiskGate:
         decision = self._make_decision()
         orders = loop._apply_risk_gate(decision, "cid-1")
         assert orders == []
+
+    def test_blocks_when_exposure_limit_exceeded(self) -> None:
+        """RISK-008: Exposure limiter blocks orders that exceed limits."""
+        loop = _make_loop()
+        loop.tracker.query = MagicMock(return_value=[{
+            "id": "pos1",
+            "current_value": 3500,
+            "protocol": "aave_v3",
+            "asset": "ETH",
+        }])
+        loop.tracker.get_summary = MagicMock(return_value={"total_value": "10000"})
+        decision = self._make_decision(params={
+            "chain": "base",
+            "protocol": "aave_v3",
+            "action": "supply",
+            "asset": "ETH",
+            "value_usd": 1500,  # 3500 + 1500 = 5000 = 50% > 40%
+        })
+        orders = loop._apply_risk_gate(decision, "cid-1")
+        assert orders == []
+
+    def test_allows_when_exposure_within_limits(self) -> None:
+        """RISK-008: Exposure limiter allows orders within limits."""
+        loop = _make_loop()
+        loop.tracker.query = MagicMock(return_value=[])
+        loop.tracker.get_summary = MagicMock(return_value={"total_value": "10000"})
+        decision = self._make_decision(params={
+            "chain": "base",
+            "protocol": "aave_v3",
+            "action": "supply",
+            "asset": "ETH",
+            "value_usd": 2000,  # 20% < 40%
+        })
+        orders = loop._apply_risk_gate(decision, "cid-1")
+        assert len(orders) == 1
+
+    def test_exposure_skipped_without_order_details(self) -> None:
+        """RISK-008: Orders without value_usd/asset skip exposure check."""
+        loop = _make_loop()
+        decision = self._make_decision(params={
+            "chain": "base",
+            "protocol": "aave_v3",
+            "action": "supply",
+        })
+        orders = loop._apply_risk_gate(decision, "cid-1")
+        assert len(orders) == 1
 
     def test_empty_parameters_produces_no_orders(self) -> None:
         loop = _make_loop()

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import os
 from decimal import Decimal
 from typing import Any
+from unittest.mock import patch
 
 from risk.exposure_limits import (
     ExposureLimiter,
     ExposureLimitsConfig,
+    load_config,
 )
 
 
@@ -338,3 +341,50 @@ class TestCombinedLimits:
         result = lim.check_order(_order(2000, protocol="aave", asset="ETH"))
         assert result.allowed is True
         assert result.reason == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Environment variable loading (RISK-008 step 4)
+# ---------------------------------------------------------------------------
+
+class TestEnvVarLoading:
+
+    def test_load_config_defaults(self) -> None:
+        """Without env vars, defaults are used."""
+        with patch.dict(os.environ, {}, clear=True):
+            config = load_config()
+        assert config.max_protocol_pct == Decimal("0.40")
+        assert config.max_asset_pct == Decimal("0.60")
+        assert config.min_stablecoin_pct == Decimal("0.15")
+
+    def test_load_config_from_env(self) -> None:
+        """Env vars are percentages (40 = 40%), converted to decimals."""
+        env = {
+            "MAX_SINGLE_PROTOCOL_PERCENT": "50",
+            "MAX_SINGLE_ASSET_PERCENT": "70",
+            "MIN_STABLECOIN_RESERVE_PERCENT": "10",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            config = load_config()
+        assert config.max_protocol_pct == Decimal("0.50")
+        assert config.max_asset_pct == Decimal("0.70")
+        assert config.min_stablecoin_pct == Decimal("0.10")
+
+    def test_load_config_partial_env(self) -> None:
+        """Only set env vars override, others keep defaults."""
+        env = {"MAX_SINGLE_PROTOCOL_PERCENT": "30"}
+        with patch.dict(os.environ, env, clear=True):
+            config = load_config()
+        assert config.max_protocol_pct == Decimal("0.30")
+        assert config.max_asset_pct == Decimal("0.60")  # default
+        assert config.min_stablecoin_pct == Decimal("0.15")  # default
+
+    def test_load_config_env_applied_to_limiter(self) -> None:
+        """ExposureLimiter uses env-loaded config by default."""
+        env = {"MAX_SINGLE_PROTOCOL_PERCENT": "25"}
+        with patch.dict(os.environ, env, clear=True):
+            lim = ExposureLimiter(total_capital=10000)
+        # 25% of 10000 = 2500
+        result = lim.check_order(_order(2600, protocol="aave"))
+        assert result.allowed is False
+        assert result.limit_type == "protocol"

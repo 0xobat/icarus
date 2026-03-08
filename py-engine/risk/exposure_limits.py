@@ -36,18 +36,24 @@ class ExposureLimitsConfig:
 
 
 def load_config() -> ExposureLimitsConfig:
-    """Load config from environment variables, falling back to defaults."""
+    """Load config from environment variables, falling back to defaults.
+
+    Env vars are percentages (e.g. 40 for 40%), converted to decimals internally.
+    Matches .env.example: MAX_SINGLE_PROTOCOL_PERCENT, MAX_SINGLE_ASSET_PERCENT,
+    MIN_STABLECOIN_RESERVE_PERCENT.
+    """
     defaults = ExposureLimitsConfig()
+
+    def _pct_env(name: str, default: Decimal) -> Decimal:
+        raw = os.environ.get(name)
+        if raw is None:
+            return default
+        return Decimal(raw) / Decimal(100)
+
     return ExposureLimitsConfig(
-        max_protocol_pct=Decimal(
-            os.environ.get("MAX_PROTOCOL_EXPOSURE", str(defaults.max_protocol_pct))
-        ),
-        max_asset_pct=Decimal(
-            os.environ.get("MAX_ASSET_EXPOSURE", str(defaults.max_asset_pct))
-        ),
-        min_stablecoin_pct=Decimal(
-            os.environ.get("MIN_STABLECOIN_RESERVE", str(defaults.min_stablecoin_pct))
-        ),
+        max_protocol_pct=_pct_env("MAX_SINGLE_PROTOCOL_PERCENT", defaults.max_protocol_pct),
+        max_asset_pct=_pct_env("MAX_SINGLE_ASSET_PERCENT", defaults.max_asset_pct),
+        min_stablecoin_pct=_pct_env("MIN_STABLECOIN_RESERVE_PERCENT", defaults.min_stablecoin_pct),
     )
 
 
