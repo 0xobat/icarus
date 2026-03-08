@@ -7,6 +7,8 @@ overridden programmatically — requires manual restart.
 
 from __future__ import annotations
 
+import time
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -178,24 +180,47 @@ class DrawdownBreaker:
     def get_unwind_orders(
         self,
         positions: list[dict[str, Any]],
+        correlation_id: str = "",
     ) -> list[dict[str, Any]]:
-        """Generate unwind orders for all positions.
+        """Generate schema-compliant unwind orders for all positions.
 
-        Only generates orders when in critical state.
-        Returns list of close-position order dicts.
+        Produces one withdrawal order per position, using the CB:drawdown
+        strategy prefix for circuit-breaker-initiated orders. Orders conform
+        to the execution-orders.schema.json contract.
+
+        Args:
+            positions: Open positions to unwind. Each should have at minimum
+                ``asset`` and ``protocol`` keys.
+            correlation_id: Correlation ID for lifecycle tracing.
+
+        Returns:
+            List of schema-compliant withdrawal orders.
         """
         if not self._trading_halted:
             return []
 
+        now_unix = int(time.time())
         orders: list[dict[str, Any]] = []
         for pos in positions:
             orders.append({
-                "action": "close",
-                "position_id": pos.get("id", "unknown"),
-                "asset": pos.get("asset", "unknown"),
-                "reason": "drawdown_circuit_breaker",
-                "priority": "urgent",
+                "version": "1.0.0",
+                "orderId": str(uuid.uuid4()),
+                "correlationId": correlation_id,
                 "timestamp": datetime.now(UTC).isoformat(),
+                "chain": "base",
+                "protocol": pos.get("protocol", "aave_v3"),
+                "action": "withdraw",
+                "strategy": "CB:drawdown",
+                "priority": "urgent",
+                "params": {
+                    "tokenIn": pos.get("asset", "unknown"),
+                    "amount": str(pos.get("value", pos.get("amount", "0"))),
+                },
+                "limits": {
+                    "maxGasWei": "500000000000000",
+                    "maxSlippageBps": 50,
+                    "deadlineUnix": now_unix + 300,
+                },
             })
         return orders
 

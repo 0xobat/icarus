@@ -138,20 +138,45 @@ class TestCriticalThreshold:
 # ---------------------------------------------------------------------------
 class TestUnwindOrders:
 
-    def test_generates_close_orders(self) -> None:
+    def test_generates_schema_compliant_orders(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
         b.update(Decimal("8000"))
         positions = [
-            {"id": "p1", "asset": "ETH"},
-            {"id": "p2", "asset": "WBTC"},
+            {"id": "p1", "asset": "ETH", "protocol": "aave_v3", "value": "5000"},
+            {"id": "p2", "asset": "WBTC", "protocol": "aerodrome", "value": "3000"},
         ]
-        orders = b.get_unwind_orders(positions)
+        orders = b.get_unwind_orders(positions, correlation_id="corr-123")
         assert len(orders) == 2
-        assert orders[0]["action"] == "close"
-        assert orders[0]["position_id"] == "p1"
-        assert orders[0]["priority"] == "urgent"
-        assert orders[0]["reason"] == "drawdown_circuit_breaker"
-        assert orders[1]["position_id"] == "p2"
+
+        # Verify first order is fully schema-compliant
+        o = orders[0]
+        assert o["version"] == "1.0.0"
+        assert o["orderId"]  # non-empty UUID
+        assert o["correlationId"] == "corr-123"
+        assert o["timestamp"]  # ISO 8601 string
+        assert o["chain"] == "base"
+        assert o["protocol"] == "aave_v3"
+        assert o["action"] == "withdraw"
+        assert o["strategy"] == "CB:drawdown"
+        assert o["priority"] == "urgent"
+        assert o["params"]["tokenIn"] == "ETH"
+        assert o["params"]["amount"] == "5000"
+        assert o["limits"]["maxGasWei"] == "500000000000000"
+        assert o["limits"]["maxSlippageBps"] == 50
+        assert isinstance(o["limits"]["deadlineUnix"], int)
+
+        # Verify second order picks up its protocol
+        assert orders[1]["protocol"] == "aerodrome"
+        assert orders[1]["params"]["tokenIn"] == "WBTC"
+
+    def test_cb_drawdown_strategy_prefix(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        b.update(Decimal("8000"))
+        orders = b.get_unwind_orders(
+            [{"id": "p1", "asset": "ETH", "protocol": "aave_v3"}],
+            correlation_id="c1",
+        )
+        assert orders[0]["strategy"] == "CB:drawdown"
 
     def test_no_orders_when_not_critical(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
@@ -163,6 +188,22 @@ class TestUnwindOrders:
         b = _make_breaker(initial_value=Decimal("10000"))
         b.update(Decimal("8000"))
         assert b.get_unwind_orders([]) == []
+
+    def test_default_protocol_is_aave_v3(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        b.update(Decimal("8000"))
+        orders = b.get_unwind_orders([{"id": "p1", "asset": "ETH"}])
+        assert orders[0]["protocol"] == "aave_v3"
+
+    def test_unique_order_ids(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        b.update(Decimal("8000"))
+        positions = [
+            {"id": "p1", "asset": "ETH"},
+            {"id": "p2", "asset": "WBTC"},
+        ]
+        orders = b.get_unwind_orders(positions)
+        assert orders[0]["orderId"] != orders[1]["orderId"]
 
 
 # ---------------------------------------------------------------------------

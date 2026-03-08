@@ -398,7 +398,7 @@
       "Orders schema-validated before publishing to execution:orders",
       "Runs independently on every market event"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-002",

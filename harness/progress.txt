@@ -813,3 +813,16 @@ Remaining 12 features:
   Wave 6: HARNESS-002, TEST-001, DEPLOY-001, RISK-009
 
 Next: Resume with Wave 4 — circuit breakers (RISK-001/002/005) + rebalancing (PORT-003)
+
+--- Session 2026-03-08-01 ---
+Agent: Claude Opus 4.6
+Worked on: RISK-001 — Drawdown circuit breaker direct emission
+Completed:
+  - Updated get_unwind_orders() to produce schema-compliant orders matching execution-orders.schema.json
+  - Orders now use CB:drawdown strategy prefix, withdraw action, base chain, per-position protocol
+  - Each order includes version, orderId (UUID), correlationId, timestamp, chain, protocol, action, strategy, priority, params, limits
+  - Added correlation_id parameter to get_unwind_orders() signature (main.py already passes it)
+  - Updated TestUnwindOrders tests to verify schema-compliant format (6 tests, up from 3)
+  - All 1217 py-engine tests pass, verify.sh exits 0
+Blocked: none
+Next: Continue Wave 4 — RISK-002, RISK-005, PORT-003
