@@ -165,6 +165,40 @@ class TestEntrySignals:
         entry_signals = [s for s in report.signals if s.type == SignalType.ENTRY_MET]
         assert len(entry_signals) == 0
 
+    def test_no_entry_when_apy_improvement_below_threshold(self) -> None:
+        """Current position at 3.0% APY, new pool at 3.3% — only 0.3% improvement.
+
+        Should NOT trigger entry since MIN_APY_IMPROVEMENT is 0.5%.
+        """
+        strategy = AaveLendingStrategy(current_position_apy=0.03)
+        pool = _pool("USDC", apy=0.033, tvl=5_000_000)
+        report = strategy.evaluate(_snapshot(pools=[pool]))
+        entry_signals = [s for s in report.signals if s.type == SignalType.ENTRY_MET]
+        assert len(entry_signals) == 0
+
+    def test_entry_when_apy_improvement_meets_threshold(self) -> None:
+        """Current position at 3.0% APY, new pool at 3.6% — 0.6% improvement.
+
+        Should trigger entry since 0.6% > MIN_APY_IMPROVEMENT (0.5%).
+        """
+        strategy = AaveLendingStrategy(current_position_apy=0.03)
+        pool = _pool("USDC", apy=0.036, tvl=5_000_000)
+        report = strategy.evaluate(_snapshot(pools=[pool]))
+        entry_signals = [s for s in report.signals if s.type == SignalType.ENTRY_MET]
+        assert len(entry_signals) == 1
+        assert entry_signals[0].actionable is True
+
+    def test_entry_no_current_position_uses_zero(self) -> None:
+        """When no current position, current_apy defaults to 0.0.
+
+        A pool at 1.5% APY should trigger entry (1.5% > 0.5% threshold,
+        and above exit floor).
+        """
+        pool = _pool("USDC", apy=0.015, tvl=5_000_000)
+        report = _make_strategy().evaluate(_snapshot(pools=[pool]))
+        entry_signals = [s for s in report.signals if s.type == SignalType.ENTRY_MET]
+        assert len(entry_signals) == 1
+
 
 # ---------------------------------------------------------------------------
 # Exit signals

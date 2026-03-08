@@ -546,7 +546,7 @@
     "steps": [
       "High-impact action detection (large trades, protocol withdrawals)",
       "Approval request mechanism",
-      "Blocks execution until approval received or timeout",
+      "Non-blocking approval lifecycle: request returns PENDING, callers poll check_approval(), auto-times-out",
       "Configurable approval thresholds"
     ],
     "passes": true

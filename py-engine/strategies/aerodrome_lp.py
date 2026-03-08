@@ -137,7 +137,8 @@ class AerodromeLpStrategy:
         # --- Entry signals ---
         entry_apr_met = best_pool.apy >= MIN_EMISSION_APR
         entry_tvl_met = best_pool.tvl >= MIN_TVL_ENTRY
-        entry_met = entry_apr_met and entry_tvl_met
+        aero_has_liquidity = aero_price is not None and aero_price > 0
+        entry_met = entry_apr_met and entry_tvl_met and aero_has_liquidity
 
         if entry_met:
             signals.append(Signal(

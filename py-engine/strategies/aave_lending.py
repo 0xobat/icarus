@@ -46,6 +46,14 @@ class AaveLendingStrategy:
     an optional recommendation when conditions are met.
     """
 
+    def __init__(self, current_position_apy: float = 0.0) -> None:
+        """Initialize with optional current position APY for differential check.
+
+        Args:
+            current_position_apy: APY of the current lending position (0.0 if none).
+        """
+        self.current_position_apy = current_position_apy
+
     @property
     def strategy_id(self) -> str:
         """Unique identifier matching STRATEGY.md."""
@@ -143,7 +151,7 @@ class AaveLendingStrategy:
             )
 
         # --- Entry signal evaluation ---
-        entry_actionable = self._check_entry(best, snapshot.gas)
+        entry_actionable = self._check_entry(best, snapshot.gas, self.current_position_apy)
         if entry_actionable:
             signals.append(Signal(
                 type=SignalType.ENTRY_MET,
@@ -190,19 +198,25 @@ class AaveLendingStrategy:
             and p.apy > 0
         ]
 
-    def _check_entry(self, pool: PoolState, gas: GasInfo) -> bool:
+    def _check_entry(self, pool: PoolState, gas: GasInfo, current_apy: float = 0.0) -> bool:
         """Check if entry conditions are met for a pool.
 
         Entry requires:
-        - APY >= MIN_APY_IMPROVEMENT (0.5%)
+        - APY improvement over current position >= MIN_APY_IMPROVEMENT (0.5%)
         - TVL >= $1M (already filtered by _filter_pools)
         - No gas spike (>3x 24h avg)
+
+        Args:
+            pool: Candidate pool to enter.
+            gas: Current gas conditions.
+            current_apy: APY of the current lending position (0.0 if none).
 
         Position-size-dependent constraints (gas amortization within 14 days,
         monthly gain > $1) are reported as observations but enforced by the
         decision gate which knows the actual position size.
         """
-        if pool.apy < MIN_APY_IMPROVEMENT:
+        improvement = pool.apy - current_apy
+        if improvement < MIN_APY_IMPROVEMENT:
             return False
 
         # Gas spike check
