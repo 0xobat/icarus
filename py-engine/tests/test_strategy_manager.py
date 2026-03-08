@@ -346,8 +346,14 @@ class RecordingStrategy:
 class TestDataWindowSlicing:
     def test_slice_snapshot_filters_old_prices(self):
         now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
-        recent = TokenPrice(token="ETH", price=3000.0, source="test", timestamp=now - timedelta(minutes=30))
-        old = TokenPrice(token="BTC", price=90000.0, source="test", timestamp=now - timedelta(hours=2))
+        recent = TokenPrice(
+            token="ETH", price=3000.0, source="test",
+            timestamp=now - timedelta(minutes=30),
+        )
+        old = TokenPrice(
+            token="BTC", price=90000.0, source="test",
+            timestamp=now - timedelta(hours=2),
+        )
         snapshot = MarketSnapshot(
             prices=[recent, old],
             gas=GasInfo(current_gwei=1.0, avg_24h_gwei=1.0),
@@ -378,8 +384,14 @@ class TestDataWindowSlicing:
         mgr = StrategyManager(repo, {"REC-001": RecordingStrategy})
 
         now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
-        recent = TokenPrice(token="ETH", price=3000.0, source="test", timestamp=now - timedelta(minutes=30))
-        old = TokenPrice(token="BTC", price=90000.0, source="test", timestamp=now - timedelta(hours=2))
+        recent = TokenPrice(
+            token="ETH", price=3000.0, source="test",
+            timestamp=now - timedelta(minutes=30),
+        )
+        old = TokenPrice(
+            token="BTC", price=90000.0, source="test",
+            timestamp=now - timedelta(hours=2),
+        )
         snapshot = MarketSnapshot(
             prices=[recent, old],
             gas=GasInfo(current_gwei=1.0, avg_24h_gwei=1.0),

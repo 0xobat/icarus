@@ -63,6 +63,8 @@ export interface SafeWalletOptions {
   dailyCapWei?: bigint;
   /** Allowlisted contract addresses. */
   allowlist?: Set<Address>;
+  /** Block confirmations to wait before treating a TX as final. Defaults to 1. */
+  confirmations?: number;
   /** Structured log callback. */
   onLog?: (event: string, message: string, extra?: Record<string, unknown>) => void;
 }
@@ -98,6 +100,7 @@ export class SafeWalletManager implements SafeWalletLike {
   private readonly chain: Chain;
   private readonly limits: { perTxCapWei: bigint; dailyCapWei: bigint };
   private readonly allowlistSet: Set<Address>;
+  private readonly confirmations: number;
   private readonly log: (event: string, message: string, extra?: Record<string, unknown>) => void;
 
   // Daily spending tracker
@@ -112,6 +115,7 @@ export class SafeWalletManager implements SafeWalletLike {
     chain: Chain,
     limits: { perTxCapWei: bigint; dailyCapWei: bigint },
     allowlist: Set<Address>,
+    confirmations: number,
     onLog: (event: string, message: string, extra?: Record<string, unknown>) => void,
   ) {
     this.account = account;
@@ -121,6 +125,7 @@ export class SafeWalletManager implements SafeWalletLike {
     this.chain = chain;
     this.limits = limits;
     this.allowlistSet = allowlist;
+    this.confirmations = confirmations;
     this.log = onLog;
   }
 
@@ -153,6 +158,7 @@ export class SafeWalletManager implements SafeWalletLike {
     };
 
     const allowlist = opts.allowlist ?? loadAllowlistFromEnv();
+    const confirmations = opts.confirmations ?? 1;
     const onLog = opts.onLog ?? (() => {});
 
     let protocolKit: Safe;
@@ -201,6 +207,7 @@ export class SafeWalletManager implements SafeWalletLike {
       chain,
       limits,
       allowlist,
+      confirmations,
       onLog,
     );
   }
@@ -240,7 +247,7 @@ export class SafeWalletManager implements SafeWalletLike {
       transport: http(this.rpcUrl),
     });
 
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: this.confirmations });
 
     this.log('safe_tx_executed', 'Safe transaction executed', {
       hash,
@@ -274,7 +281,7 @@ export class SafeWalletManager implements SafeWalletLike {
       transport: http(this.rpcUrl),
     });
 
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: this.confirmations });
 
     this.log('safe_batch_executed', 'Safe batch transaction executed', {
       hash,
