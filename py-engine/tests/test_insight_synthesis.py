@@ -707,6 +707,32 @@ class TestStrategyReportInclusion:
         result = synth._collect_strategies()
         assert not any(s.get("latest_report") for s in result)
 
+
+# ---------------------------------------------------------------------------
+# Synthesizer -- objectives from STRATEGY.md (Task 3)
+# ---------------------------------------------------------------------------
+
+
+class TestObjectivesInclusion:
+
+    def test_snapshot_includes_objectives(self) -> None:
+        """Snapshot should include strategy objectives."""
+        synth = _make_synthesizer()
+        snapshot = synth.synthesize()
+        d = snapshot.to_dict()
+        assert "objectives" in d
+        assert d["objectives"] is not None
+        assert d["objectives"]["source"] == "STRATEGY.md"
+
+    def test_objectives_has_content_or_status(self) -> None:
+        """Objectives should have either content or status."""
+        synth = _make_synthesizer()
+        result = synth._collect_objectives()
+        assert "content" in result or "status" in result
+
+
+class TestStrategyReportReplaces:
+
     def test_update_strategy_reports_replaces(self) -> None:
         """update_strategy_reports should replace previous reports."""
         from strategies.base import StrategyReport

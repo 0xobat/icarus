@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from monitoring.logger import get_logger
@@ -44,6 +45,7 @@ class InsightSnapshot:
     risk_status: dict[str, Any]
     strategies: list[dict[str, Any]]
     recent_decisions: list[dict[str, Any]]
+    objectives: dict[str, Any] | None = None
     timestamp: str = ""
     snapshot_version: str = "1.0.0"
 
@@ -448,6 +450,26 @@ class InsightSynthesizer:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
+    def _collect_objectives(self) -> dict[str, Any]:
+        """Load strategy objectives from STRATEGY.md for prompt context."""
+        strategy_path = Path(__file__).parent.parent / "STRATEGY.md"
+        if not strategy_path.exists():
+            strategy_path = Path(__file__).parent.parent.parent / "STRATEGY.md"
+        if not strategy_path.exists():
+            return {"source": "STRATEGY.md", "status": "not_found"}
+        try:
+            content = strategy_path.read_text()
+            return {
+                "source": "STRATEGY.md",
+                "content": content[:2000],
+            }
+        except Exception as e:
+            _logger.warning(
+                "Failed to load STRATEGY.md",
+                extra={"data": {"error": str(e)}},
+            )
+            return {"source": "STRATEGY.md", "status": "read_error"}
+
     def synthesize(self) -> InsightSnapshot:
         """Collect, enrich, compress, and validate a full insight snapshot.
 
@@ -486,6 +508,9 @@ class InsightSynthesizer:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
+        # Step 4b: Collect strategy objectives
+        objectives = self._collect_objectives()
+
         # Step 5: Build snapshot
         snapshot = InsightSnapshot(
             market_data=market_data,
@@ -493,6 +518,7 @@ class InsightSynthesizer:
             risk_status=raw_risk,
             strategies=raw_strategies,
             recent_decisions=list(self._recent_decisions),
+            objectives=objectives,
         )
 
         # Step 6: Validate before returning
