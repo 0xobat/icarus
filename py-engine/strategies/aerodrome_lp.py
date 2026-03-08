@@ -182,27 +182,15 @@ class AerodromeLpStrategy:
         deadline = int(now.timestamp()) + self.config.default_deadline_seconds
 
         # Compute max deployable amount respecting allocation limit
-        available = self.allocator.get_available_capital(STRATEGY_TIER)
-        max_alloc = self.config.max_allocation_pct * self.allocator.total_capital
-
-        # Respect protocol exposure limit
-        max_protocol = (
-            self.allocator.config.max_protocol_exposure
-            * self.allocator.total_capital
-        )
-        by_proto = self.allocator._deployed_by_protocol()
-        proto_room = max_protocol - by_proto.get("aerodrome", Decimal(0))
-
-        amount = min(available, max_alloc, proto_room)
+        available = self.allocator.get_available_capital(STRATEGY_ID)
+        amount = min(available, self.config.max_allocation_pct * self.allocator.total_capital)
 
         if amount < Decimal("1"):
             return []
 
         check = self.allocator.check_allocation({
             "value_usd": float(amount),
-            "protocol": "aerodrome",
-            "asset": best.token_a,
-            "tier": STRATEGY_TIER,
+            "strategy": STRATEGY_ID,
         })
         if not check.allowed:
             _logger.info(

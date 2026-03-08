@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from monitoring.logger import correlation_context, get_correlation_id
-from portfolio.allocator import AllocatorConfig, PortfolioAllocator
+from portfolio.allocator import PortfolioAllocator
 from portfolio.position_tracker import PositionTracker
 from strategies.aave_lending import (
     AaveLendingConfig,
@@ -79,13 +79,10 @@ def _make_execution_result(
 
 def _make_strategy(
     total_capital: str = "10000",
-    positions: dict | None = None,
     config: AaveLendingConfig | None = None,
 ) -> tuple[AaveLendingStrategy, PortfolioAllocator, PositionTracker]:
     alloc = PortfolioAllocator(
         Decimal(total_capital),
-        positions or {},
-        AllocatorConfig(),
     )
     tracker = PositionTracker()
     strat = AaveLendingStrategy(alloc, tracker, config)

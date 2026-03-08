@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from portfolio.allocator import AllocatorConfig, PortfolioAllocator
+from portfolio.allocator import PortfolioAllocator
 from portfolio.position_tracker import PositionTracker
 from strategies.aerodrome_lp import (
     STRATEGY_ID,
@@ -42,14 +42,9 @@ def _make_pool(
 
 def _make_strategy(
     total_capital: str = "2000",
-    positions: dict | None = None,
     config: AerodromeLpConfig | None = None,
 ) -> tuple[AerodromeLpStrategy, PortfolioAllocator, PositionTracker]:
-    allocator = PortfolioAllocator(
-        Decimal(total_capital),
-        positions or {},
-        AllocatorConfig(),
-    )
+    allocator = PortfolioAllocator(Decimal(total_capital))
     tracker = PositionTracker()
     return AerodromeLpStrategy(allocator, tracker, config), allocator, tracker
 

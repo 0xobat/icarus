@@ -357,7 +357,7 @@
       "Allocation state persisted in PostgreSQL",
       "Provides allocation data for Claude's prompt context"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "PORT-002",

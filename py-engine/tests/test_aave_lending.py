@@ -42,14 +42,9 @@ def _sample_markets() -> list[AaveMarket]:
 
 def _make_strategy(
     total_capital: str = "10000",
-    positions: dict | None = None,
     config: AaveLendingConfig | None = None,
 ) -> tuple[AaveLendingStrategy, PortfolioAllocator, PositionTracker]:
-    alloc = PortfolioAllocator(
-        Decimal(total_capital),
-        positions or {},
-        AllocatorConfig(),
-    )
+    alloc = PortfolioAllocator(Decimal(total_capital))
     tracker = PositionTracker()
     strat = AaveLendingStrategy(alloc, tracker, config)
     return strat, alloc, tracker
@@ -193,24 +188,21 @@ class TestGasCostAccounting:
 class TestExposureLimits:
     """Strategy must respect PortfolioAllocator limits."""
 
-    def test_new_position_respects_protocol_limit(self) -> None:
-        # Aave already at 40% → no room left under protocol limit
-        positions = {
-            "existing": {
-                "value_usd": 4000, "protocol": "aave",
-                "asset": "USDC", "tier": 1,
-            },
-        }
-        strat, _, tracker = _make_strategy(positions=positions)
+    def test_new_position_respects_strategy_limit(self) -> None:
+        # LEND-001 already at 70% → no room left under strategy limit
+        strat, alloc, tracker = _make_strategy()
+        alloc.update_allocation("LEND-001", Decimal("7000"))  # 70% of 10000
         orders = strat.generate_orders(_sample_markets())
-        # proto_room = 4000 - 4000 = 0 → below min position → no orders
+        # strategy limit 70% already filled → no room → no orders
         assert len(orders) == 0
 
     def test_rotation_blocked_by_allocator(self) -> None:
         # Existing position in aave, rotation to aave on different asset
-        # but with allocator configured to reject
-        config = AllocatorConfig(max_protocol_exposure=Decimal("0.00"))
-        alloc = PortfolioAllocator(Decimal("10000"), {}, config)
+        # but with allocator configured to reject (strategy limit = 0%)
+        alloc_config = AllocatorConfig(
+            strategy_limits={"LEND-001": Decimal("0.00"), "LP-001": Decimal("0.30")},
+        )
+        alloc = PortfolioAllocator(Decimal("10000"), config=alloc_config)
         tracker = PositionTracker()
         tracker.open_position(
             strategy="LEND-001", protocol="aave", chain="base",

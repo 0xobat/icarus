@@ -210,9 +210,7 @@ class AaveLendingStrategy:
             # Check exposure limit for the new market
             check = self.allocator.check_allocation({
                 "value_usd": float(pos.current_value),
-                "protocol": "aave",
-                "asset": best.asset,
-                "tier": STRATEGY_TIER,
+                "strategy": STRATEGY_ID,
             })
             if not check.allowed:
                 _logger.info(
@@ -250,27 +248,18 @@ class AaveLendingStrategy:
             ))
         else:
             # No existing position — find max deployable amount
-            available = self.allocator.get_available_capital(STRATEGY_TIER)
+            available = self.allocator.get_available_capital(STRATEGY_ID)
             if available < self.config.min_position_value_usd:
                 return []
 
-            # Also respect protocol exposure limit
-            max_protocol = (
-                self.allocator.config.max_protocol_exposure
-                * self.allocator.total_capital
-            )
-            by_proto = self.allocator._deployed_by_protocol()
-            proto_room = max_protocol - by_proto.get("aave", Decimal(0))
-            amount = min(available, proto_room)
+            amount = available
 
             if amount < self.config.min_position_value_usd:
                 return []
 
             check = self.allocator.check_allocation({
                 "value_usd": float(amount),
-                "protocol": "aave",
-                "asset": best.asset,
-                "tier": STRATEGY_TIER,
+                "strategy": STRATEGY_ID,
             })
             if not check.allowed:
                 _logger.info(

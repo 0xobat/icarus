@@ -203,7 +203,6 @@ class TestCrossServiceValidation:
 
         allocator = PortfolioAllocator(
             total_capital=Decimal("10000"),
-            positions={},
         )
         tracker = PositionTracker()
         config = AaveLendingConfig(
