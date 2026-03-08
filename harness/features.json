@@ -316,7 +316,7 @@
       "Strategy status persisted in PostgreSQL, loaded at startup",
       "Concurrent async evaluation of active strategies"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "STRAT-003",
