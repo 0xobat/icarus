@@ -103,14 +103,14 @@ class TestCriticalThreshold:
 
     def test_critical_at_20pct(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         assert b.trading_halted
         assert b.entries_paused
         assert b.level == "critical"
 
     def test_should_unwind_all_at_critical(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         assert b.should_unwind_all()
 
     def test_not_unwind_below_critical(self) -> None:
@@ -120,7 +120,7 @@ class TestCriticalThreshold:
 
     def test_alert_generated_on_critical(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         critical_alerts = [
             a for a in b.alerts if a["level"] == "critical"
         ]
@@ -129,8 +129,26 @@ class TestCriticalThreshold:
 
     def test_cannot_open_position_critical(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         assert not b.can_open_position()
+
+
+# ---------------------------------------------------------------------------
+# Boundary: exactly 20% must NOT trigger critical (spec says >20%)
+# ---------------------------------------------------------------------------
+class TestCriticalBoundary:
+
+    def test_exactly_20pct_does_not_trigger_critical(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        b.update(Decimal("8000"))  # exactly 20%
+        assert not b.trading_halted
+        assert not b.should_unwind_all()
+
+    def test_just_over_20pct_triggers_critical(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        b.update(Decimal("7999"))  # 20.01%
+        assert b.trading_halted
+        assert b.should_unwind_all()
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +158,7 @@ class TestUnwindOrders:
 
     def test_generates_schema_compliant_orders(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         positions = [
             {"id": "p1", "asset": "ETH", "protocol": "aave_v3", "value": "5000"},
             {"id": "p2", "asset": "WBTC", "protocol": "aerodrome", "value": "3000"},
@@ -171,7 +189,7 @@ class TestUnwindOrders:
 
     def test_cb_drawdown_strategy_prefix(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         orders = b.get_unwind_orders(
             [{"id": "p1", "asset": "ETH", "protocol": "aave_v3"}],
             correlation_id="c1",
@@ -186,18 +204,18 @@ class TestUnwindOrders:
 
     def test_empty_positions_returns_empty(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         assert b.get_unwind_orders([]) == []
 
     def test_default_protocol_is_aave_v3(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         orders = b.get_unwind_orders([{"id": "p1", "asset": "ETH"}])
         assert orders[0]["protocol"] == "aave_v3"
 
     def test_unique_order_ids(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         positions = [
             {"id": "p1", "asset": "ETH"},
             {"id": "p2", "asset": "WBTC"},
@@ -213,7 +231,7 @@ class TestManualRestart:
 
     def test_restart_clears_halt(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         assert b.trading_halted
         assert b.manual_restart()
         assert not b.trading_halted
@@ -222,9 +240,9 @@ class TestManualRestart:
 
     def test_restart_resets_peak(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         b.manual_restart()
-        assert b.peak_value == Decimal("8000")
+        assert b.peak_value == Decimal("7999")
 
     def test_restart_when_not_halted_returns_false(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
@@ -232,7 +250,7 @@ class TestManualRestart:
 
     def test_no_auto_resume_from_critical(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         assert b.trading_halted
         # Even if value recovers, critical halt persists
         b.update(Decimal("9500"))
@@ -255,7 +273,7 @@ class TestRecovery:
 
     def test_critical_does_not_clear_on_recovery(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        b.update(Decimal("8000"))
+        b.update(Decimal("7999"))
         assert b.trading_halted
         b.update(Decimal("10000"))
         assert b.trading_halted
@@ -284,7 +302,7 @@ class TestStateSnapshot:
 
     def test_get_state_critical(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
-        state = b.update(Decimal("8000"))
+        state = b.update(Decimal("7999"))
         assert state.level == "critical"
         assert state.trading_halted
         assert state.triggered_at is not None
@@ -308,5 +326,5 @@ class TestCustomThresholds:
             initial_value=Decimal("10000"),
             critical_threshold=Decimal("0.10"),
         )
-        b.update(Decimal("9000"))
+        b.update(Decimal("8999"))
         assert b.trading_halted

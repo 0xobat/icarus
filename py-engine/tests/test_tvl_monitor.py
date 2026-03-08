@@ -164,15 +164,15 @@ class TestCriticalThreshold:
     def test_critical_at_30pct_drop(self) -> None:
         m = _make_monitor()
         m.record_tvl("aave", "ethereum", Decimal("10000000"), "defillama")
-        m.record_tvl("aave", "ethereum", Decimal("7000000"), "defillama")
+        m.record_tvl("aave", "ethereum", Decimal("6999999"), "defillama")
         result = m.check_protocol("aave", "ethereum")
         assert result["status"] == "critical"
-        assert result["drop_pct"] == Decimal("0.3")
+        assert result["drop_pct"] > Decimal("0.3")
 
     def test_should_withdraw_at_critical(self) -> None:
         m = _make_monitor()
         m.record_tvl("aave", "ethereum", Decimal("10000000"), "defillama")
-        m.record_tvl("aave", "ethereum", Decimal("7000000"), "defillama")
+        m.record_tvl("aave", "ethereum", Decimal("6999999"), "defillama")
         assert m.should_withdraw("aave", "ethereum")
 
     def test_should_not_withdraw_below_critical(self) -> None:
@@ -184,7 +184,7 @@ class TestCriticalThreshold:
     def test_critical_alert_generated(self) -> None:
         m = _make_monitor()
         m.record_tvl("aave", "ethereum", Decimal("10000000"), "defillama")
-        m.record_tvl("aave", "ethereum", Decimal("7000000"), "defillama")
+        m.record_tvl("aave", "ethereum", Decimal("6999999"), "defillama")
         m.check_protocol("aave", "ethereum")
         critical_alerts = [a for a in m.alerts if a["level"] == "critical"]
         assert len(critical_alerts) == 1
@@ -193,6 +193,28 @@ class TestCriticalThreshold:
     def test_should_withdraw_no_data(self) -> None:
         m = _make_monitor()
         assert not m.should_withdraw("unknown", "ethereum")
+
+
+# ---------------------------------------------------------------------------
+# Boundary: exactly 30% must NOT trigger critical (spec says >30%)
+# ---------------------------------------------------------------------------
+class TestCriticalBoundary:
+
+    def test_exactly_30pct_does_not_trigger_critical(self) -> None:
+        m = _make_monitor()
+        m.record_tvl("aave", "ethereum", Decimal("10000000"), "defillama")
+        m.record_tvl("aave", "ethereum", Decimal("7000000"), "defillama")  # exactly 30%
+        result = m.check_protocol("aave", "ethereum")
+        assert result["status"] != "critical"
+        assert not m.should_withdraw("aave", "ethereum")
+
+    def test_just_over_30pct_triggers_critical(self) -> None:
+        m = _make_monitor()
+        m.record_tvl("aave", "ethereum", Decimal("10000000"), "defillama")
+        m.record_tvl("aave", "ethereum", Decimal("6999999"), "defillama")  # >30%
+        result = m.check_protocol("aave", "ethereum")
+        assert result["status"] == "critical"
+        assert m.should_withdraw("aave", "ethereum")
 
 
 # ---------------------------------------------------------------------------
@@ -233,11 +255,11 @@ class TestWindowPruning:
         )
         m._snapshots[("aave", "ethereum")].append(recent_snap)
         # Record a new, lower snapshot
-        m.record_tvl("aave", "ethereum", Decimal("7000000"), "defillama")
+        m.record_tvl("aave", "ethereum", Decimal("6999999"), "defillama")
         # Peak should be from the 12h-old snapshot (still in window)
         result = m.check_protocol("aave", "ethereum")
         assert result["peak_tvl"] == Decimal("10000000")
-        assert result["current_tvl"] == Decimal("7000000")
+        assert result["current_tvl"] == Decimal("6999999")
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +271,7 @@ class TestMultipleProtocols:
         m = _make_monitor()
         m.record_tvl("aave", "ethereum", Decimal("10000000"), "defillama")
         m.record_tvl("lido", "ethereum", Decimal("20000000"), "defillama")
-        m.record_tvl("aave", "ethereum", Decimal("7000000"), "defillama")
+        m.record_tvl("aave", "ethereum", Decimal("6999999"), "defillama")
 
         aave = m.check_protocol("aave", "ethereum")
         lido = m.check_protocol("lido", "ethereum")
@@ -261,7 +283,7 @@ class TestMultipleProtocols:
         m = _make_monitor()
         m.record_tvl("aave", "ethereum", Decimal("10000000"), "defillama")
         m.record_tvl("aave", "arbitrum", Decimal("5000000"), "defillama")
-        m.record_tvl("aave", "ethereum", Decimal("7000000"), "defillama")
+        m.record_tvl("aave", "ethereum", Decimal("6999999"), "defillama")
 
         eth = m.check_protocol("aave", "ethereum")
         arb = m.check_protocol("aave", "arbitrum")
@@ -293,7 +315,7 @@ class TestWithdrawalTargets:
     def test_withdrawal_targets_includes_critical(self) -> None:
         m = _make_monitor()
         m.record_tvl("aave", "ethereum", Decimal("10000000"), "defillama")
-        m.record_tvl("aave", "ethereum", Decimal("7000000"), "defillama")
+        m.record_tvl("aave", "ethereum", Decimal("6999999"), "defillama")
         m.record_tvl("lido", "ethereum", Decimal("20000000"), "defillama")
 
         targets = m.get_withdrawal_targets()
@@ -319,7 +341,7 @@ class TestReset:
     def test_reset_clears_history(self) -> None:
         m = _make_monitor()
         m.record_tvl("aave", "ethereum", Decimal("10000000"), "defillama")
-        m.record_tvl("aave", "ethereum", Decimal("7000000"), "defillama")
+        m.record_tvl("aave", "ethereum", Decimal("6999999"), "defillama")
         assert m.should_withdraw("aave", "ethereum")
 
         m.reset("aave", "ethereum")

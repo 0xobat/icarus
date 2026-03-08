@@ -38,8 +38,8 @@ class TestDrawdownIntegration:
         assert not breaker.can_open_position()
         assert not breaker.should_unwind_all()
 
-        # 20% drop — critical level
-        state = breaker.update(Decimal("8000"))
+        # >20% drop — critical level
+        state = breaker.update(Decimal("7999"))
         assert state.level == "critical"
         assert not breaker.can_open_position()
         assert breaker.should_unwind_all()
@@ -55,7 +55,7 @@ class TestDrawdownIntegration:
         assert diag.is_active
         assert diag.should_block_trading()
         assert dump.trigger == "critical_circuit_breaker"
-        assert dump.additional_context["drawdown_pct"] == "0.2"
+        assert Decimal(dump.additional_context["drawdown_pct"]) > Decimal("0.2")
 
         # Verify manual restart is required to reset breaker
         assert breaker.trading_halted
@@ -84,7 +84,7 @@ class TestDrawdownIntegration:
         assert len(breaker.alerts) == 1
         assert breaker.alerts[0]["level"] == "warning"
 
-        breaker.update(Decimal("8000"))  # 20% — critical alert
+        breaker.update(Decimal("7999"))  # >20% — critical alert
         assert len(breaker.alerts) == 2
         assert breaker.alerts[1]["level"] == "critical"
 
@@ -289,8 +289,8 @@ class TestCombinedScenario:
         gas = GasSpikeBreaker(spike_multiplier=Decimal("3"))
         tx_mon = TxFailureMonitor(window_seconds=3600, failure_threshold=2)
 
-        # Drawdown hits critical
-        drawdown.update(Decimal("8000"))
+        # Drawdown hits critical (>20%)
+        drawdown.update(Decimal("7999"))
         assert drawdown.should_unwind_all()
 
         # Gas spike active

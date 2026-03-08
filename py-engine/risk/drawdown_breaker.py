@@ -118,7 +118,7 @@ class DrawdownBreaker:
         now = datetime.now(UTC).isoformat()
 
         # Critical threshold — halt everything
-        if dd >= self._critical_threshold and not self._trading_halted:
+        if dd > self._critical_threshold and not self._trading_halted:
             self._trading_halted = True
             self._entries_paused = True
             self._triggered_at = now
