@@ -275,3 +275,137 @@ class TestStateSnapshot:
         state = mon.get_state()
         assert state.failure_breakdown["revert"] == 2
         assert state.failure_breakdown["timeout"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Hold mode integration (RISK-004)
+# ---------------------------------------------------------------------------
+class TestHoldModeIntegration:
+
+    def test_enters_hold_mode_on_breach(self) -> None:
+        from harness.hold_mode import HoldMode, HoldTrigger
+
+        hm = HoldMode()
+        mon = _make_monitor(failure_threshold=2, hold_mode=hm)
+        for i in range(3):
+            mon.record_failure(tx_id=f"tx{i}", reason="revert")
+        assert mon.is_paused
+        assert hm.is_active()
+        assert hm.trigger == HoldTrigger.TX_FAILURE_RATE
+
+    def test_hold_mode_not_entered_below_threshold(self) -> None:
+        from harness.hold_mode import HoldMode
+
+        hm = HoldMode()
+        mon = _make_monitor(failure_threshold=3, hold_mode=hm)
+        for i in range(3):
+            mon.record_failure(tx_id=f"tx{i}", reason="revert")
+        assert not mon.is_paused
+        assert not hm.is_active()
+
+    def test_works_without_hold_mode(self) -> None:
+        mon = _make_monitor(failure_threshold=2)
+        for i in range(3):
+            mon.record_failure(tx_id=f"tx{i}", reason="revert")
+        assert mon.is_paused  # still pauses internally
+
+    def test_hold_mode_diagnostics_context(self) -> None:
+        from harness.hold_mode import HoldMode
+
+        hm = HoldMode()
+        mon = _make_monitor(failure_threshold=2, hold_mode=hm)
+        for i in range(3):
+            mon.record_failure(tx_id=f"tx{i}", reason="revert")
+        diag = hm.diagnostics
+        assert diag is not None
+        assert diag.trigger == "tx_failure_rate"
+        assert "failures_in_window" in diag.context
+
+
+# ---------------------------------------------------------------------------
+# is_triggered
+# ---------------------------------------------------------------------------
+class TestIsTriggered:
+
+    def test_not_triggered_initially(self) -> None:
+        mon = _make_monitor()
+        assert not mon.is_triggered()
+
+    def test_triggered_when_over_threshold(self) -> None:
+        mon = _make_monitor(failure_threshold=2)
+        for i in range(3):
+            mon.record_failure(tx_id=f"tx{i}", reason="revert")
+        assert mon.is_triggered()
+
+    def test_not_triggered_at_threshold(self) -> None:
+        mon = _make_monitor(failure_threshold=3)
+        for i in range(3):
+            mon.record_failure(tx_id=f"tx{i}", reason="revert")
+        assert not mon.is_triggered()
+
+    def test_triggered_clears_after_window(self) -> None:
+        mon = _make_monitor(failure_threshold=2, window_seconds=3600)
+        now = _now()
+        for i in range(3):
+            mon.record_failure(tx_id=f"tx{i}", reason="revert", now=now)
+        assert mon.is_triggered(now=now)
+        future = now + timedelta(hours=2)
+        assert not mon.is_triggered(now=future)
+
+
+# ---------------------------------------------------------------------------
+# Auto-clear (RISK-004)
+# ---------------------------------------------------------------------------
+class TestAutoClear:
+
+    def test_auto_clears_on_success_after_window_expires(self) -> None:
+        from harness.hold_mode import HoldMode
+
+        hm = HoldMode()
+        mon = _make_monitor(
+            failure_threshold=2, window_seconds=3600, hold_mode=hm,
+        )
+        now = _now()
+        for i in range(3):
+            mon.record_failure(tx_id=f"tx{i}", reason="revert", now=now)
+        assert mon.is_paused
+        assert hm.is_active()
+
+        # After window expires, record a success → should auto-clear
+        future = now + timedelta(hours=2)
+        mon.record_success("tx_ok", now=future)
+        assert not mon.is_paused
+        assert not mon.diagnostic_mode
+        assert mon.can_execute()
+        assert not hm.is_active()
+
+    def test_no_auto_clear_while_still_over_threshold(self) -> None:
+        from harness.hold_mode import HoldMode
+
+        hm = HoldMode()
+        mon = _make_monitor(
+            failure_threshold=2, window_seconds=3600, hold_mode=hm,
+        )
+        now = _now()
+        for i in range(3):
+            mon.record_failure(tx_id=f"tx{i}", reason="revert", now=now)
+        assert mon.is_paused
+
+        # Success within the same window — still over threshold
+        mon.record_success("tx_ok", now=now)
+        assert mon.is_paused
+        assert hm.is_active()
+
+    def test_auto_clear_without_hold_mode(self) -> None:
+        mon = _make_monitor(
+            failure_threshold=2, window_seconds=3600,
+        )
+        now = _now()
+        for i in range(3):
+            mon.record_failure(tx_id=f"tx{i}", reason="revert", now=now)
+        assert mon.is_paused
+
+        future = now + timedelta(hours=2)
+        mon.record_success("tx_ok", now=future)
+        assert not mon.is_paused
+        assert mon.can_execute()

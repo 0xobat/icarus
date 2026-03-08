@@ -1,17 +1,20 @@
-"""TX failure rate monitor — rolling failure detection and diagnostic mode (RISK-004).
+"""TX failure rate monitor — rolling failure detection with hold mode (RISK-004).
 
 Counts failed transactions in a rolling 1-hour window. At >3 failures/hour:
-pause execution, enter diagnostic mode. Failures categorized by type.
-Does NOT auto-resume — requires manual investigation.
+pause execution, enter hold mode via ``HoldTrigger.TX_FAILURE_RATE``.
+Auto-clears when failure rate drops below threshold.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from monitoring.logger import get_logger
+
+if TYPE_CHECKING:
+    from harness.hold_mode import HoldMode
 
 _logger = get_logger("tx-failure-monitor", enable_file=False)
 
@@ -61,12 +64,12 @@ class MonitorState:
 
 
 class TxFailureMonitor:
-    """TX failure rate monitor with diagnostic mode.
+    """TX failure rate monitor with hold mode integration.
 
     - Tracks failed transactions in rolling 1-hour window
-    - At >3 failures/hour: pause all execution, enter diagnostic mode
+    - At >3 failures/hour: pause all execution, enter hold mode
     - Failures categorized: revert, out of gas, timeout, nonce issue
-    - Does NOT auto-resume — requires manual investigation
+    - Auto-clears when failure rate drops below threshold
     - Distinguishes parameter errors vs systemic failures
     """
 
@@ -75,9 +78,11 @@ class TxFailureMonitor:
         *,
         window_seconds: int = DEFAULT_WINDOW_SECONDS,
         failure_threshold: int = DEFAULT_FAILURE_THRESHOLD,
+        hold_mode: HoldMode | None = None,
     ) -> None:
         self._window_seconds = window_seconds
         self._failure_threshold = failure_threshold
+        self._hold_mode = hold_mode
         self._failures: list[TxFailure] = []
         self._is_paused = False
         self._diagnostic_mode = False
@@ -97,6 +102,15 @@ class TxFailureMonitor:
     def alerts(self) -> list[dict[str, Any]]:
         """Return a copy of all failure threshold alerts."""
         return list(self._alerts)
+
+    def is_triggered(self, now: datetime | None = None) -> bool:
+        """Check whether the failure rate exceeds the threshold.
+
+        Returns:
+            True if failures in the rolling window exceed the threshold.
+        """
+        self._prune_old_failures(now)
+        return len(self._failures) > self._failure_threshold
 
     def _classify_failure(self, reason: str) -> str:
         """Classify a failure reason as parameter or systemic."""
@@ -166,19 +180,21 @@ class TxFailureMonitor:
                 "TX failure threshold breached — execution PAUSED",
                 extra={"data": alert},
             )
+            self._enter_hold_mode(count)
 
         return failure
 
-    def record_success(self, tx_id: str) -> None:
-        """Record a successful transaction (no-op for counting).
+    def record_success(self, tx_id: str, *, now: datetime | None = None) -> None:
+        """Record a successful transaction.
 
-        This is a hook for future use. Successes do not clear
-        the pause — manual investigation is required.
+        After recording, checks whether the failure rate has dropped
+        below the threshold and auto-clears if so.
         """
         _logger.debug(
             "Transaction success recorded",
             extra={"data": {"tx_id": tx_id}},
         )
+        self._check_auto_clear(now)
 
     def get_failures_in_window(
         self, now: datetime | None = None,
@@ -210,6 +226,39 @@ class TxFailureMonitor:
         for f in self._failures:
             breakdown[f.category] = breakdown.get(f.category, 0) + 1
         return breakdown
+
+    def _enter_hold_mode(self, failure_count: int) -> None:
+        """Enter hold mode via HoldTrigger.TX_FAILURE_RATE if hold_mode is set."""
+        if self._hold_mode is None:
+            return
+        from harness.hold_mode import HoldTrigger
+        self._hold_mode.enter(
+            reason=f"TX failure rate exceeded: {failure_count} failures in window (threshold: {self._failure_threshold})",
+            trigger=HoldTrigger.TX_FAILURE_RATE,
+            context={
+                "failures_in_window": failure_count,
+                "threshold": self._failure_threshold,
+                "breakdown": self._get_breakdown(),
+            },
+        )
+
+    def _check_auto_clear(self, now: datetime | None = None) -> None:
+        """Auto-clear pause when failure rate drops below threshold."""
+        if not self._is_paused:
+            return
+        self._prune_old_failures(now)
+        if len(self._failures) <= self._failure_threshold:
+            _logger.info(
+                "TX failure rate dropped below threshold — auto-clearing",
+                extra={"data": {
+                    "failures_in_window": len(self._failures),
+                    "threshold": self._failure_threshold,
+                }},
+            )
+            self._is_paused = False
+            self._diagnostic_mode = False
+            if self._hold_mode is not None:
+                self._hold_mode.check_auto_resume(tx_failure_rate_ok=True)
 
     def manual_resume(self) -> bool:
         """Manually resume after investigation.

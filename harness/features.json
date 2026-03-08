@@ -439,7 +439,7 @@
       "Gate-only: pauses execution, enters hold mode",
       "Clears when failure rate drops below threshold"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "RISK-005",
