@@ -632,7 +632,7 @@
       "Startup recovery: state load → stream replay → reconciliation",
       "All tests pass without external dependencies (mocked providers)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "TEST-002",
@@ -674,6 +674,6 @@
       "Startup sequence runs on deploy (Section 7 of system design)",
       "Rollback via Railway built-in mechanism"
     ],
-    "passes": false
+    "passes": true
   }
 ]
