@@ -2,7 +2,7 @@
 
 Autonomous multi-strategy DeFi bot. Python (brain) handles analysis, AI reasoning, and decisions. TypeScript (hands) handles all blockchain interaction. Communication via Redis.
 
-Sepolia testnet only.
+Target: Base mainnet (stablecoins). Development uses Sepolia testnet.
 
 ## Prerequisites
 

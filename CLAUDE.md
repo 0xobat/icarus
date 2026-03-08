@@ -2,10 +2,10 @@
 
 Autonomous DeFi asset management bot. Strategies are defined in `STRATEGY.md` — the system executes them. Claude is the decision engine at runtime.
 
-1. **Strategy classes** — Manually written Python classes implement each strategy from `STRATEGY.md` (v1). Code-gen pipeline is planned but not yet implemented.
-2. **Runtime** — Python synthesizes market data into insights, Claude API reasons over them to produce trading decisions
+1. **Strategy authoring** — Human defines a strategy in `STRATEGY.md`, uses Claude Code to generate the Python class, drops it into `py-engine/strategies/`. Auto-discovered at startup.
+2. **Runtime** — Python collects market data, runs strategy classes to produce reports. When actionable signals are present, Claude API reasons over all reports and portfolio state to produce trading decisions.
 
-Strategies are data (`STRATEGY.md`), not hardcoded logic. Adding a strategy means editing the markdown file and writing a corresponding Python class.
+Strategies are data (`STRATEGY.md`), not hardcoded logic. Adding a strategy means editing the markdown file, generating the class with Claude Code, and dropping it in. Full design: `docs/system-design.md`.
 
 ## Architecture
 
@@ -22,10 +22,6 @@ Strategies are data (`STRATEGY.md`), not hardcoded logic. Adding a strategy mean
 - `py-engine/main.py` — `DecisionLoop` class: enrich → synthesize → decide → risk gate → emit orders
 - `ts-executor/src/index.ts` — Bootstraps listeners, wallet, adapters, TX builder; subscribes to `execution:orders`
 
-### Decision fast-path
-
-Simple threshold crossings (single clear signal, no competing strategies) bypass the Claude API entirely. Claude API is invoked for ambiguous conditions, competing signals, multi-strategy reasoning.
-
 ## Risk Management
 
 ### Circuit Breakers
@@ -35,15 +31,21 @@ Simple threshold crossings (single clear signal, no competing strategies) bypass
 | Portfolio drawdown | >20% from peak | Halt all, unwind to stables |
 | Single-position loss | >10% of position | Close position, 24h cooldown |
 | Gas spike | >3x 24h average | Pause non-urgent ops |
-| TX failure rate | >3 failures/hour | Pause execution, diagnostic mode |
+| TX failure rate | >3 failures/hour | Pause execution, enter hold mode |
 | Protocol TVL drop | >30% in 24h | Withdraw from affected protocol |
+
+Circuit breakers that can unwind (drawdown, single-position, TVL drop) operate on a **separate execution path** — they emit orders directly to Redis, bypassing the decision gate and Claude API. Orders use `CB:` prefix in the `strategy` field. Cooldowns tracked via Redis TTL keys.
+
+### Hold Mode
+
+Triggered when Claude API is unavailable. Tracked as `system_status: "normal" | "hold"` in Redis. No new positions; existing positions maintained; circuit breakers remain active; strategy evaluation continues.
 
 ### Exposure Limits
 
 Per-strategy allocation limits are defined in `STRATEGY.md`. The framework enforces:
 - Per-protocol and per-asset max allocation
 - Minimum liquid reserve requirement
-- Contract allowlist at wallet level
+- Contract allowlist enforced by Safe on-chain guard module
 - Risk limits are environment variables, not hardcoded
 
 ## Running
@@ -77,8 +79,8 @@ bash harness/verify.sh
 - All Redis messages validated against shared schemas at the boundary
 - Risk limits are environment variables, not hardcoded
 - One strategy adjustment per decision cycle
-- Risk gate is non-negotiable — all decisions pass through circuit breakers before execution
-- Strategy status tracking: active / paused / evaluating / retired
+- Verification gate is non-negotiable — Claude's orders pass through circuit breakers, exposure limits, and schema validation before execution
+- Strategy status: active / inactive
 
 ## Documentation
 

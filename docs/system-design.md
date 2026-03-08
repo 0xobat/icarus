@@ -306,7 +306,7 @@ icarus/
 │   └── main.py                   # Main decision loop
 │
 ├── shared/schemas/                # JSON schemas for Redis messages
-├── docs/                          # PRD, design docs
+├── docs/                          # System design docs
 ├── docker-compose.yml             # Redis + PostgreSQL + both services
 └── harness/                       # Init, verify, features tracking
 ```
