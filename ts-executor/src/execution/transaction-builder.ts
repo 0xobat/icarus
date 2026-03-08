@@ -15,7 +15,7 @@ import {
   type Address,
   type Hex,
 } from 'viem';
-import { sepolia } from 'viem/chains';
+import { resolveChain } from '../config.js';
 import { type RedisManager, CHANNELS } from '../redis/client.js';
 import type { EventReporter } from './event-reporter.js';
 
@@ -135,7 +135,7 @@ export class TransactionBuilder {
 
   constructor(opts: TransactionBuilderOptions = {}) {
     this._safeWallet = opts.safeWallet ?? null;
-    const chain = opts.chain ?? sepolia;
+    const chain = opts.chain ?? resolveChain();
     const rpcUrl = opts.rpcUrl ?? process.env.ALCHEMY_SEPOLIA_HTTP_URL;
 
     this.publicClient = opts.publicClient ?? createPublicClient({

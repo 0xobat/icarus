@@ -19,7 +19,7 @@ import {
   type Block,
   type Abi,
 } from 'viem';
-import { sepolia } from 'viem/chains';
+import { resolveChain } from '../config.js';
 import {
   normalizeNewBlock,
   normalizeContractEvent,
@@ -134,7 +134,7 @@ export class AlchemyWebSocketManager {
 
     try {
       this.client = createPublicClient({
-        chain: sepolia,
+        chain: resolveChain(),
         transport: webSocket(this.wsUrl, {
           reconnect: false, // We handle reconnection ourselves
         }),

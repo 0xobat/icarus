@@ -17,7 +17,7 @@ import {
   formatEther,
 } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
-import { sepolia } from 'viem/chains';
+import { resolveChain } from '../config.js';
 import SafeDefault from '@safe-global/protocol-kit';
 
 // Handle CJS/ESM double-default: at runtime the default import may be
@@ -142,7 +142,7 @@ export class SafeWalletManager implements SafeWalletLike {
     }
 
     const account = privateKeyToAccount(privateKey as `0x${string}`);
-    const chain = opts.chain ?? sepolia;
+    const chain = opts.chain ?? resolveChain();
     const rpcUrl = opts.rpcUrl ?? process.env.ALCHEMY_SEPOLIA_HTTP_URL ?? '';
     const recoveryAddress = opts.recoveryAddress
       ?? (process.env.SAFE_RECOVERY_ADDRESS as Address | undefined);

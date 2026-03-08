@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 import { type Address } from "viem";
+import { resolveChain } from "./config.js";
 import { RedisManager } from "./redis/client.js";
 import { AlchemyWebSocketManager } from "./listeners/websocket-manager.js";
 import { MarketEventPublisher } from "./listeners/market-event-publisher.js";
@@ -150,8 +151,9 @@ async function initializeComponents(): Promise<{
   reporter: EventReporter;
   safeWallet: SafeWalletManager;
 }> {
+  const chain = resolveChain();
   const redis = new RedisManager();
-  const reporter = new EventReporter();
+  const reporter = new EventReporter({ chain, onLog: log });
   const publisher = new MarketEventPublisher({ onLog: log });
 
   const wsManager = new AlchemyWebSocketManager({
@@ -165,6 +167,7 @@ async function initializeComponents(): Promise<{
   });
 
   const safeWallet = await SafeWalletManager.create({
+    chain,
     onLog: log,
   });
 
@@ -172,6 +175,7 @@ async function initializeComponents(): Promise<{
 
   const txBuilder = new TransactionBuilder({
     safeWallet,
+    chain,
     adapters: adapterMap,
     reporter,
     onLog: log,
