@@ -440,7 +440,7 @@ In hold mode:
 
 ### Monitoring
 
-Structured JSON logs to stdout. Railway captures and aggregates service logs. Alerting (Slack/Discord webhook) is a v2 concern.
+Structured JSON logs to stdout. Railway captures and aggregates service logs. Performance dashboard tracks portfolio value, cumulative P&L, Sharpe ratio, and position breakdown. Alerting (Slack/Discord webhook) is a v2 concern.
 
 ### State storage
 

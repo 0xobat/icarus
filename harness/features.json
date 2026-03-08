@@ -1,996 +1,679 @@
 [
   {
     "id": "INFRA-001",
-    "phase": "P1",
-    "subsystem": "infrastructure",
+    "phase": "dev",
     "category": "infrastructure",
-    "description": "Project scaffolding \u2014 monorepo with ts-executor/ and py-engine/ services, shared/schemas/ for message contracts, Docker Compose config, and local dev tooling",
+    "description": "Project scaffolding — monorepo with ts-executor/ and py-engine/ services, shared/schemas/ for message contracts, Docker Compose config, and local dev tooling",
     "steps": [
       "ts-executor/ builds and runs with TypeScript strict mode, no errors",
-      "py-engine/ runs with no import errors; dependencies locked in requirements.txt or pyproject.toml",
-      "shared/schemas/ contains at least one JSON schema that both services can validate against",
-      "docker-compose.yml brings up Redis + both services with a single command",
-      "README with setup instructions that a fresh machine can follow end-to-end",
+      "py-engine/ runs with no import errors; dependencies locked in pyproject.toml",
+      "shared/schemas/ contains JSON schemas that both services validate against",
+      "docker-compose.yml brings up Redis + PostgreSQL + both services",
+      "README with setup instructions",
       ".env.example documents all required environment variables"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "INFRA-002",
-    "phase": "P1",
-    "subsystem": "infrastructure",
+    "phase": "dev",
     "category": "infrastructure",
-    "description": "Redis communication layer \u2014 Redis 7+ as sole inter-service channel with three primary channels: market:events (TS\u2192Python), execution:orders (Python\u2192TS), execution:results (TS\u2192Python), plus cache layer for prices, gas, and pool states",
+    "description": "Redis Streams communication — three channels (market:events, execution:orders, execution:results) using Redis Streams with MAXLEN pruning, plus cache layer for prices, gas, and pool states",
     "steps": [
-      "Pub/sub messaging works bidirectionally between Python and TS services",
-      "Redis Streams bounded with approximate MAXLEN pruning on every write (STREAM_MAX_LENGTH env var, default 10000) plus periodic explicit trim in decision loop",
+      "All three channels use Redis Streams (not pub/sub) with consumer group support",
+      "MAXLEN pruning on every write (STREAM_MAX_LENGTH env var, default 10000) plus periodic trim in decision loop",
       "Cache layer operational for prices, gas, and pool states with configurable TTLs",
-      "Both services validate all messages against shared JSON schemas before processing",
+      "Both services validate all messages against shared JSON schemas at the boundary",
       "Schema violations are rejected with structured error logs, not silently consumed",
-      "Connection loss to Redis triggers graceful pause in both services without crash or orphaned state"
+      "Connection loss events surfaced via callbacks with reconnect backoff"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "INFRA-003",
-    "phase": "P1",
-    "subsystem": "infrastructure",
+    "phase": "dev",
     "category": "infrastructure",
-    "description": "JSON schema contracts \u2014 structured message format definitions for every Redis channel, serving as the contract between Python brain and TypeScript hands",
+    "description": "JSON schema contracts — shared message format definitions for market:events, execution:orders, and execution:results Redis channels",
     "steps": [
-      "Schemas defined for market:events, execution:orders, and execution:results",
-      "Each schema includes required fields, types, and valid value ranges",
-      "execution:orders schema enforces: token, amount, slippage ceiling, gas ceiling, deadline",
-      "Both Python and TS services validate inbound messages at the boundary",
-      "Test suite sends malformed messages and confirms rejection with appropriate errors",
-      "Schemas include a version field in every message for forward compatibility"
+      "market-events.schema.json defines all event types (new_block, swap, rate_change, liquidity_change, large_transfer, price_update)",
+      "execution-orders.schema.json defines order format with chain/protocol enums, action types, params, limits",
+      "execution-results.schema.json defines TX result format with status, hash, gas used",
+      "Both services load and validate against the same schema files",
+      "Chain enum: [ethereum, base]. Protocol enum: [aave_v3, aerodrome]"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "INFRA-004",
-    "phase": "P1",
-    "subsystem": "infrastructure",
+    "phase": "dev",
     "category": "infrastructure",
-    "description": "Docker Compose local development \u2014 single-command dev environment mirroring production topology with hot-reload for both services",
+    "description": "Docker Compose local development — Redis + PostgreSQL + both services with hot-reload dev targets",
     "steps": [
-      "docker compose up starts all three containers (Redis, py-engine, ts-executor)",
-      "Source code changes trigger automatic reload in both services",
-      "Logs from all services visible in a single terminal with service-name prefixes",
-      "Environment variables injected via .env file, not hardcoded",
-      "Container networking allows both services to reach Redis by hostname"
-    ],
-    "passes": true
-  },
-  {
-    "id": "INFRA-006",
-    "phase": "P1",
-    "subsystem": "infrastructure",
-    "category": "infrastructure",
-    "description": "PostgreSQL database \u2014 persistent storage for trade history, audit trail, portfolio snapshots, and performance metrics as the system of record",
-    "steps": [
-      "Database schema defined for: trades, portfolio_snapshots, strategy_performance, alerts",
-      "Every executed trade written to PostgreSQL with full context (strategy, prices, gas, slippage, result)",
-      "Portfolio snapshots taken at configurable intervals (minimum hourly)",
-      "Query performance acceptable for dashboard reads (under 200ms for common queries)",
-      "Migrations framework in place for schema evolution",
-      "Backup strategy defined (at minimum Railway's managed backups)"
-    ],
-    "passes": true
-  },
-  {
-    "id": "INFRA-007",
-    "phase": "P1",
-    "subsystem": "infrastructure",
-    "category": "infrastructure",
-    "description": "Main decision loop \u2014 wires all modules together in both services. py-engine: ingest market events \u2192 enrich \u2192 reason (Claude or deterministic fast-path) \u2192 risk gate \u2192 emit orders \u2192 process results. ts-executor: instantiate listeners, TX builder, wallet, Flashbots, adapters, subscribe to Redis channels",
-    "steps": [
-      "ts-executor/src/index.ts instantiates and connects all TS modules on startup",
-      "py-engine/main.py instantiates data pipeline, AI engine, risk modules, portfolio tracker",
-      "Main loop subscribes to market:events, processes each event through the decision pipeline",
-      "Deterministic fast-path for simple decisions (clear threshold crossings) without Claude API call",
-      "Claude API path for complex decisions (ambiguous signals, multi-strategy conflicts)",
-      "Risk gate validates every decision before emitting to execution:orders",
-      "Result processing: listen on execution:results, update portfolio state, feed back into next cycle",
-      "Graceful shutdown: drain in-flight orders, persist state, close connections"
-    ],
-    "passes": true
-  },
-  {
-    "id": "LISTEN-001",
-    "phase": "P1",
-    "subsystem": "ts-chain-listener",
-    "category": "functional",
-    "description": "Alchemy WebSocket subscription manager \u2014 persistent WebSocket connections for real-time blockchain event monitoring with auto-reconnection and event parsing",
-    "steps": [
-      "WebSocket connection to Alchemy established on service startup",
-      "Automatic reconnection with exponential backoff on disconnection",
-      "Subscribes to relevant events: pending transactions, new blocks, Aave contract events",
-      "Raw events parsed into normalized internal format before publishing to Redis",
-      "Connection health monitored; prolonged disconnection triggers alert",
-      "Alchemy rate limits handled gracefully with backpressure, not crash"
-    ],
-    "passes": true
-  },
-  {
-    "id": "LISTEN-002",
-    "phase": "P1",
-    "subsystem": "ts-chain-listener",
-    "category": "functional",
-    "description": "Market event publisher \u2014 transforms raw blockchain events into structured market events and publishes to market:events Redis channel",
-    "steps": [
-      "Events published to market:events conform to shared JSON schema",
-      "Each event includes: event type, chain, protocol, token addresses, amounts, block number, timestamp",
-      "Events are deduplicated (same TX doesn't produce duplicate events)",
-      "Publishing latency from event detection to Redis is under 100ms",
-      "Events include a monotonically increasing sequence number for ordering"
-    ],
-    "passes": true
-  },
-  {
-    "id": "LISTEN-003",
-    "phase": "P1c",
-    "subsystem": "ts-chain-listener",
-    "category": "functional",
-    "description": "L2 chain listeners (Arbitrum, Base) \u2014 extend chain listener to L2 networks with L2-specific RPC endpoints, block times, and protocol event parsing",
-    "steps": [
-      "WebSocket connections to Arbitrum and Base via Alchemy",
-      "Events from L2s published to same market:events channel with chain identifier",
-      "L2-specific protocols (GMX events, Aerodrome pool changes) parsed correctly",
-      "Listener handles L2-specific quirks (faster block times, different finality guarantees)",
-      "Can be enabled/disabled per-chain via configuration"
-    ],
-    "passes": true
-  },
-  {
-    "id": "EXEC-001",
-    "phase": "P1",
-    "subsystem": "ts-executor",
-    "category": "functional",
-    "description": "viem transaction builder \u2014 consumes orders from execution:orders, constructs and submits Ethereum transactions via viem, enforces gas/slippage/deadline parameters set by Python risk manager",
-    "steps": [
-      "Consumes orders from execution:orders Redis channel",
-      "Constructs transactions with correct ABI encoding for target protocols",
-      "Enforces gas ceiling, slippage bounds, and deadline from order; rejects if on-chain conditions exceed",
-      "Signs transactions using configured wallet",
-      "Publishes result (hash, status, fill price, actual gas) to execution:results",
-      "Nonce management prevents stuck transactions from nonce gaps",
-      "Failed transactions retried with configurable backoff, max 3 retries"
-    ],
-    "passes": true
-  },
-  {
-    "id": "EXEC-002",
-    "phase": "P1",
-    "subsystem": "ts-executor",
-    "category": "security",
-    "description": "Safe 1-of-2 multisig wallet \u2014 battle-tested wallet with application-level contract allowlist, spending caps, and dual-owner recovery (agent EOA + human cold wallet, threshold=1)",
-    "steps": [
-      "Safe 1-of-2 deployed and configured on Sepolia testnet",
-      "Application-level spending limits enforced (daily and per-transaction caps via env vars SPENDING_CAP_PER_TX_WEI, SPENDING_CAP_DAILY_WEI)",
-      "Application-level allowlist (Set<Address> in SafeWalletManager) restricts interactions to approved protocol contracts only; on-chain Safe guard deferred to mainnet",
-      "Wallet balance and nonce queryable on demand",
-      "Agent EOA (owner 1) executes transactions autonomously; human cold wallet (owner 2) for recovery",
-      "Private key stored securely via environment variable, never in code"
-    ],
-    "passes": true
-  },
-  {
-    "id": "EXEC-003",
-    "phase": "P1b",
-    "subsystem": "ts-executor",
-    "category": "security",
-    "description": "Flashbots Protect RPC routing \u2014 route swap and arbitrage transactions through private mempool via thin RPC routing layer in TransactionBuilder, not standalone module",
-    "steps": [
-      "Swap transactions submitted to Flashbots Protect RPC endpoint, not public mempool",
-      "Transaction status polled until inclusion or timeout",
-      "Fallback to public mempool if Flashbots unreachable, with alert",
-      "Configurable per-transaction: some strategies can opt out of private routing",
-      "Latency overhead of Flashbots routing logged and monitored"
-    ],
-    "passes": true
-  },
-  {
-    "id": "EXEC-004",
-    "phase": "P1",
-    "subsystem": "ts-executor",
-    "category": "functional",
-    "description": "Aave V3 protocol adapter \u2014 supply, withdraw, and query market data (utilization rates, supply APY, available liquidity) on Aave V3",
-    "steps": [
-      "Execute supply and withdraw on any Aave V3 market",
-      "Query current supply APY, utilization rate, and available liquidity for all markets",
-      "Transactions include correct approval flow (ERC-20 approve then supply)",
-      "Works on Sepolia testnet with Aave V3 testnet deployment",
-      "Gas estimation accurate within 10% of actual cost",
-      "All interactions go through the Safe wallet"
-    ],
-    "passes": true
-  },
-  {
-    "id": "EXEC-005",
-    "phase": "P1b",
-    "subsystem": "ts-executor",
-    "category": "functional",
-    "description": "Uniswap V3 encode module \u2014 encode-only protocol module for minting/burning concentrated liquidity positions, collecting fees, querying pool state",
-    "steps": [
-      "Mint a new concentrated liquidity position with specified price range",
-      "Increase/decrease liquidity in an existing position",
-      "Collect accumulated fees from position",
-      "Burn (close) a position entirely",
-      "Pool state queries return: current price, active tick, liquidity at each tick range, 24h volume",
-      "All swaps routed through Flashbots Protect"
-    ],
-    "passes": false
-  },
-  {
-    "id": "EXEC-006",
-    "phase": "P1",
-    "subsystem": "ts-executor",
-    "category": "functional",
-    "description": "Lido staking adapter \u2014 stake ETH to receive stETH, wrap/unwrap stETH\u2194wstETH, query staking APY and queue status",
-    "steps": [
-      "Stake ETH via Lido and receive stETH",
-      "Wrap stETH to wstETH and unwrap back",
-      "Query current staking APY and queue status",
-      "Handle stETH rebasing model correctly in position tracking",
-      "Works on testnet with Lido Sepolia deployment or mock"
-    ],
-    "passes": false
-  },
-  {
-    "id": "EXEC-007",
-    "phase": "P1c",
-    "subsystem": "ts-executor",
-    "category": "functional",
-    "description": "Flash loan encode module \u2014 encode-only module for atomic flash loan arbitrage via Aave V3",
-    "steps": [
-      "Execute Aave V3 flash loan with custom callback contract",
-      "Callback contract executes multi-step swap logic (buy on DEX A, sell on DEX B)",
-      "Transaction is atomic \u2014 reverts entirely if profit threshold not met on-chain",
-      "Gas cost of entire flash loan TX estimated before submission",
-      "Profit calculation accounts for: flash loan fee, gas cost, slippage",
-      "Routed through Flashbots Protect"
-    ],
-    "passes": false
-  },
-  {
-    "id": "EXEC-009",
-    "phase": "P1c",
-    "subsystem": "ts-executor",
-    "category": "functional",
-    "description": "Aerodrome encode module \u2014 encode-only protocol module for Aerodrome DEX on Base (LP, staking, rewards, swaps). GMX adapter removed in v1 simplification.",
-    "steps": [
-      "Aerodrome adapter: provide liquidity (sAMM stable pools), stake in gauge, collect AERO rewards, swap tokens",
-      "Uses same order schema and result reporting as other adapters",
-      "Supports actions: mint_lp, burn_lp, stake, unstake, collect_fees, swap"
-    ],
-    "passes": true
-  },
-  {
-    "id": "EXEC-010",
-    "phase": "P1",
-    "subsystem": "ts-executor",
-    "category": "functional",
-    "description": "Event reporter \u2014 publishes the result of every transaction execution to execution:results in a standardized format for Python monitoring consumption",
-    "steps": [
-      "Every submitted transaction gets a result published (success or failure)",
-      "Result includes: TX hash, status (confirmed/failed/reverted), fill price, actual gas used, block number, timestamp",
-      "Failed transactions include decoded revert reason when possible",
-      "Results published within 1 block of transaction confirmation",
-      "Results conform to shared JSON schema for execution:results"
-    ],
-    "passes": true
-  },
-  {
-    "id": "DATA-001",
-    "phase": "P1",
-    "subsystem": "data-pipeline",
-    "category": "functional",
-    "description": "Real-time price feed \u2014 multi-source token price ingestion, normalization, and caching with oracle manipulation guards (>2% deviation rejection, TWAP fallback)",
-    "steps": [
-      "Prices for ETH, WBTC, major stablecoins, and Aave-supported tokens updated at least every 30 seconds",
-      "At least 2 independent price sources per token",
-      "Prices cached in Redis with TTL; stale prices flagged, not silently used",
-      "Prices with >2% deviation between sources are rejected (oracle manipulation guard)",
-      "TWAP calculation available over configurable windows (5m, 1h, 24h)",
-      "All timestamps are UTC"
-    ],
-    "passes": true
-  },
-  {
-    "id": "DATA-002",
-    "phase": "P1",
-    "subsystem": "data-pipeline",
-    "category": "functional",
-    "description": "Gas price monitor \u2014 track and predict Ethereum gas prices for transaction timing optimization and profitability calculations",
-    "steps": [
-      "Current gas price (fast, standard, slow) cached in Redis and updated every block",
-      "24h rolling average maintained for circuit breaker comparison",
-      "Gas cost estimation available as a function call for any proposed transaction",
-      "Historical gas data stored for pattern analysis (time-of-day, day-of-week)",
-      "Alert triggered when gas price exceeds configurable threshold"
-    ],
-    "passes": true
-  },
-  {
-    "id": "DATA-003",
-    "phase": "P1",
-    "subsystem": "data-pipeline",
-    "category": "functional",
-    "description": "DeFi protocol metrics collector \u2014 collect and normalize protocol-specific metrics (Aave V3 rates, Aerodrome pool data) from external APIs with caching, graceful degradation, and TVL tracking via DeFi Llama",
-    "steps": [
-      "Aave: utilization rate, supply APY, borrow APY, available liquidity per market \u2014 updated every 5 minutes minimum",
-      "Uniswap V3: pool reserves, current tick, fee tier, 24h volume for target pairs",
-      "Lido: current stETH APY and queue status",
-      "Protocol TVL from DeFi Llama API or on-chain \u2014 updated hourly minimum",
-      "All metrics normalized into unified internal format regardless of source",
-      "Data source failures handled gracefully: use cached value plus alert, don't block operations"
-    ],
-    "passes": true
-  },
-  {
-    "id": "DATA-004",
-    "phase": "P1",
-    "subsystem": "data-pipeline",
-    "category": "functional",
-    "description": "On-chain position reconciliation \u2014 query actual on-chain positions via Alchemy and compare against agent-state.json to detect and resolve discrepancies",
-    "steps": [
-      "Queries all known wallet positions on-chain (token balances, Aave deposits, LP positions)",
-      "Compares on-chain state against agent-state.json records",
-      "Detects discrepancies: missing positions, unexpected balances, confirmed-but-unrecorded TXs",
-      "Reconciliation runs on every startup and on configurable schedule (e.g. every 30 minutes)",
-      "Discrepancies logged with full context and trigger alerts",
-      "Auto-reconciliation for simple cases (TX confirmed while offline); manual review for complex ones"
-    ],
-    "passes": true
-  },
-  {
-    "id": "DATA-005",
-    "phase": "P1c",
-    "subsystem": "data-pipeline",
-    "category": "functional",
-    "description": "L2 data pipeline extension \u2014 extend data pipeline to ingest and normalize data from Base L2, including gas estimation with L1 data posting overhead, L2 token price feeds (AERO), and Aerodrome protocol metrics",
-    "steps": [
-      "Price feeds cover L2-specific tokens and L2 deployments of existing tokens",
-      "L2 gas estimation accounts for L1 data posting costs",
-      "GMX metrics collected: funding rates, open interest, liquidation levels",
-      "Aerodrome metrics collected: pool APYs, reward emissions, liquidity depth",
-      "All L2 data normalized into same internal format as mainnet data"
-    ],
-    "passes": true
-  },
-  {
-    "id": "AI-001",
-    "phase": "P1",
-    "subsystem": "ai",
-    "category": "ai",
-    "description": "Claude API decision engine \u2014 runtime reasoning over structured insight data and active strategy specs. Receives market snapshots, portfolio state, and risk status; returns structured decisions (hold, enter, exit, rotate, adjust). Schema-validated input/output with cost tracking against budget cap",
-    "steps": [
-      "Claude API client with retry logic, rate limiting, and cost tracking",
-      "Structured prompt construction from insight data + strategy specs",
-      "Response parsing into typed decision objects (hold/enter/exit/rotate/adjust)",
-      "Schema validation on both input (insight snapshot) and output (decision)",
-      "Cost tracking per-call and cumulative against AI_MONTHLY_COST_CAP_USD",
-      "Fallback to deterministic fast-path when API is unavailable or budget exhausted",
-      "Decision audit log with full prompt/response for debugging"
-    ],
-    "passes": true
-  },
-  {
-    "id": "AI-002",
-    "phase": "P1",
-    "subsystem": "ai",
-    "category": "ai",
-    "description": "Strategy code-gen pipeline \u2014 Claude reads STRATEGY.md and generates Python strategy classes following the common interface (evaluate, should_act, generate_orders). Validates generated code before deployment. Detects STRATEGY.md changes and regenerates affected classes",
-    "steps": [
-      "Parse STRATEGY.md into structured strategy specs (name, tier, conditions, constraints)",
-      "Construct code-gen prompt with strategy spec + common interface definition + existing examples",
-      "Claude generates Python class per strategy with evaluate(), should_act(), generate_orders()",
-      "Automated validation: syntax check, interface compliance, import resolution",
-      "Write generated classes to py-engine/strategies/ with metadata header",
-      "Detect changes in STRATEGY.md and regenerate only affected strategy classes",
-      "Version tracking: old class gracefully retired via lifecycle manager"
-    ],
-    "passes": false
-  },
-  {
-    "id": "AI-003",
-    "phase": "P1",
-    "subsystem": "ai",
-    "category": "ai",
-    "description": "Insight synthesis pipeline \u2014 Python module that packages market data, current positions, protocol metrics, risk status, and gas conditions into structured snapshots for Claude API consumption. Handles data enrichment and compression for token-efficient prompts",
-    "steps": [
-      "Collects latest data from price feed, gas monitor, DeFi metrics, position tracker",
-      "Enriches with derived signals: rate trends, spread calculations, utilization changes",
-      "Packages into structured JSON snapshot with consistent schema",
-      "Compresses data to minimize Claude API token usage while preserving decision-relevant info",
-      "Includes active strategy specs and their current status from lifecycle manager",
-      "Includes recent decision history for context continuity",
-      "Snapshot schema validated before sending to decision engine"
-    ],
-    "passes": true
-  },
-  {
-    "id": "STRAT-001",
-    "phase": "P1",
-    "subsystem": "strategy-engine",
-    "category": "functional",
-    "description": "Aave lending optimization (LEND-001) \u2014 Tier 1 strategy class that supplies stablecoins (USDC, USDbC) to Aave V3 on Base, rotating to highest supply APY market when differential exceeds threshold after gas",
-    "steps": [
-      "Identifies highest-yield Aave V3 supply markets for USDC/USDbC on Base",
-      "Calculates net yield after gas cost of rotation",
-      "Only rotates when net improvement exceeds minimum threshold (>0.5% APY improvement)",
-      "Respects exposure limits (max 70% of portfolio per STRATEGY.md)",
-      "Generates structured orders for TS executor with exact supply/withdraw parameters",
-      "Min position size $100, only rotates when net monthly gain after gas exceeds $1"
-    ],
-    "passes": true
-  },
-  {
-    "id": "STRAT-002",
-    "phase": "P1",
-    "subsystem": "strategy-engine",
-    "category": "functional",
-    "description": "Liquid staking strategy \u2014 Tier 1: stake ETH via Lido (stETH), deploy derivatives into further yield. REMOVED in v1 simplification (Base stablecoins only). Code deleted in session 2026-03-06-01",
-    "steps": [
-      "Strategy defined in STRATEGY.md with entry/exit conditions and risk profile",
-      "Claude generates Python class following common interface (evaluate, should_act, generate_orders)",
-      "Generated class stakes ETH to receive stETH via Lido adapter",
-      "Wrap/unwrap stETH to wstETH for further DeFi deployment",
-      "Monitors staking APR and adjusts position sizing accordingly",
-      "Lifecycle manager picks up generated class and transitions through evaluating \u2192 active"
-    ],
-    "passes": false
-  },
-  {
-    "id": "STRAT-003",
-    "phase": "P1b",
-    "subsystem": "strategy-engine",
-    "category": "functional",
-    "description": "Uniswap V3 concentrated liquidity \u2014 Tier 2 strategy with dynamic range management. Strategy defined in STRATEGY.md, Python class generated by Claude",
-    "steps": [
-      "Strategy defined in STRATEGY.md with range width, rebalance triggers, and risk profile",
-      "Claude generates Python class following common interface",
-      "Generated class manages concentrated liquidity positions via Uniswap V3 adapter",
-      "Dynamic range adjustment based on volatility and price movement",
-      "Auto-collects fees and recompounds at configurable intervals",
-      "Lifecycle manager picks up generated class and transitions through evaluating \u2192 active"
-    ],
-    "passes": false
-  },
-  {
-    "id": "STRAT-004",
-    "phase": "P1b",
-    "subsystem": "strategy-engine",
-    "category": "functional",
-    "description": "Yield farming with auto-compound \u2014 Tier 2 strategy: participate in yield farming, auto-harvest rewards, compound at optimal intervals. Strategy defined in STRATEGY.md, Python class generated by Claude",
-    "steps": [
-      "Strategy defined in STRATEGY.md with compound frequency and risk constraints",
-      "Claude generates Python class following common interface",
-      "Generated class identifies and enters yield farming opportunities",
-      "Auto-harvests rewards at gas-optimal intervals",
-      "Compounds harvested rewards back into position",
-      "Lifecycle manager picks up generated class and transitions through evaluating \u2192 active"
-    ],
-    "passes": false
-  },
-  {
-    "id": "STRAT-005",
-    "phase": "P1c",
-    "subsystem": "strategy-engine",
-    "category": "functional",
-    "description": "Flash loan arbitrage \u2014 Tier 3 strategy: identify and execute atomic cross-DEX arbitrage via flash loans. Strategy defined in STRATEGY.md, Python class generated by Claude",
-    "steps": [
-      "Strategy defined in STRATEGY.md with profit thresholds and gas constraints",
-      "Claude generates Python class following common interface",
-      "Generated class detects cross-DEX price discrepancies from market events",
-      "Constructs atomic flash loan sequences: borrow \u2192 swap \u2192 repay \u2192 profit",
-      "Uses flash loan executor (EXEC-007) for zero-capital execution",
-      "Risk gate validates profitability after gas before submission"
-    ],
-    "passes": false
-  },
-  {
-    "id": "STRAT-006",
-    "phase": "P1c",
-    "subsystem": "strategy-engine",
-    "category": "functional",
-    "description": "Lending rate arbitrage \u2014 Tier 3 strategy: borrow at lower rate on one protocol, supply at higher rate on another. Strategy defined in STRATEGY.md, Python class generated by Claude",
-    "steps": [
-      "Strategy defined in STRATEGY.md with minimum spread and risk constraints",
-      "Claude generates Python class following common interface",
-      "Generated class monitors lending/borrowing rates across Aave and other protocols",
-      "Identifies profitable rate differentials accounting for gas and risk",
-      "Manages borrow + supply positions across protocols",
-      "Auto-unwinds when spread compresses below threshold"
-    ],
-    "passes": false
-  },
-  {
-    "id": "STRAT-007",
-    "phase": "P1",
-    "subsystem": "strategy-engine",
-    "category": "functional",
-    "description": "Strategy lifecycle manager \u2014 manages activation, evaluation, pausing, and retirement of all strategies with structured status tracking and one-adjustment-per-cycle enforcement",
-    "steps": [
-      "Each strategy has a status field persisted in agent-state.json",
-      "Valid transitions enforced: evaluating\u2192active, active\u2192paused, paused\u2192active, active\u2192retired",
-      "Only one strategy adjustment (rebalance, entry, exit) per decision cycle",
-      "Strategy performance tracked independently (P&L, Sharpe, drawdown per strategy)",
-      "Underperforming strategies flagged for review; auto-pause if losses exceed per-strategy threshold",
-      "New strategy tier activation requires human approval (Human-in-the-Loop gate)"
-    ],
-    "passes": true
-  },
-  {
-    "id": "STRAT-008",
-    "phase": "P1",
-    "subsystem": "strategies",
-    "category": "strategies",
-    "description": "Strategy ingestion \u2014 parses STRATEGY.md into structured strategy specs. Extracts strategy name, tier, risk profile, target protocols, entry/exit conditions, and capital constraints. Detects changes and triggers code-gen pipeline",
-    "steps": [
-      "Parse STRATEGY.md markdown into per-strategy structured specs",
-      "Extract: name, tier, risk profile, protocols, chains, conditions, constraints",
-      "Validate specs: required fields present, tier values valid, protocol names recognized",
-      "Detect changes by comparing parsed specs against previously stored versions",
-      "Trigger AI-002 code-gen pipeline for new or modified strategies",
-      "Flag removed strategies for retirement via lifecycle manager"
-    ],
-    "passes": false
-  },
-  {
-    "id": "PORT-001",
-    "phase": "P1",
-    "subsystem": "portfolio",
-    "category": "functional",
-    "description": "Portfolio allocator \u2014 manages capital allocation across strategy tiers: Tier 1 (50-60%), Tier 2 (25-35%), Tier 3 (10-20%), with exposure limits and minimum stablecoin reserves",
-    "steps": [
-      "Allocates capital according to tier percentages with configurable bounds",
-      "Maintains minimum 15% in stablecoins/liquid reserves at all times",
-      "Enforces max 40% in any single protocol",
-      "Enforces max 60% in any single asset (excluding stablecoins)",
-      "Calculates available capital for new positions accounting for all active positions and reserves",
-      "Rebalancing triggers when allocation drifts beyond configurable threshold (e.g. \u00b15%)"
-    ],
-    "passes": true
-  },
-  {
-    "id": "PORT-002",
-    "phase": "P1",
-    "subsystem": "portfolio",
-    "category": "functional",
-    "description": "Position tracker \u2014 real-time view of all open positions across all chains and protocols with entry price, current value, unrealized P&L, and protocol-specific metrics",
-    "steps": [
-      "Tracks every open position with: entry price, entry time, current value, unrealized P&L",
-      "Protocol-specific tracking: Aave (supply amount, earned interest), Uniswap (tick range, fees earned, IL), Lido (staked amount, rewards)",
-      "Updated in real-time as execution:results arrive from Redis",
-      "Queryable by strategy, protocol, chain, and asset",
-      "Position history maintained in PostgreSQL for audit trail"
-    ],
-    "passes": true
-  },
-  {
-    "id": "PORT-003",
-    "phase": "P1",
-    "subsystem": "portfolio",
-    "category": "functional",
-    "description": "Rebalancing engine \u2014 automatically rebalances portfolio when allocation drifts beyond thresholds, one adjustment per cycle, gas-aware",
-    "steps": [
-      "Detects when portfolio allocation deviates from target by more than configurable threshold",
-      "Generates rebalancing plan: which positions to reduce, which to increase, in what order",
-      "Executes one adjustment per cycle (not full rebalance in one shot)",
-      "Accounts for gas costs in rebalancing decisions (don't rebalance if gas > benefit)",
-      "Logs every rebalancing decision with full reasoning for audit"
-    ],
-    "passes": true
-  },
-  {
-    "id": "HARNESS-001",
-    "phase": "P1",
-    "subsystem": "agent-harness",
-    "category": "infrastructure",
-    "description": "Agent state persistence \u2014 agent-state.json as persistent knowledge store, updated after every action with portfolio state, strategy statuses, and operational metadata",
-    "steps": [
-      "State file written after every action (trade, rebalance, strategy status change)",
-      "State includes: portfolio positions, strategy statuses, last reconciliation timestamp, operational flags",
-      "Atomic writes (write to temp file then rename) to prevent corruption on crash",
-      "State file is human-readable JSON for debugging",
-      "State backed up to PostgreSQL periodically, not just local filesystem",
-      "State is versioned with schema version field for forward compatibility"
-    ],
-    "passes": true
-  },
-  {
-    "id": "HARNESS-002",
-    "phase": "P1",
-    "subsystem": "agent-harness",
-    "category": "infrastructure",
-    "description": "Startup recovery sequence \u2014 deterministic recovery on every start: load state \u2192 check Redis for unprocessed messages \u2192 reconcile on-chain state \u2192 health check \u2192 resume or diagnostic mode",
-    "steps": [
-      "Reads agent-state.json and restores portfolio knowledge",
-      "Checks Redis Streams for unprocessed execution:orders and execution:results",
-      "Queries on-chain state via Alchemy to verify positions match internal records",
-      "Reconciles discrepancies (e.g. TX confirmed while offline)",
-      "Runs health checks on all connected protocols",
-      "Resumes normal operation if all checks pass; enters diagnostic mode with alert if not",
-      "Recovery completes in under 60 seconds (target), under 5 minutes (hard limit)"
-    ],
-    "passes": true
-  },
-  {
-    "id": "HARNESS-003",
-    "phase": "P1",
-    "subsystem": "agent-harness",
-    "category": "functional",
-    "description": "Human-in-the-loop approval gates \u2014 high-impact actions require explicit owner approval via Discord before execution; agent continues other operations while waiting",
-    "steps": [
-      "Approval required for: new protocol deployment, trades >15% of portfolio, new strategy tier activation",
-      "Approval request sent via Discord with: action description, amounts, risk context, estimated impact",
-      "Agent continues other operations while waiting for approval (doesn't block everything)",
-      "Approval timeout configurable (default 24h); action cancelled on timeout",
-      "Emergency override commands via Discord: pause all, force-unwind, withdraw all",
-      "All approvals and rejections logged with timestamp"
-    ],
-    "passes": true
-  },
-  {
-    "id": "HARNESS-004",
-    "phase": "P1",
-    "subsystem": "agent-harness",
-    "category": "infrastructure",
-    "description": "Diagnostic mode \u2014 safe mode entered on irreconcilable state or critical failures: no new trades, positions held, full state dump logged, owner alerted",
-    "steps": [
-      "Triggered by: startup reconciliation failure, critical circuit breaker, manual command",
-      "All new trading operations halted",
-      "Existing positions maintained (not unwound \u2014 that's emergency shutdown's job)",
-      "Full state dump written to logs: agent-state.json contents, Redis stream state, on-chain positions",
-      "Alert sent to owner with summary of what went wrong",
-      "Manual exit from diagnostic mode required \u2014 no auto-resume"
-    ],
-    "passes": true
-  },
-  {
-    "id": "MON-001",
-    "phase": "P1",
-    "subsystem": "monitoring",
-    "category": "observability",
-    "description": "Structured logging \u2014 every trade, signal, risk decision, and system event logged in structured JSON with correlation IDs linking the full lifecycle",
-    "steps": [
-      "All logs are structured JSON, not free-text",
-      "Every log entry includes: timestamp (UTC), service name, event type, correlation ID",
-      "Correlation IDs link full lifecycle: market event \u2192 strategy signal \u2192 risk check \u2192 order \u2192 execution \u2192 result",
-      "Log levels used correctly: DEBUG, INFO, WARN, ERROR, CRITICAL",
-      "Logs written to both stdout (for Railway) and rotating log files",
-      "Sensitive data (private keys, full wallet addresses) never logged"
-    ],
-    "passes": true
-  },
-  {
-    "id": "MON-002",
-    "phase": "P1",
-    "subsystem": "monitoring",
-    "category": "observability",
-    "description": "Discord alert system \u2014 push notifications for critical events, daily performance summaries, anomaly alerts, and inline buttons for human-in-the-loop approvals",
-    "steps": [
-      "Circuit breaker triggers sent with: trigger type, threshold, action taken",
-      "Large position changes reported with: before/after values, strategy, reasoning",
-      "Daily performance summary: portfolio value, daily P&L, active strategies, top/bottom performers",
-      "Anomaly alerts: unexpected on-chain activity, failed reconciliation, service restarts",
-      "Configurable alert severity levels (not everything sends a push notification)",
-      "Inline keyboard buttons for human-in-the-loop approvals (approve/reject)"
-    ],
-    "passes": false
-  },
-  {
-    "id": "MON-003",
-    "phase": "P1",
-    "subsystem": "monitoring",
-    "category": "observability",
-    "description": "Performance dashboard \u2014 real-time tracking of portfolio value, cumulative P&L, Sharpe ratio, strategy-level attribution, and gas costs",
-    "steps": [
-      "Tracks and displays: portfolio value (USD), cumulative P&L, annualized return (APY)",
-      "Sharpe ratio calculated over rolling windows (7d, 30d, all-time)",
-      "Strategy-level attribution: which strategies contributed how much to total return",
-      "Gas cost tracking: total gas spent, gas as percentage of returns",
-      "Max drawdown tracking: current drawdown from peak, historical worst drawdown",
-      "Data stored in PostgreSQL; queryable via API for frontend consumption"
-    ],
-    "passes": true
-  },
-  {
-    "id": "MON-004",
-    "phase": "P1",
-    "subsystem": "monitoring",
-    "category": "observability",
-    "description": "Anomaly detection \u2014 automated detection of unusual gas consumption, unexpected balance changes, protocol behavior changes, or performance degradation",
-    "steps": [
-      "Detects: unexpected wallet balance changes, gas spend anomalies, strategy performance degradation",
-      "Monitors protocol health signals: TVL drops, utilization spikes, governance proposals",
-      "Flags when actual execution deviates significantly from expected (price impact, gas, timing)",
-      "Anomalies trigger alerts with severity classification",
-      "False positive rate is manageable (not alert fatigue)"
-    ],
-    "passes": false
-  },
-  {
-    "id": "RISK-001",
-    "phase": "P1",
-    "subsystem": "risk-management",
-    "category": "security",
-    "description": "Drawdown circuit breaker \u2014 monitors portfolio value relative to peak, warns at 15% drawdown, triggers full emergency shutdown and unwind to stablecoins at 20%",
-    "steps": [
-      "Tracks portfolio peak value continuously",
-      "Calculates current drawdown from peak in real-time",
-      "At 15% drawdown: alert sent, new position entries paused",
-      "At 20% drawdown: all positions unwound to stablecoins, all trading halted, alert sent",
-      "Cannot be overridden programmatically \u2014 requires manual restart after investigation",
-      "Drawdown calculation accounts for all positions across all chains"
-    ],
-    "passes": true
-  },
-  {
-    "id": "RISK-002",
-    "phase": "P1",
-    "subsystem": "risk-management",
-    "category": "security",
-    "description": "Per-position loss limit \u2014 closes any position that loses >10% of entry value and puts the corresponding strategy into 24h cooldown",
-    "steps": [
-      "Every position has a tracked entry value",
-      "Loss calculated relative to entry value, updated with each price feed refresh",
-      "At >10% loss: position closed, strategy enters 24h cooldown",
-      "Cooldown enforced \u2014 strategy cannot open new positions until cooldown expires",
-      "Loss events logged with full context: entry price, exit price, duration, strategy"
-    ],
-    "passes": true
-  },
-  {
-    "id": "RISK-003",
-    "phase": "P1",
-    "subsystem": "risk-management",
-    "category": "security",
-    "description": "Gas spike circuit breaker \u2014 pauses non-urgent operations when gas exceeds 3x 24h average, allows urgent operations (stop-loss), queues others for later",
-    "steps": [
-      "Compares current gas price against 24h rolling average",
-      "At >3x average: pauses non-urgent operations (new entries, rebalancing, harvesting)",
-      "Urgent operations (stop-loss exits, emergency withdrawals) exempt from pause",
-      "Queued operations held and executed when gas returns below threshold",
-      "Alert sent when gas pause activates and when it deactivates"
-    ],
-    "passes": true
-  },
-  {
-    "id": "RISK-004",
-    "phase": "P1",
-    "subsystem": "risk-management",
-    "category": "security",
-    "description": "Transaction failure rate monitor \u2014 pauses execution and enters diagnostic mode if more than 3 transactions fail within one hour",
-    "steps": [
-      "Counts failed transactions in a rolling 1-hour window",
-      "At >3 failures/hour: pauses all execution, enters diagnostic mode, sends alert",
-      "Failure reasons logged and categorized (revert, out of gas, timeout, nonce issue)",
-      "System does not auto-resume \u2014 requires manual investigation",
-      "Distinguishes between parameter errors and systemic failures (network issues)"
-    ],
-    "passes": true
-  },
-  {
-    "id": "RISK-005",
-    "phase": "P1",
-    "subsystem": "risk-management",
-    "category": "security",
-    "description": "Protocol TVL monitor \u2014 monitors TVL of all protocols with active positions; withdraws capital if TVL drops >30% in 24h",
-    "steps": [
-      "TVL tracked for every protocol with active positions",
-      "24h rolling change calculated continuously",
-      "At >30% drop: withdraw all capital from affected protocol, alert sent",
-      "Withdrawal prioritized over other operations (treated as urgent)",
-      "Tracks TVL from DeFi Llama plus on-chain verification (not single-source dependent)"
-    ],
-    "passes": true
-  },
-  {
-    "id": "RISK-006",
-    "phase": "P1",
-    "subsystem": "risk-management",
-    "category": "security",
-    "description": "Application-level contract allowlist \u2014 SafeWalletManager.validateOrder() validates target addresses before every transaction; on-chain Safe guard deferred to mainnet",
-    "steps": [
-      "Allowlist maintained as in-memory Set<Address> in SafeWalletManager, configured at initialization",
-      "SafeWalletManager.validateOrder() checks target address before every transaction",
-      "Non-allowlisted contracts rejected with error published to execution:results",
-      "Allowlist configured at wallet startup from environment/code; on-chain friction deferred to mainnet deployment",
-      "Allowlist includes Aave V3, Lido, and their periphery contracts for P1a",
-      "Separate allowlists per chain added in P1c (Arbitrum, Base)"
-    ],
-    "passes": true
-  },
-  {
-    "id": "RISK-007",
-    "phase": "P1",
-    "subsystem": "risk-management",
-    "category": "security",
-    "description": "Oracle manipulation guard \u2014 multi-source price validation that rejects operations when prices deviate >2% between sources, with TWAP fallback",
-    "steps": [
-      "Every price used in a trading decision validated against at least 2 independent sources",
-      "Rejects prices with >2% deviation between sources",
-      "TWAP-based smoothing available as fallback when spot prices are unreliable",
-      "Logs all price rejections with source details for post-hoc analysis",
-      "Does not block operations when one source is temporarily unavailable (graceful degradation + alert)"
-    ],
-    "passes": true
-  },
-  {
-    "id": "RISK-008",
-    "phase": "P1",
-    "subsystem": "risk-management",
-    "category": "security",
-    "description": "Exposure limit enforcement \u2014 enforces portfolio-level concentration limits: max 40% per protocol, max 60% per asset, min 15% stablecoin reserves",
-    "steps": [
-      "Max 40% of portfolio in any single protocol checked before every new position",
-      "Max 60% of portfolio in any single asset (excluding stablecoins) enforced",
-      "Min 15% in stablecoins/liquid reserves at all times",
-      "Orders that would violate limits rejected before reaching TS executor",
-      "Current exposure levels queryable for dashboard display",
-      "Limits are configurable but changes are logged for audit trail"
-    ],
-    "passes": true
-  },
-  {
-    "id": "REPORT-001",
-    "phase": "P1",
-    "subsystem": "reporting",
-    "category": "functional",
-    "description": "Tax reporting engine \u2014 calculate capital gains/losses for all trades compatible with Canadian tax requirements using Adjusted Cost Base (ACB) method. REMOVED in v1 simplification (premature for testnet-only). Code deleted in session 2026-03-06-02",
-    "steps": [
-      "Tracks cost basis for every acquired asset (including gas fees as part of cost basis)",
-      "Calculates realized gain/loss on every disposal (sell, swap, LP exit)",
-      "Supports ACB (Adjusted Cost Base) method for Canadian tax reporting",
-      "Exportable report in CSV format with: date, asset, amount, proceeds, cost basis, gain/loss",
-      "Handles DeFi-specific tax events: LP entry/exit, staking rewards, yield farming rewards, flash loan fees",
-      "Full audit trail linking every tax event to original transaction hash"
-    ],
-    "passes": false
-  },
-  {
-    "id": "REPORT-002",
-    "phase": "P1",
-    "subsystem": "reporting",
-    "category": "functional",
-    "description": "P&L attribution report \u2014 break down total portfolio performance by strategy, protocol, chain, and time period to answer 'where did my returns come from?'",
-    "steps": [
-      "Attribution by strategy: how much each strategy contributed to total return",
-      "Attribution by protocol: Aave V3 vs Aerodrome contribution",
-      "Attribution by chain: Base (v1 scope)",
-      "Time-based: daily, weekly, monthly P&L breakdown",
-      "Includes gas costs as line item (total gas, gas per strategy)",
-      "Exportable as CSV or JSON"
-    ],
-    "passes": true
-  },
-  {
-    "id": "TEST-001",
-    "phase": "P1",
-    "subsystem": "testing",
-    "category": "testing",
-    "description": "Sepolia testnet integration suite \u2014 full end-to-end validation of all P1 features on Sepolia with no real capital",
-    "steps": [
-      "End-to-end flow works on Sepolia: detect opportunity \u2192 evaluate \u2192 approve \u2192 execute \u2192 confirm \u2192 log",
-      "Aave supply/withdraw cycle completes successfully on Sepolia",
-      "Agent startup recovery works after simulated crash (kill process, restart, verify state)",
-      "Circuit breakers trigger correctly when simulated thresholds are exceeded",
-      "Redis schema validation catches malformed messages"
-    ],
-    "passes": true
-  },
-  {
-    "id": "TEST-003",
-    "phase": "P1",
-    "subsystem": "testing",
-    "category": "testing",
-    "description": "ML gas prediction model \u2014 machine learning model predicting short-term gas prices (1h, 4h, 24h) based on historical patterns for transaction timing optimization",
-    "steps": [
-      "Model trained on minimum 6 months of historical gas data",
-      "Predicts gas price for next 1h, 4h, and 24h windows",
-      "Prediction accuracy within 20% of actual gas price 80% of the time",
-      "Used by strategy engine to time non-urgent operations for low-gas windows",
-      "Model retrained on configurable schedule (e.g. weekly)",
-      "Fallback to simple heuristics if model fails or degrades"
-    ],
-    "passes": false
-  },
-  {
-    "id": "TEST-002",
-    "phase": "P2",
-    "subsystem": "testing",
-    "category": "testing",
-    "description": "Historical stress testing \u2014 replay March 2020 COVID crash, May 2021 crypto crash, and November 2022 FTX collapse through the system to validate circuit breakers hold",
-    "steps": [
-      "Historical price and on-chain data available for each scenario for replay",
-      "System runs in simulation mode (no real transactions, but full decision pipeline executes)",
-      "Drawdown circuit breaker activates at correct thresholds during each scenario",
-      "Portfolio drawdown stays within 20% hard limit across all simulated scenarios",
-      "Results report generated: max drawdown, time to recovery, positions held during crisis"
-    ],
-    "passes": false
-  },
-  {
-    "id": "LISTEN-004",
-    "phase": "P3",
-    "subsystem": "ts-chain-listener",
-    "category": "functional",
-    "description": "Solana chain listener \u2014 extend listener to Solana using @solana/web3.js with account-based event model (program logs, account changes) for Marinade, Raydium, Jupiter",
-    "steps": [
-      "Connection to Solana RPC (Alchemy or Helius) with WebSocket subscriptions",
-      "Monitors relevant Solana programs: Marinade, Raydium, Jupiter",
-      "Account change notifications parsed into same normalized event format",
-      "Events published to market:events with chain: solana identifier",
-      "Handles Solana-specific reliability issues (RPC instability, slot skipping)"
-    ],
-    "passes": false
-  },
-  {
-    "id": "EXEC-008",
-    "phase": "P3",
-    "subsystem": "ts-executor",
-    "category": "functional",
-    "description": "Solana transaction executor \u2014 extend executor to Solana via @solana/web3.js for Marinade staking, Raydium LP, and Jupiter swap aggregation",
-    "steps": [
-      "Submit transactions to Solana via Alchemy or Helius RPC",
-      "Supports Marinade: stake SOL, unstake, query rewards",
-      "Supports Raydium: add/remove liquidity, collect fees",
-      "Supports Jupiter: execute aggregated swaps with slippage protection",
-      "Transaction confirmation handles Solana confirmation levels (processed \u2192 confirmed \u2192 finalized)",
-      "Results published to execution:results in same format as Ethereum transactions"
-    ],
-    "passes": false
-  },
-  {
-    "id": "DATA-006",
-    "phase": "P3",
-    "subsystem": "data-pipeline",
-    "category": "functional",
-    "description": "Solana data pipeline extension \u2014 extend data pipeline for Solana's account-based model with SOL/SPL token prices, Marinade/Raydium/Jupiter metrics, and priority fee tracking",
-    "steps": [
-      "SOL and SPL token prices integrated into unified price feed",
-      "Marinade metrics: staking APY, unstake queue, mSOL exchange rate",
-      "Raydium metrics: pool reserves, concentrated liquidity positions, fees",
-      "Jupiter: available swap routes and quotes for target pairs",
-      "Solana-specific gas (priority fees, compute units) tracked and cached"
+      "docker-compose.yml brings up Redis, PostgreSQL, ts-executor, py-engine",
+      "Dev targets: tsx watch for TS, watchfiles auto-reload for Python",
+      "Volume mounts for live code editing",
+      "Environment injection via .env file",
+      "Container networking via redis/postgres hostnames"
     ],
     "passes": false
   },
   {
     "id": "INFRA-005",
-    "phase": "P4",
-    "subsystem": "infrastructure",
+    "phase": "dev",
     "category": "infrastructure",
-    "description": "Railway production deployment \u2014 deploy dual-service architecture to Railway with service isolation, managed Redis, secrets management, auto-deploy, and health checks",
+    "description": "PostgreSQL database — persistent storage for trade history, portfolio state, strategy statuses, and decision audit log",
     "steps": [
-      "railway.toml configured for both services",
-      "Redis provisioned as Railway plugin or managed instance with persistence enabled",
-      "Environment variables managed through Railway secrets, not committed to repo",
-      "Both services auto-deploy on git push to main",
-      "Health check endpoints on both services; Railway restarts unhealthy containers",
-      "Logs accessible through Railway dashboard",
-      "Cost stays within budget (infrastructure portion of $250-$1,000 CAD)"
+      "Database models for portfolio positions, trade history, strategy statuses, decision audit log",
+      "Repository layer for CRUD operations",
+      "SQLAlchemy create_all() for schema initialization",
+      "DATABASE_URL environment variable configuration",
+      "In-memory cache loaded at startup, kept current from execution:results"
     ],
     "passes": false
   },
   {
-    "id": "STRAT-009",
-    "phase": "P1",
-    "subsystem": "strategy-engine",
-    "category": "functional",
-    "description": "Aerodrome stable LP (LP-001) \u2014 Tier 1 strategy class that provides liquidity to stable-stable pools on Aerodrome (USDC/USDbC, USDC/DAI) on Base, harvests AERO emissions, swaps to USDC, and re-deposits to compound",
+    "id": "INFRA-006",
+    "phase": "dev",
+    "category": "infrastructure",
+    "description": "Main decision loop — wires all modules in both services. py-engine: enrich → strategy eval → decision gate → Claude API → verify → emit. ts-executor: component init, order subscription, graceful shutdown",
     "steps": [
-      "Provides liquidity to sAMM (stable) pools only on Aerodrome Base",
-      "Enters when pool emission APR exceeds 3.0% and pool TVL exceeds $500K",
-      "Exits when APR drops below 1.5%, AERO drops >50% in 24h, or pool TVL below $200K",
-      "Harvests AERO rewards when pending value exceeds $0.50",
-      "Swaps AERO to USDC via Aerodrome router and re-deposits to compound",
-      "Respects exposure limits (max 30% of portfolio per STRATEGY.md)",
-      "Min position size $100"
+      "Python DecisionLoop class orchestrates the full pipeline",
+      "Decision gate: opens when any strategy report has actionable: true signal, no API call otherwise",
+      "All strategy reports included in prompt when gate opens (even from earlier cycles)",
+      "TypeScript main() initializes WS manager, publisher, L2 listener, TX builder, Safe wallet",
+      "Graceful shutdown with signal handling in both services",
+      "Periodic stream trimming (STREAM_TRIM_INTERVAL_CYCLES env var)"
     ],
+    "passes": false
+  },
+  {
+    "id": "LISTEN-001",
+    "phase": "dev",
+    "category": "listeners",
+    "description": "Alchemy WebSocket subscription manager — persistent WebSocket connections via viem with reconnection, backpressure, and health monitoring",
+    "steps": [
+      "WebSocket connection via viem with custom reconnection logic",
+      "Exponential backoff reconnection: 200ms initial, 2x growth, 30s cap, resets on success",
+      "Health monitoring: configurable timeout (default 60s), alerts on prolonged silence",
+      "Rate limit detection (429 errors) with backpressure queue (max 1000 events)",
+      "Block watcher and contract event subscriptions that survive reconnects",
+      "Monotonically increasing sequence numbers for event ordering"
+    ],
+    "passes": false
+  },
+  {
+    "id": "LISTEN-002",
+    "phase": "dev",
+    "category": "listeners",
+    "description": "Market event publisher — transforms raw blockchain events into structured, schema-validated market:events and publishes to Redis Streams",
+    "steps": [
+      "Event normalizer supports all 6 market-events schema types",
+      "Normalizes raw chain events to schema-compliant format",
+      "Publishes to market:events Redis Stream with schema validation",
+      "Drops invalid events with structured error logging"
+    ],
+    "passes": false
+  },
+  {
+    "id": "LISTEN-003",
+    "phase": "dev",
+    "category": "listeners",
+    "description": "Base L2 listener — chain event listening for Base with L2-specific gas estimation (OP Stack model + overhead)",
+    "steps": [
+      "Base chain event subscription via Alchemy WebSocket",
+      "L2 gas estimation: OP Stack model with data posting overhead",
+      "Events normalized to market-events schema with chain: base",
+      "Configurable via environment variables (RPC URL, contract addresses)",
+      "Finality configuration: configurable finalityBlocks (default 12) for Base L2"
+    ],
+    "passes": false
+  },
+  {
+    "id": "EXEC-001",
+    "phase": "dev",
+    "category": "execution",
+    "description": "Transaction builder — consumes orders from execution:orders, constructs and sends transactions via viem through Safe wallet, with retry logic and result publishing",
+    "steps": [
+      "Subscribes to execution:orders Redis Stream",
+      "Routes orders to protocol-specific encode modules via adapter map",
+      "Pre-flight checks: deadline expiry rejection, gas ceiling enforcement",
+      "Executes via SafeWalletManager (validateOrder → execute → recordSpend)",
+      "Retry logic: exponential backoff, max 3 retries, non-retryable error detection",
+      "Publishes results to execution:results (schema-validated)",
+      "All operations logged with correlation IDs",
+      "Finality-aware confirmation: configurable timeout, waits for sufficient block confirmations"
+    ],
+    "passes": false
+  },
+  {
+    "id": "EXEC-002",
+    "phase": "dev",
+    "category": "execution",
+    "description": "Safe 1-of-2 multisig wallet — battle-tested wallet with agent EOA + human recovery signer, application-level contract allowlist and spending limits",
+    "steps": [
+      "1-of-2 Safe: agent EOA owner #1, human recovery owner #2, threshold=1",
+      "Application-level contract allowlist: case-insensitive, rejects non-allowlisted targets",
+      "Spending limits: per-TX cap + daily cap with UTC midnight reset",
+      "Combined validateOrder() runs both allowlist + spending checks",
+      "Balance queries: ETH and ERC-20 via Alchemy",
+      "Transaction execution via Safe{Core} SDK",
+      "Private key never appears in logs or error messages"
+    ],
+    "passes": false
+  },
+  {
+    "id": "EXEC-003",
+    "phase": "dev",
+    "category": "execution",
+    "description": "Aave V3 encode module — encode-only pure functions for supply and withdraw calldata on Base",
+    "steps": [
+      "encodeSupply(): produces ABI-encoded calldata for Aave V3 Pool.supply()",
+      "encodeWithdraw(): produces ABI-encoded calldata for Aave V3 Pool.withdraw()",
+      "Pure functions — no state, no side effects, no chain calls",
+      "Wired into buildAdapterMap() in index.ts"
+    ],
+    "passes": false
+  },
+  {
+    "id": "EXEC-004",
+    "phase": "dev",
+    "category": "execution",
+    "description": "Aerodrome encode module — encode-only pure functions for Aerodrome DEX on Base (LP operations, swaps, reward collection)",
+    "steps": [
+      "Encode functions for addLiquidity, removeLiquidity, swap, claimRewards",
+      "Stable-stable pool pair support (sAMM pools)",
+      "Pure functions — no state, no side effects, no chain calls",
+      "L2 gas estimation for Base (OP Stack model)",
+      "Wired into buildAdapterMap() in index.ts"
+    ],
+    "passes": false
+  },
+  {
+    "id": "EXEC-005",
+    "phase": "dev",
+    "category": "execution",
+    "description": "Event reporter — publishes structured TX results to execution:results Redis Stream with schema validation",
+    "steps": [
+      "Builds result payload from TX receipt (status, hash, gas used, block number)",
+      "Schema-validates result before publishing to execution:results",
+      "Includes correlation ID linking result to original order",
+      "Handles both success and failure result types"
+    ],
+    "passes": false
+  },
+  {
+    "id": "DATA-001",
+    "phase": "dev",
+    "category": "data",
+    "description": "Price feed — multi-source token price ingestion via Alchemy Token Prices API with DefiLlama fallback, staleness detection",
+    "steps": [
+      "Primary source: Alchemy Token Prices API",
+      "Fallback source: DefiLlama price API",
+      "Supported tokens: USDC, USDT, DAI (stablecoins), AERO",
+      "Staleness detection: configurable threshold (default 60s), pauses non-urgent ops when stale",
+      "Multi-source validation: reject >2% deviation between sources",
+      "Redis cache with configurable TTL"
+    ],
+    "passes": false
+  },
+  {
+    "id": "DATA-002",
+    "phase": "dev",
+    "category": "data",
+    "description": "Gas monitor — track gas prices on Base for transaction timing decisions, with 24h rolling averages",
+    "steps": [
+      "Base gas price tracking via Blocknative + beaconcha.in",
+      "24h rolling average calculation for circuit breaker comparison",
+      "L2 gas parameters for Base (OP Stack model)",
+      "Redis cache with configurable TTL",
+      "Gas data included in MarketSnapshot for strategy evaluation"
+    ],
+    "passes": false
+  },
+  {
+    "id": "DATA-003",
+    "phase": "dev",
+    "category": "data",
+    "description": "DeFi protocol metrics collector — collect and normalize Aave V3 and Aerodrome protocol metrics (TVL, APY, utilization, pool states)",
+    "steps": [
+      "Aave V3 metrics: supply APY, utilization rate, available liquidity per market",
+      "Aerodrome metrics: pool TVL, emission APR, swap volume, AERO price",
+      "TVL aggregation across tracked protocols",
+      "Graceful degradation: individual provider failure doesn't crash collector",
+      "Redis caching of collected metrics with configurable TTL"
+    ],
+    "passes": false
+  },
+  {
+    "id": "DATA-004",
+    "phase": "dev",
+    "category": "data",
+    "description": "On-chain position reconciliation — query actual on-chain positions via Alchemy and compare against database records, trusting on-chain state",
+    "steps": [
+      "Query on-chain balances and positions via Alchemy Enhanced APIs",
+      "Compare against PostgreSQL position records",
+      "Trust on-chain state — update database to match on discrepancy",
+      "Runs as part of startup recovery sequence",
+      "Log discrepancies with structured error details"
+    ],
+    "passes": false
+  },
+  {
+    "id": "AI-001",
+    "phase": "dev",
+    "category": "ai",
+    "description": "Claude API decision engine — runtime reasoning over strategy reports and portfolio state; assembles structured prompt, calls Claude API, parses schema-compliant execution orders, applies verification gate",
+    "steps": [
+      "System prompt: Claude's role, execution-orders output schema, risk rules (durable across calls)",
+      "User message assembled fresh each cycle: objectives → portfolio → risk → reports → market data",
+      "Stateless: no conversation memory, fresh prompt each call",
+      "Response parsing: validate Claude output against execution-orders schema",
+      "Verification gate: orders pass through exposure limits + circuit breaker state check",
+      "Hold mode: retry with exponential backoff (3 attempts), enter hold mode if exhausted",
+      "Token budget management at API layer"
+    ],
+    "passes": false
+  },
+  {
+    "id": "AI-002",
+    "phase": "dev",
+    "category": "ai",
+    "description": "Insight synthesis — packages market data, portfolio state, risk context, and strategy reports into structured prompt sections for Claude API",
+    "steps": [
+      "Assembles objectives + strategy guidelines section from STRATEGY.md context",
+      "Assembles portfolio state section (positions, allocations, P&L, available capital)",
+      "Assembles risk context section (circuit breaker states, exposure levels, recent TX results)",
+      "Assembles strategy reports section (observations, signals, recommendations from each strategy)",
+      "Assembles market data section (prices, gas, protocol metrics, on-chain events)",
+      "Data sections ordered by priority for Claude's attention"
+    ],
+    "passes": false
+  },
+  {
+    "id": "STRAT-001",
+    "phase": "dev",
+    "category": "strategies",
+    "description": "Strategy protocol and registry — Strategy protocol definition (strategy_id, eval_interval, data_window, evaluate), MarketSnapshot dataclass, StrategyReport structure, auto-discovery from strategies/ directory",
+    "steps": [
+      "Strategy protocol with strategy_id, eval_interval, data_window, evaluate(snapshot) → StrategyReport",
+      "MarketSnapshot dataclass: prices, gas, pools, timestamp; engine pre-slices by data_window",
+      "StrategyReport: strategy_id, timestamp, observations, signals, recommendation",
+      "Signal types: entry_met, exit_met, harvest_ready, rebalance_needed, threshold_approaching",
+      "Auto-discovery: any module in strategies/ exporting a Strategy-conforming class is registered",
+      "Strategies are analysts — they produce reports, not execution orders"
+    ],
+    "passes": false
+  },
+  {
+    "id": "STRAT-002",
+    "phase": "dev",
+    "category": "strategies",
+    "description": "Strategy lifecycle manager — manages active/inactive status, per-strategy eval_interval scheduling, and strategy status persistence in PostgreSQL",
+    "steps": [
+      "Active/inactive status per strategy (no intermediate states)",
+      "Evaluation scheduling respects each strategy's eval_interval",
+      "Status toggle via PostgreSQL or by removing the class file",
+      "Strategy status persisted in PostgreSQL, loaded at startup",
+      "Concurrent async evaluation of active strategies"
+    ],
+    "passes": false
+  },
+  {
+    "id": "STRAT-003",
+    "phase": "dev",
+    "category": "strategies",
+    "description": "LEND-001 Aave lending strategy — supplies stablecoins (USDC, USDbC) to Aave V3 on Base, rotates to highest supply APY market when differential exceeds threshold after gas",
+    "steps": [
+      "Implements Strategy protocol with strategy_id='LEND-001'",
+      "Entry: target APY exceeds current by ≥0.5% after gas, ≥$1M liquidity, gas amortized in 14 days",
+      "Exit: supply APY drops below 1.0%, or TVL circuit breaker triggers",
+      "Constraints: max 70% portfolio, min $100 position, net monthly gain after gas >$1",
+      "Produces StrategyReport with observations, signals, recommendation"
+    ],
+    "passes": false
+  },
+  {
+    "id": "STRAT-004",
+    "phase": "dev",
+    "category": "strategies",
+    "description": "LP-001 Aerodrome stable LP strategy — provides liquidity to stable-stable pools (USDC/USDbC, USDC/DAI) on Aerodrome, harvests AERO rewards, swaps to USDC, compounds",
+    "steps": [
+      "Implements Strategy protocol with strategy_id='LP-001'",
+      "Entry: emission APR >3.0%, pool TVL >$500K, AERO has sufficient swap liquidity",
+      "Exit: APR <1.5%, AERO price drops >50% in 24h, pool TVL <$200K",
+      "Constraints: max 30% portfolio, min $100 position, stable-stable only, harvest when AERO >$0.50",
+      "Produces StrategyReport with observations, signals, recommendation"
+    ],
+    "passes": false
+  },
+  {
+    "id": "PORT-001",
+    "phase": "dev",
+    "category": "portfolio",
+    "description": "Portfolio allocator — manages capital allocation across strategies based on per-strategy limits defined in STRATEGY.md",
+    "steps": [
+      "Enforces per-strategy allocation limits (e.g. LEND-001: max 70%, LP-001: max 30%)",
+      "Tracks available capital and allocated amounts",
+      "Allocation state persisted in PostgreSQL",
+      "Provides allocation data for Claude's prompt context"
+    ],
+    "passes": false
+  },
+  {
+    "id": "PORT-002",
+    "phase": "dev",
+    "category": "portfolio",
+    "description": "Position tracker — real-time view of all open positions with P&L calculation, entry/exit recording, and execution result handling",
+    "steps": [
+      "Open/close positions with P&L calculation",
+      "Query positions by status, protocol, asset",
+      "Handles execution results from Redis (updates position state on TX success/failure)",
+      "State persisted in PostgreSQL, kept in-memory for fast access",
+      "Provides position data for Claude's prompt context"
+    ],
+    "passes": false
+  },
+  {
+    "id": "PORT-003",
+    "phase": "dev",
+    "category": "portfolio",
+    "description": "Rebalancing engine — detects allocation drift and recommends rebalancing when drift exceeds threshold",
+    "steps": [
+      "Compares current allocation against target allocation from STRATEGY.md",
+      "Detects drift beyond configurable threshold",
+      "Produces rebalance_needed signal for strategy reports",
+      "Rebalance decisions go through normal decision pipeline (Claude decides specifics)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "RISK-001",
+    "phase": "dev",
+    "category": "risk",
+    "description": "Drawdown circuit breaker — monitors portfolio value relative to peak; triggers at >20% drawdown with direct emission of unwind orders to Redis, bypassing decision gate",
+    "steps": [
+      "Tracks portfolio peak value continuously",
+      "Triggers at >20% drawdown from peak",
+      "Direct emission: generates CB:drawdown orders to halt all + unwind to stables",
+      "Orders schema-validated before publishing to execution:orders",
+      "Runs independently on every market event"
+    ],
+    "passes": false
+  },
+  {
+    "id": "RISK-002",
+    "phase": "dev",
+    "category": "risk",
+    "description": "Per-position loss limit — closes any position that loses >10% of entry value; 24h cooldown tracked via Redis TTL key",
+    "steps": [
+      "Monitors each position's value against entry value",
+      "Triggers at >10% loss on any single position",
+      "Direct emission: generates CB:position_loss order to close affected position",
+      "24h cooldown via Redis TTL key (e.g. cooldown:LEND-001 EX 86400)",
+      "Cooldown auto-expires, survives restarts via Redis persistent volume"
+    ],
+    "passes": false
+  },
+  {
+    "id": "RISK-003",
+    "phase": "dev",
+    "category": "risk",
+    "description": "Gas spike circuit breaker — pauses non-urgent operations when gas exceeds 3x 24h average; gate-only, does not emit orders",
+    "steps": [
+      "Compares current gas price against 24h rolling average",
+      "Triggers at >3x the 24h average",
+      "Gate-only: blocks normal pipeline from executing, does not emit orders",
+      "Urgent operations (stop-loss, emergency unwind) bypass gas pause",
+      "Clears automatically when gas normalizes"
+    ],
+    "passes": false
+  },
+  {
+    "id": "RISK-004",
+    "phase": "dev",
+    "category": "risk",
+    "description": "TX failure rate monitor — pauses execution and enters hold mode when failure rate exceeds 3 failures per hour; gate-only",
+    "steps": [
+      "Tracks TX failure count in rolling 1-hour window",
+      "Triggers at >3 failures/hour",
+      "Gate-only: pauses execution, enters hold mode",
+      "Clears when failure rate drops below threshold"
+    ],
+    "passes": false
+  },
+  {
+    "id": "RISK-005",
+    "phase": "dev",
+    "category": "risk",
+    "description": "Protocol TVL monitor — monitors TVL of protocols with active positions; triggers withdrawal at >30% TVL drop in 24h with direct emission",
+    "steps": [
+      "Monitors TVL of Aave V3 and Aerodrome continuously",
+      "Triggers at >30% TVL drop within 24h window",
+      "Direct emission: generates CB:tvl_drop orders to withdraw from affected protocol",
+      "Orders schema-validated before publishing",
+      "Only monitors protocols where the system has active positions"
+    ],
+    "passes": false
+  },
+  {
+    "id": "RISK-006",
+    "phase": "dev",
+    "category": "risk",
+    "description": "Contract allowlist — application-level contract allowlist enforced by SafeWalletManager.validateOrder() before every TX execution. Interim measure until on-chain Safe guard module (RISK-009) is deployed",
+    "steps": [
+      "Allowlist of permitted contract addresses (case-insensitive matching)",
+      "validateOrder() rejects orders targeting non-allowlisted contracts",
+      "Runs before every TX execution in the transaction builder",
+      "Allowlist configurable via environment variables"
+    ],
+    "passes": false
+  },
+  {
+    "id": "RISK-007",
+    "phase": "dev",
+    "category": "risk",
+    "description": "Oracle manipulation guard — multi-source price validation that rejects operations when price sources deviate by >2%",
+    "steps": [
+      "Compares prices across multiple sources (Alchemy, DefiLlama)",
+      "Rejects operations when deviation exceeds 2% between sources",
+      "Logs deviation details for audit",
+      "Works in conjunction with price feed staleness detection"
+    ],
+    "passes": false
+  },
+  {
+    "id": "RISK-008",
+    "phase": "dev",
+    "category": "risk",
+    "description": "Exposure limit enforcement — enforces portfolio-level concentration limits: per-protocol max, per-asset max, minimum liquid reserve; all configured via env vars",
+    "steps": [
+      "Per-protocol max allocation enforcement",
+      "Per-asset max allocation enforcement",
+      "Minimum liquid reserve requirement",
+      "Limits defined as environment variables, not hardcoded",
+      "Checked as part of verification gate before order execution"
+    ],
+    "passes": false
+  },
+  {
+    "id": "RISK-009",
+    "phase": "dev",
+    "category": "risk",
+    "description": "Safe on-chain guard module — deploy AllowlistGuard contract to enforce contract allowlist at the wallet level, unbypassable even if the application is compromised",
+    "steps": [
+      "Deploy AllowlistGuard contract with permitted contract addresses",
+      "Attach guard to Safe via setGuard() transaction",
+      "Verify on-chain guard matches application-level allowlist (RISK-006)",
+      "Guard rejects transactions targeting non-allowlisted contracts at the EVM level"
+    ],
+    "passes": false
+  },
+  {
+    "id": "HARNESS-001",
+    "phase": "dev",
+    "category": "harness",
+    "description": "State persistence — PostgreSQL for portfolio positions, trade history, strategy statuses, and decision audit log; Redis for market cache, cooldowns (TTL keys), and system status",
+    "steps": [
+      "Portfolio positions persisted in PostgreSQL (holdings, entry prices, timestamps)",
+      "Trade history and decision audit log in PostgreSQL",
+      "Strategy statuses (active/inactive) in PostgreSQL",
+      "Market data cache in Redis (ephemeral, rebuilt on restart)",
+      "Circuit breaker cooldowns in Redis TTL keys (auto-expire)",
+      "System status (normal/hold) in Redis"
+    ],
+    "passes": false
+  },
+  {
+    "id": "HARNESS-002",
+    "phase": "dev",
+    "category": "harness",
+    "description": "Startup recovery sequence — load state from PostgreSQL → replay unprocessed Redis Stream messages → on-chain reconciliation → health check → resume or hold",
+    "steps": [
+      "Load portfolio state, positions, strategy statuses from PostgreSQL",
+      "Check Redis Streams for unprocessed messages, replay any after last acknowledged",
+      "Query on-chain state to verify positions match database records",
+      "Reconcile discrepancies (trust on-chain state, update database to match)",
+      "Health check connected protocols",
+      "Resume normal operation or enter hold mode if reconciliation fails"
+    ],
+    "passes": false
+  },
+  {
+    "id": "HARNESS-003",
+    "phase": "dev",
+    "category": "harness",
+    "description": "Human-in-the-loop approval gates — high-impact actions require explicit owner approval before execution",
+    "steps": [
+      "High-impact action detection (large trades, protocol withdrawals)",
+      "Approval request mechanism",
+      "Blocks execution until approval received or timeout",
+      "Configurable approval thresholds"
+    ],
+    "passes": false
+  },
+  {
+    "id": "HARNESS-004",
+    "phase": "dev",
+    "category": "harness",
+    "description": "DEPRECATED: Diagnostic mode — merged into HARNESS-005 (hold mode)",
+    "deprecated": "Merged into HARNESS-005. Hold mode covers both API failure and irreconcilable state entry paths.",
+    "steps": [],
     "passes": true
+  },
+  {
+    "id": "HARNESS-005",
+    "phase": "dev",
+    "category": "harness",
+    "description": "Hold mode — system behavior when Claude API is unavailable or irreconcilable state is detected; no new decisions, auto-resume when trigger clears",
+    "steps": [
+      "Tracked as system_status: normal | hold in Redis",
+      "Entry path 1: Claude API unavailability (down, timeout after retries, budget exhausted)",
+      "Entry path 2: Irreconcilable state discrepancies or critical failures during startup/runtime",
+      "No new positions, rebalances, or harvests; existing positions maintained",
+      "Strategy evaluation continues (reports stay fresh for Claude's return)",
+      "Circuit breakers remain fully active (independent of Claude)",
+      "Decision gate stays closed regardless of actionable signals",
+      "Structured diagnostic logging for troubleshooting irreconcilable state",
+      "Auto-resume when Claude API responds, budget resets, or state is manually reconciled"
+    ],
+    "passes": false
+  },
+  {
+    "id": "MON-001",
+    "phase": "dev",
+    "category": "monitoring",
+    "description": "Structured logging — every trade, signal, risk decision, and system event logged as structured JSON with timestamp, service, event, and correlationId",
+    "steps": [
+      "JSON log format: { timestamp, service, event, correlationId, ...data }",
+      "Logs to stdout (Railway captures and aggregates)",
+      "Trade execution logged with order details and results",
+      "Risk decisions logged (circuit breaker triggers, exposure limit rejections)",
+      "System events logged (startup, shutdown, hold mode transitions)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "MON-002",
+    "phase": "dev",
+    "category": "monitoring",
+    "description": "Performance dashboard — real-time tracking of portfolio value, cumulative P&L, Sharpe ratio, and position breakdown",
+    "steps": [
+      "Portfolio value tracking over time",
+      "Cumulative P&L calculation",
+      "Sharpe ratio computation",
+      "Position breakdown by strategy and protocol",
+      "Dashboard data assembled from PostgreSQL + real-time market data"
+    ],
+    "passes": false
+  },
+  {
+    "id": "REPORT-001",
+    "phase": "dev",
+    "category": "reporting",
+    "description": "P&L attribution — break down portfolio performance by strategy, protocol, asset, and time period",
+    "steps": [
+      "P&L breakdown by strategy (LEND-001, LP-001)",
+      "P&L breakdown by protocol (Aave V3, Aerodrome)",
+      "P&L breakdown by asset (USDC, USDbC, DAI)",
+      "Time-period filtering (daily, weekly, monthly, custom range)",
+      "Data sourced from trade history in PostgreSQL"
+    ],
+    "passes": false
+  },
+  {
+    "id": "TEST-001",
+    "phase": "test",
+    "category": "testing",
+    "description": "Integration test suite — E2E lifecycle tests, circuit breaker integration tests, schema validation tests, and startup recovery tests",
+    "steps": [
+      "E2E lifecycle test: market event → strategy eval → decision gate → order → execution → result",
+      "Circuit breaker integration: drawdown trigger → emergency unwind → position closed",
+      "Schema validation: all message types validated against shared schemas in both services",
+      "Startup recovery: state load → stream replay → reconciliation",
+      "All tests pass without external dependencies (mocked providers)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "TEST-002",
+    "phase": "test",
+    "category": "testing",
+    "description": "Calldata validation tests — encode/decode roundtrip tests for all protocol adapters, verifying ABI correctness and selector uniqueness",
+    "steps": [
+      "Aave V3: supply/withdraw encode roundtrip with address and selector verification",
+      "Aerodrome: addLiquidity/removeLiquidity/swap encode roundtrip",
+      "Function selector uniqueness across all adapters",
+      "Gas estimation sanity checks for Base L2"
+    ],
+    "passes": false
+  },
+  {
+    "id": "TEST-003",
+    "phase": "test",
+    "category": "testing",
+    "description": "Sepolia live tests — on-chain contract interaction tests against Sepolia testnet, skipped by default, enabled via ALCHEMY_SEPOLIA_HTTP_URL env var",
+    "steps": [
+      "Contract existence verification on Sepolia",
+      "Aave V3 getReserveData call succeeds",
+      "Encoded calldata accepted by contract (estimateGas succeeds)",
+      "Tests skip when ALCHEMY_SEPOLIA_HTTP_URL not set",
+      "Tests isolated from unit test suite"
+    ],
+    "passes": false
+  },
+  {
+    "id": "DEPLOY-001",
+    "phase": "deploy",
+    "category": "deployment",
+    "description": "Railway production deployment — Dockerfiles for both services, Railway config, persistent volumes for Redis + PostgreSQL, git-push deploy trigger",
+    "steps": [
+      "ts-executor Dockerfile: multi-stage build (Node 22 Alpine, dev/prod targets)",
+      "py-engine Dockerfile: multi-stage build (Python 3.12-slim, uv-based, dev/prod targets)",
+      "Railway persistent volumes for PostgreSQL and Redis",
+      "Deploy trigger: git push to main → container rebuild",
+      "Startup sequence runs on deploy (Section 7 of system design)",
+      "Rollback via Railway built-in mechanism"
+    ],
+    "passes": false
   }
 ]
