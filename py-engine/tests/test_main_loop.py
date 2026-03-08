@@ -413,3 +413,212 @@ class TestSignalHandling:
             assert main._shutdown is True
         finally:
             main._shutdown = original
+
+
+# ---------------------------------------------------------------------------
+# INFRA-006 — Strategy evaluation and decision gate
+# ---------------------------------------------------------------------------
+
+def _make_mock_strategy(
+    strategy_id: str = "TEST-001",
+    actionable: bool = False,
+    signal_type: str = "entry_met",
+) -> MagicMock:
+    """Create a mock strategy that conforms to the Strategy protocol."""
+    from datetime import timedelta
+
+    from strategies.base import (
+        Observation,
+        Recommendation,
+        Signal,
+        SignalType,
+        StrategyReport,
+    )
+
+    strategy = MagicMock()
+    strategy.strategy_id = strategy_id
+    strategy.eval_interval = timedelta(seconds=0)  # always due
+    strategy.data_window = timedelta(hours=1)
+
+    report = StrategyReport(
+        strategy_id=strategy_id,
+        timestamp="2025-01-01T00:00:00Z",
+        observations=[Observation(metric="test_metric", value="100", context="test")],
+        signals=[Signal(
+            type=SignalType(signal_type), actionable=actionable, details="test signal",
+        )],
+        recommendation=Recommendation(
+            action="supply", reasoning="test", parameters={"protocol": "aave_v3"},
+        ) if actionable else None,
+    )
+    strategy.evaluate = MagicMock(return_value=report)
+    return strategy
+
+
+class TestStrategyEvaluation:
+    """INFRA-006: Strategy evaluation wired into decision loop."""
+
+    def test_register_strategy(self) -> None:
+        loop = _make_loop()
+        strategy = _make_mock_strategy()
+        loop.register_strategy(strategy)
+        assert "TEST-001" in loop._strategies
+
+    def test_strategies_evaluated_in_run_cycle(self) -> None:
+        loop = _make_loop()
+        strategy = _make_mock_strategy()
+        loop.register_strategy(strategy)
+        loop.synthesizer.synthesize = MagicMock(return_value=SimpleNamespace(
+            to_dict=lambda: {"active_signals": []},
+        ))
+        loop.run_cycle(_make_event())
+        strategy.evaluate.assert_called_once()
+
+    def test_reports_accumulated_across_cycles(self) -> None:
+        loop = _make_loop()
+        s1 = _make_mock_strategy("STRAT-A", actionable=False)
+        s2 = _make_mock_strategy("STRAT-B", actionable=False)
+        loop.register_strategy(s1)
+        loop.synthesizer.synthesize = MagicMock(return_value=SimpleNamespace(
+            to_dict=lambda: {"active_signals": []},
+        ))
+
+        # Cycle 1: only STRAT-A registered
+        loop.run_cycle(_make_event())
+        assert "STRAT-A" in loop._latest_reports
+
+        # Register STRAT-B and run cycle 2
+        loop.register_strategy(s2)
+        loop.run_cycle(_make_event())
+        # Both reports accumulated
+        assert "STRAT-A" in loop._latest_reports
+        assert "STRAT-B" in loop._latest_reports
+
+    def test_no_evaluation_when_no_strategies(self) -> None:
+        loop = _make_loop()
+        loop.synthesizer.synthesize = MagicMock(return_value=SimpleNamespace(
+            to_dict=lambda: {"active_signals": []},
+        ))
+        loop.run_cycle(_make_event())
+        assert loop._latest_reports == {}
+
+
+class TestDecisionGate:
+    """INFRA-006: Decision gate opens only on actionable signals."""
+
+    def test_gate_closed_no_actionable_reports(self) -> None:
+        loop = _make_loop()
+        strategy = _make_mock_strategy(actionable=False)
+        loop.register_strategy(strategy)
+        loop.synthesizer.synthesize = MagicMock(return_value=SimpleNamespace(
+            to_dict=lambda: {"active_signals": []},
+        ))
+        orders = loop.run_cycle(_make_event())
+        assert orders == []
+
+    def test_gate_opens_on_actionable_report(self) -> None:
+        loop = _make_loop()
+        strategy = _make_mock_strategy(actionable=True)
+        loop.register_strategy(strategy)
+        loop.synthesizer.synthesize = MagicMock(return_value=SimpleNamespace(
+            to_dict=lambda: {"active_signals": []},
+        ))
+        # Mock Claude API to return an ADJUST decision
+        loop.decision_engine.decide = MagicMock(return_value=Decision(
+            action=DecisionAction.ADJUST,
+            strategy="TEST-001",
+            reasoning="Entry conditions met",
+            confidence=0.8,
+            params={"chain": "base", "protocol": "aave_v3", "action": "supply"},
+        ))
+        orders = loop.run_cycle(_make_event())
+        # Gate opened → Claude API was called
+        loop.decision_engine.decide.assert_called_once()
+        assert len(orders) == 1
+
+    def test_hold_mode_keeps_gate_closed(self) -> None:
+        loop = _make_loop()
+        strategy = _make_mock_strategy(actionable=True)
+        loop.register_strategy(strategy)
+        loop.hold_mode.is_active = MagicMock(return_value=True)
+        loop.synthesizer.synthesize = MagicMock(return_value=SimpleNamespace(
+            to_dict=lambda: {"active_signals": []},
+        ))
+        orders = loop.run_cycle(_make_event())
+        assert orders == []
+
+    def test_hold_mode_decision_reasoning(self) -> None:
+        loop = _make_loop()
+        loop.hold_mode.is_active = MagicMock(return_value=True)
+        # Even with actionable signals, hold mode keeps gate closed
+        from strategies.base import Signal, SignalType, StrategyReport
+        loop._latest_reports["TEST-001"] = StrategyReport(
+            strategy_id="TEST-001",
+            timestamp="2025-01-01T00:00:00Z",
+            observations=[],
+            signals=[Signal(type=SignalType.ENTRY_MET, actionable=True, details="test")],
+        )
+        decision = loop._decide({"active_signals": []})
+        assert decision.action == DecisionAction.HOLD
+        assert "hold mode" in decision.reasoning.lower()
+
+    def test_reports_included_in_snapshot_when_gate_opens(self) -> None:
+        loop = _make_loop()
+        strategy = _make_mock_strategy(actionable=True)
+        loop.register_strategy(strategy)
+        loop.synthesizer.synthesize = MagicMock(return_value=SimpleNamespace(
+            to_dict=lambda: {"active_signals": []},
+        ))
+
+        captured_snapshot = {}
+
+        def capture_decide(snap: dict) -> Decision:
+            captured_snapshot.update(snap)
+            return Decision(
+                action=DecisionAction.HOLD,
+                strategy="system",
+                reasoning="test",
+                confidence=1.0,
+            )
+
+        loop.decision_engine.decide = capture_decide
+        loop.run_cycle(_make_event())
+        # Verify reports were included in the snapshot
+        assert "strategy_reports" in captured_snapshot
+        assert len(captured_snapshot["strategy_reports"]) == 1
+        assert captured_snapshot["strategy_reports"][0]["strategy_id"] == "TEST-001"
+
+    def test_stale_reports_included_when_gate_opens(self) -> None:
+        """Reports from earlier cycles stay in _latest_reports and are
+        included when the gate opens in a later cycle."""
+        loop = _make_loop()
+        # Cycle 1: non-actionable strategy produces a report
+        s1 = _make_mock_strategy("STRAT-A", actionable=False)
+        loop.register_strategy(s1)
+        loop.synthesizer.synthesize = MagicMock(return_value=SimpleNamespace(
+            to_dict=lambda: {"active_signals": []},
+        ))
+        loop.run_cycle(_make_event())
+        assert "STRAT-A" in loop._latest_reports
+
+        # Cycle 2: actionable strategy added, gate should open with BOTH reports
+        s2 = _make_mock_strategy("STRAT-B", actionable=True)
+        loop.register_strategy(s2)
+
+        captured_snapshot = {}
+
+        def capture_decide(snap: dict) -> Decision:
+            captured_snapshot.update(snap)
+            return Decision(
+                action=DecisionAction.HOLD,
+                strategy="system",
+                reasoning="test",
+                confidence=1.0,
+            )
+
+        loop.decision_engine.decide = capture_decide
+        loop.run_cycle(_make_event())
+        assert "strategy_reports" in captured_snapshot
+        report_ids = [r["strategy_id"] for r in captured_snapshot["strategy_reports"]]
+        assert "STRAT-A" in report_ids
+        assert "STRAT-B" in report_ids
