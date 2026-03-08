@@ -52,6 +52,11 @@ def _make_loop() -> DecisionLoop:
         fast=50, standard=30, slow=20, timestamp="2025-01-01T00:00:00Z",
     ))
     loop.gas_monitor.get_rolling_average = MagicMock(return_value=Decimal("30"))
+    # Mock oracle guard to return safe by default
+    loop.oracle_guard.check = MagicMock(return_value=SimpleNamespace(
+        safe=True, deviations=[], stale=False, reason="ok",
+    ))
+    loop.oracle_guard.get_deviations = MagicMock(return_value={})
     return loop
 
 

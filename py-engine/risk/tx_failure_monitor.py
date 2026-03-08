@@ -233,7 +233,10 @@ class TxFailureMonitor:
             return
         from harness.hold_mode import HoldTrigger
         self._hold_mode.enter(
-            reason=f"TX failure rate exceeded: {failure_count} failures in window (threshold: {self._failure_threshold})",
+            reason=(
+                f"TX failure rate exceeded: {failure_count} failures "
+                f"in window (threshold: {self._failure_threshold})"
+            ),
             trigger=HoldTrigger.TX_FAILURE_RATE,
             context={
                 "failures_in_window": failure_count,

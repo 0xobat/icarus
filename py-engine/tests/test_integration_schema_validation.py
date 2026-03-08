@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 import pytest
 
 from validation.schema_validator import SchemaValidationError, validate, validate_or_raise

@@ -7,7 +7,7 @@ Implements the Strategy protocol — produces reports, not orders.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from strategies.base import (
     GasInfo,
@@ -48,14 +48,17 @@ class AaveLendingStrategy:
 
     @property
     def strategy_id(self) -> str:
+        """Unique identifier matching STRATEGY.md."""
         return STRATEGY_ID
 
     @property
     def eval_interval(self) -> timedelta:
+        """How often evaluate() should be called."""
         return timedelta(minutes=15)
 
     @property
     def data_window(self) -> timedelta:
+        """How far back the strategy needs market data."""
         return timedelta(hours=24)
 
     def evaluate(self, snapshot: MarketSnapshot) -> StrategyReport:
@@ -95,7 +98,7 @@ class AaveLendingStrategy:
             observations.append(Observation(
                 metric="eligible_pools",
                 value="0",
-                context="No eligible Aave V3 pools with whitelisted assets and sufficient liquidity",
+                context="No eligible Aave V3 pools with whitelisted assets",
             ))
             return StrategyReport(
                 strategy_id=STRATEGY_ID,

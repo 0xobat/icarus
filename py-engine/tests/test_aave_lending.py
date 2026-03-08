@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 
 from strategies.aave_lending import (
     ALLOWED_PROTOCOL,
-    ESTIMATED_GAS_COST_USD,
     GAS_AMORTIZATION_DAYS,
     MIN_APY_IMPROVEMENT,
     MIN_LIQUIDITY_USD,
@@ -18,10 +17,7 @@ from strategies.aave_lending import (
 from strategies.base import (
     GasInfo,
     MarketSnapshot,
-    Observation,
     PoolState,
-    Recommendation,
-    Signal,
     SignalType,
     Strategy,
     StrategyReport,

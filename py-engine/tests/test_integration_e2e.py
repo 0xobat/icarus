@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 from monitoring.logger import correlation_context, get_correlation_id
-from portfolio.allocator import PortfolioAllocator
 from portfolio.position_tracker import PositionTracker
 from strategies.aave_lending import (
     ALLOWED_PROTOCOL,
