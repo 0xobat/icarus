@@ -376,9 +376,23 @@ class TestReportStructure:
         )
         report = s.evaluate(snapshot)
         assert report.strategy_id == "LP-001"
-        # Should still produce entry signal
+        # No entry signal without AERO price (liquidity check)
         entry = [sig for sig in report.signals if sig.type == SignalType.ENTRY_MET]
-        assert len(entry) == 1
+        assert len(entry) == 0
+
+    def test_no_entry_without_aero_liquidity(self):
+        """Good APR/TVL but no AERO price data → no actionable entry signal."""
+        s = AerodromeLpStrategy()
+        snapshot = MarketSnapshot(
+            prices=[],
+            gas=GasInfo(current_gwei=0.01, avg_24h_gwei=0.01),
+            pools=[_make_pool(apy=0.10, tvl=5_000_000)],
+            timestamp=_NOW,
+        )
+        report = s.evaluate(snapshot)
+        entry = [sig for sig in report.signals if sig.type == SignalType.ENTRY_MET]
+        assert len(entry) == 0
+        assert report.recommendation is None or report.recommendation.action != "mint_lp"
 
 
 # ---------------------------------------------------------------------------
