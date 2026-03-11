@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import type { HoldModeData } from "@/lib/types";
 

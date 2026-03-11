@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import {
@@ -135,9 +135,8 @@ interface PortfolioChartProps {
 
 export function PortfolioChart({ height = 200, showStrategyOverlay = false }: PortfolioChartProps) {
   const [active, setActive] = useState("24h");
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const [overlayStrategies, setOverlayStrategies] = useState<string[]>([]);
-  useEffect(() => setMounted(true), []);
 
   const data = datasets[active];
 
