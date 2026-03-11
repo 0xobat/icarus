@@ -4,7 +4,7 @@ import { ShieldCheck, Sparkles, Bell } from "lucide-react";
 
 export function Topbar() {
   return (
-    <header className="flex h-11 shrink-0 items-center justify-between border-b border-border-subtle bg-bg-surface px-6">
+    <header className="flex h-[38px] shrink-0 items-center justify-between border-b border-border-subtle bg-bg-surface px-6">
       {/* Left — branding */}
       <div className="flex items-center gap-3">
         <h1 className="font-display text-sm font-bold tracking-wide text-text-primary">
@@ -27,7 +27,7 @@ export function Topbar() {
           icon={<Sparkles className="h-3 w-3" />}
           label="CLAUDE"
           value="ONLINE"
-          color="violet"
+          color="cyan"
         />
       </div>
 
@@ -55,11 +55,11 @@ function StatusBadge({
   icon: React.ReactNode;
   label: string;
   value: string;
-  color: "primary" | "violet" | "amber";
+  color: "primary" | "cyan" | "amber";
 }) {
   const colorMap = {
     primary: "text-primary border-primary/20 bg-primary-ghost",
-    violet: "text-violet border-violet/20 bg-violet-muted/30",
+    cyan: "text-cyan border-cyan/20 bg-cyan-ghost",
     amber: "text-amber border-amber/20 bg-amber-muted/30",
   };
 

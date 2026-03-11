@@ -2,7 +2,8 @@
 
 import { motion } from "motion/react";
 import { Play, Pause } from "lucide-react";
-import { strategies } from "@/lib/mock-data";
+import { strategiesPanel } from "@/lib/mock-data";
+import { AllocationBar } from "./allocation-bar";
 
 export function StrategiesPanel() {
   return (
@@ -19,12 +20,14 @@ export function StrategiesPanel() {
           </span>
         </div>
         <span className="font-mono text-[10px] text-text-tertiary">
-          {strategies.filter((s) => s.status === "active").length}/{strategies.length} running
+          {strategiesPanel.strategies.filter((s) => s.status === "active").length}/{strategiesPanel.strategies.length} running
         </span>
       </div>
 
+      <AllocationBar data={strategiesPanel} />
+
       <div className="divide-y divide-border-subtle">
-        {strategies.map((strategy, i) => (
+        {strategiesPanel.strategies.map((strategy, i) => (
           <motion.div
             key={strategy.id}
             initial={{ opacity: 0, x: -8 }}
@@ -53,9 +56,9 @@ export function StrategiesPanel() {
                 <span className="font-mono text-[11px] font-medium text-primary">
                   {strategy.id}
                 </span>
-                {strategy.signals > 0 && (
-                  <span className="rounded-full bg-amber-muted px-1.5 py-0.5 font-mono text-[9px] font-medium text-amber">
-                    {strategy.signals} signal{strategy.signals > 1 ? "s" : ""}
+                {strategy.active_signals > 0 && (
+                  <span className="rounded-full bg-primary-muted px-1.5 py-0.5 font-mono text-[9px] font-medium text-primary">
+                    {strategy.active_signals} signal{strategy.active_signals > 1 ? "s" : ""}
                   </span>
                 )}
               </div>
@@ -69,20 +72,29 @@ export function StrategiesPanel() {
               </div>
               <div
                 className={`font-mono text-[10px] ${
-                  strategy.pnlPercent > 0 ? "text-success" : "text-text-tertiary"
+                  strategy.pnl_pct > 0 ? "text-success" : "text-text-tertiary"
                 }`}
               >
-                {strategy.pnlPercent > 0 ? "+" : ""}
-                {strategy.pnlPercent}%
+                {strategy.pnl_pct > 0 ? "+" : ""}
+                {strategy.pnl_pct}%
               </div>
             </div>
 
             {/* Last eval */}
             <div className="w-14 text-right">
               <span className="font-mono text-[10px] text-text-tertiary">
-                {strategy.lastEval}
+                {strategy.last_eval_ago}
               </span>
             </div>
+
+            {/* Pause/resume button */}
+            <button className="flex h-[22px] w-[22px] items-center justify-center rounded border border-border-subtle text-text-tertiary hover:bg-bg-hover hover:text-primary transition-colors">
+              {strategy.status === "active" ? (
+                <Pause className="h-2.5 w-2.5" />
+              ) : (
+                <Play className="h-2.5 w-2.5" />
+              )}
+            </button>
           </motion.div>
         ))}
       </div>

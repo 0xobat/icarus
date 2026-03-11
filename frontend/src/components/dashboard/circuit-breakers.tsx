@@ -2,12 +2,14 @@
 
 import { motion } from "motion/react";
 import { Shield } from "lucide-react";
-import { circuitBreakers } from "@/lib/mock-data";
+import Link from "next/link";
+import { circuitBreakersData } from "@/lib/mock-data";
 
 const statusColors = {
   safe: { bar: "bg-primary", text: "text-primary", bg: "bg-primary-muted" },
-  warning: { bar: "bg-amber", text: "text-amber", bg: "bg-amber-muted" },
+  warning: { bar: "bg-warning", text: "text-warning", bg: "bg-warning-muted" },
   critical: { bar: "bg-danger", text: "text-danger", bg: "bg-danger-muted" },
+  triggered: { bar: "bg-danger", text: "text-danger", bg: "bg-danger-muted" },
 };
 
 export function CircuitBreakers() {
@@ -25,11 +27,16 @@ export function CircuitBreakers() {
             Circuit Breakers
           </span>
         </div>
-        <span className="font-mono text-[10px] text-success">ALL NOMINAL</span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[10px] text-success">ALL NOMINAL</span>
+          <Link href="/risk" className="font-mono text-[9px] text-primary hover:underline">
+            &rarr; Risk
+          </Link>
+        </div>
       </div>
 
       <div className="space-y-0.5 p-3">
-        {circuitBreakers.map((cb, i) => {
+        {circuitBreakersData.map((cb, i) => {
           const pct = Math.min((cb.current / cb.limit) * 100, 100);
           const colors = statusColors[cb.status];
 
@@ -44,12 +51,21 @@ export function CircuitBreakers() {
               {/* Status dot */}
               <div
                 className={`h-1.5 w-1.5 rounded-full ${colors.bar} ${
-                  cb.status === "warning" ? "animate-pulse-glow" : ""
+                  cb.status === "warning" || cb.status === "critical" || cb.status === "triggered"
+                    ? "animate-pulse-glow"
+                    : ""
                 }`}
               />
 
               {/* Name */}
-              <span className="w-28 text-xs text-text-secondary">{cb.name}</span>
+              <div className="w-28 flex flex-col">
+                <span className="text-xs text-text-secondary">{cb.name}</span>
+                {cb.last_triggered && (
+                  <span className="font-mono text-[7px] text-text-muted">
+                    last: {new Date(cb.last_triggered).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
 
               {/* Progress bar */}
               <div className="flex-1 h-1 rounded-full bg-bg-elevated overflow-hidden">
@@ -65,11 +81,11 @@ export function CircuitBreakers() {
               <div className="w-20 text-right">
                 <span className={`font-mono text-[11px] font-medium ${colors.text}`}>
                   {cb.current}
-                  {cb.unit || "%"}
+                  {cb.unit}
                 </span>
                 <span className="font-mono text-[10px] text-text-tertiary">
                   /{cb.limit}
-                  {cb.unit || "%"}
+                  {cb.unit}
                 </span>
               </div>
             </motion.div>

@@ -5,28 +5,24 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Wallet,
-  Radar,
   ScrollText,
   ShieldAlert,
-  Settings,
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { href: "/", label: "COMMAND", icon: LayoutDashboard },
-  { href: "/portfolio", label: "PORTFOLIO", icon: Wallet },
-  { href: "/strategies", label: "STRATEGY", icon: Radar },
-  { href: "/logs", label: "LOGS", icon: ScrollText },
+  { href: "/", label: "CMD", icon: LayoutDashboard },
+  { href: "/portfolio", label: "PORT", icon: Wallet },
+  { href: "/decisions", label: "DEC", icon: ScrollText },
   { href: "/risk", label: "RISK", icon: ShieldAlert },
-  { href: "/settings", label: "SETTINGS", icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex w-[72px] flex-col items-center border-r border-border-subtle bg-bg-surface py-4 gap-1">
+    <aside className="flex w-[60px] flex-col items-center border-r border-border-subtle bg-bg-surface py-4 gap-1">
       {/* Logo */}
       <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-lg bg-primary-muted">
         <Zap className="h-5 w-5 text-primary" />
@@ -41,7 +37,7 @@ export function Sidebar() {
               key={href}
               href={href}
               className={cn(
-                "group relative flex w-14 flex-col items-center gap-1 rounded-lg px-2 py-2.5 transition-all duration-200",
+                "group relative flex w-12 flex-col items-center gap-1 rounded-lg px-2 py-2.5 transition-all duration-200",
                 isActive
                   ? "bg-primary-muted text-primary"
                   : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
@@ -51,7 +47,7 @@ export function Sidebar() {
                 <div className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-r bg-primary" />
               )}
               <Icon className="h-[18px] w-[18px]" strokeWidth={1.5} />
-              <span className="font-mono text-[8px] font-medium tracking-wider">
+              <span className="font-mono text-[7px] font-medium tracking-wider">
                 {label}
               </span>
             </Link>

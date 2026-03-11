@@ -6,8 +6,10 @@ import { StrategiesPanel } from "@/components/dashboard/strategies-panel";
 import { ExecutionLog } from "@/components/dashboard/execution-log";
 import { CircuitBreakers } from "@/components/dashboard/circuit-breakers";
 import { ClaudeDecisions } from "@/components/dashboard/claude-decisions";
-import { SystemPulse } from "@/components/dashboard/system-pulse";
+import { DecisionLoopPulse } from "@/components/dashboard/system-pulse";
 import { PortfolioChart } from "@/components/dashboard/portfolio-chart";
+import { HoldModeAlert } from "@/components/dashboard/hold-mode-alert";
+import { holdMode, decisionLoopEvents } from "@/lib/mock-data";
 
 export default function Home() {
   return (
@@ -38,7 +40,10 @@ export default function Home() {
         </div>
       </motion.div>
 
-      {/* System pulse */}
+      {/* Hold Mode Alert */}
+      <HoldModeAlert data={holdMode} />
+
+      {/* Decision Loop pulse */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -46,15 +51,32 @@ export default function Home() {
         className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-2"
       >
         <div className="flex items-center justify-between mb-1">
-          <span className="font-mono text-[9px] text-text-tertiary tracking-wider">
-            SYSTEM HEARTBEAT
-          </span>
+          <div className="flex items-center gap-4">
+            <span className="font-mono text-[9px] text-text-tertiary tracking-wider">
+              DECISION LOOP
+            </span>
+            {/* Legend */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#E07A5F" }} />
+                <span className="font-mono text-[7px] text-text-tertiary">EVAL</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#00B4D8" }} />
+                <span className="font-mono text-[7px] text-text-tertiary">CLAUDE</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#4ade80" }} />
+                <span className="font-mono text-[7px] text-text-tertiary">TX</span>
+              </div>
+            </div>
+          </div>
           <div className="flex items-center gap-1.5">
             <div className="h-1 w-1 rounded-full bg-success animate-breathe" />
             <span className="font-mono text-[9px] text-success">LIVE</span>
           </div>
         </div>
-        <SystemPulse />
+        <DecisionLoopPulse events={decisionLoopEvents} />
       </motion.div>
 
       {/* Metrics */}

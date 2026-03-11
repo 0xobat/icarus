@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
+import Link from "next/link";
 import {
   AreaChart,
   Area,
@@ -61,12 +62,10 @@ function generateData(hours: number, baseValue: number) {
 }
 
 const timeframes = [
-  { key: "24h", label: "24H", hours: 24 },
-  { key: "7d", label: "7D", hours: 168 },
+  { key: "24h", label: "1D", hours: 24 },
+  { key: "7d", label: "1W", hours: 168 },
   { key: "1m", label: "1M", hours: 744 },
   { key: "3m", label: "3M", hours: 2232 },
-  { key: "6m", label: "6M", hours: 4464 },
-  { key: "1y", label: "1Y", hours: 8760 },
   { key: "ytd", label: "YTD", hours: 1656 }, // ~Mar 9 = ~69 days into year
   { key: "all", label: "ALL", hours: 8760 },
 ];
@@ -138,6 +137,10 @@ export function PortfolioChart() {
           </span>
         </div>
 
+        <div className="flex items-center gap-3">
+          <Link href="/portfolio" className="font-mono text-[9px] text-primary hover:underline">
+            &rarr; Portfolio
+          </Link>
         {/* Timeframe selector */}
         <div className="flex items-center gap-0.5 rounded-md border border-border-subtle bg-bg-elevated p-0.5">
           {timeframes.map((tf) => (
@@ -154,6 +157,7 @@ export function PortfolioChart() {
             </button>
           ))}
         </div>
+        </div>
       </div>
 
       {/* Chart */}
@@ -167,19 +171,19 @@ export function PortfolioChart() {
               <linearGradient id="portfolioGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop
                   offset="0%"
-                  stopColor={isPositive ? "#38bda2" : "#f87171"}
+                  stopColor={isPositive ? "#E07A5F" : "#f87171"}
                   stopOpacity={0.2}
                 />
                 <stop
                   offset="100%"
-                  stopColor={isPositive ? "#38bda2" : "#f87171"}
+                  stopColor={isPositive ? "#E07A5F" : "#f87171"}
                   stopOpacity={0}
                 />
               </linearGradient>
             </defs>
             <CartesianGrid
               strokeDasharray="3 3"
-              stroke="rgba(56, 189, 162, 0.05)"
+              stroke="rgba(224, 122, 95, 0.05)"
               vertical={false}
             />
             <XAxis
@@ -201,7 +205,7 @@ export function PortfolioChart() {
             <Tooltip
               content={<CustomTooltip />}
               cursor={{
-                stroke: "rgba(56, 189, 162, 0.2)",
+                stroke: "rgba(224, 122, 95, 0.2)",
                 strokeWidth: 1,
                 strokeDasharray: "4 4",
               }}
@@ -209,7 +213,7 @@ export function PortfolioChart() {
             <Area
               type="monotone"
               dataKey="value"
-              stroke={isPositive ? "#38bda2" : "#f87171"}
+              stroke={isPositive ? "#E07A5F" : "#f87171"}
               strokeWidth={1.5}
               fill="url(#portfolioGradient)"
               animationDuration={800}
