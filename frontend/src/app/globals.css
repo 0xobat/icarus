@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+/* ── Icarus Design System ─────────────────────── */
+
+:root {
+  /* Background scale */
+  --bg-root: #0F0F11;
+  --bg-surface: #0a0a0c;
+  --bg-elevated: #151518;
+  --bg-hover: #1a1a1e;
+  --bg-active: #222226;
+
+  /* Border — rust-tinted */
+  --border-subtle: rgba(224, 122, 95, 0.08);
+  --border-default: rgba(224, 122, 95, 0.15);
+  --border-strong: rgba(224, 122, 95, 0.25);
+
+  /* Primary — Rust/Terracotta */
+  --primary: #E07A5F;
+  --primary-dim: rgba(224, 122, 95, 0.6);
+  --primary-muted: rgba(224, 122, 95, 0.15);
+  --primary-ghost: rgba(224, 122, 95, 0.06);
+
+  /* Secondary — Electric Cyan (AI/Claude only) */
+  --cyan: #00B4D8;
+  --cyan-dim: rgba(0, 180, 216, 0.6);
+  --cyan-muted: rgba(0, 180, 216, 0.15);
+  --cyan-ghost: rgba(0, 180, 216, 0.06);
+
+  /* Semantic */
+  --success: #4ade80;
+  --success-muted: rgba(74, 222, 128, 0.08);
+  --danger: #f87171;
+  --danger-muted: rgba(248, 113, 113, 0.08);
+  --warning: #fbbf24;
+  --warning-muted: rgba(251, 191, 36, 0.06);
+
+  /* Text */
+  --text-primary: #d4c4b0;
+  --text-secondary: #5a5a5e;
+  --text-tertiary: #3a3a3e;
+  --text-muted: #2a2a2e;
+
+  /* Glow */
+  --glow-primary: 0 0 20px rgba(224, 122, 95, 0.15);
+  --glow-strong: 0 0 30px rgba(224, 122, 95, 0.25);
+}
+
+@theme inline {
+  --color-bg-root: var(--bg-root);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-active: var(--bg-active);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+
+  --color-primary: var(--primary);
+  --color-primary-dim: var(--primary-dim);
+  --color-primary-muted: var(--primary-muted);
+  --color-primary-ghost: var(--primary-ghost);
+
+  --color-cyan: var(--cyan);
+  --color-cyan-dim: var(--cyan-dim);
+  --color-cyan-muted: var(--cyan-muted);
+  --color-cyan-ghost: var(--cyan-ghost);
+
+  --color-success: var(--success);
+  --color-success-muted: var(--success-muted);
+  --color-danger: var(--danger);
+  --color-danger-muted: var(--danger-muted);
+  --color-warning: var(--warning);
+  --color-warning-muted: var(--warning-muted);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-muted: var(--text-muted);
+
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-display: var(--font-syne);
+}
+
+/* ── Base ─────────────────────────────────────── */
+
+body {
+  background: var(--bg-root);
+  color: var(--text-primary);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* ── Scanline overlay (very subtle) ───────────── */
+
+.scanlines::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+}
+
+/* ── Scrollbar ────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* ── Pulse animation ──────────────────────────── */
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-breathe {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+/* ── Grid background ──────────────────────────── */
+
+.grid-bg {
+  background-image:
+    linear-gradient(var(--border-subtle) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
