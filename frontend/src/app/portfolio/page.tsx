@@ -3,7 +3,10 @@
 import { motion } from "motion/react";
 import { PortfolioChart } from "@/components/dashboard/portfolio-chart";
 import { PositionsTable } from "@/components/portfolio/positions-table";
-import { positions, metricsData } from "@/lib/mock-data";
+import { AllocationView } from "@/components/portfolio/allocation-view";
+import { PnlAttribution } from "@/components/portfolio/pnl-attribution";
+import { ReserveStatus } from "@/components/portfolio/reserve-status";
+import { positions, metricsData, strategiesPanel, reserveData } from "@/lib/mock-data";
 
 export default function PortfolioPage() {
   return (
@@ -34,17 +37,19 @@ export default function PortfolioPage() {
       <PortfolioChart height={280} showStrategyOverlay />
 
       <div className="grid grid-cols-12 gap-3">
-        <div className="col-span-7">
+        {/* Left column: Positions + P&L Attribution */}
+        <div className="col-span-7 space-y-3">
           <PositionsTable positions={positions} />
+          <PnlAttribution strategies={strategiesPanel.strategies} />
         </div>
+
+        {/* Right column: Allocation + Reserve Status */}
         <div className="col-span-5 space-y-3">
-          {/* Allocation view and Reserve status — Tasks 17–18 */}
-          <div className="rounded-lg border border-border-subtle bg-bg-surface p-4">
-            <span className="font-display text-xs font-bold tracking-wide text-text-primary uppercase">
-              Allocation
-            </span>
-            <p className="mt-2 text-xs text-text-tertiary">Coming in next task</p>
-          </div>
+          <AllocationView
+            strategies={strategiesPanel.strategies}
+            reserve={strategiesPanel.reserve}
+          />
+          <ReserveStatus data={reserveData} />
         </div>
       </div>
     </div>
