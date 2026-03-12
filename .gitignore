@@ -22,6 +22,7 @@ logs/
 # IDE
 .vscode/
 .idea/
+.superpowers/
 
 # Worktrees
 .worktrees/
