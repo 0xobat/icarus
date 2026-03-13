@@ -9,10 +9,14 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
+    "ioredis": "^5.10.0",
+    "jose": "^6.2.1",
     "lucide-react": "^0.577.0",
     "motion": "^12.35.2",
     "next": "16.1.6",
+    "pg": "^8.20.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "recharts": "^3.8.0",
@@ -20,7 +24,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^3.0.0",
     "@types/node": "^20",
+    "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

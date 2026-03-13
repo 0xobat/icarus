@@ -764,7 +764,7 @@
       "Both handle connection errors gracefully (log + return null/empty)",
       "Frontend builds successfully with next build"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "CONN-007",
