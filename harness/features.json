@@ -716,7 +716,7 @@
       "~7 one-liner insertions into DecisionLoop: eval_complete after evaluate(), decision_made after Claude API, order_emitted after order publish, execution_result after result received, breaker_state on change, hold_mode on change, command_ack after command processing",
       "Tests verify events published with correct schema and version field using mock Redis"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "CONN-004",

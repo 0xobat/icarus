@@ -27,6 +27,7 @@ from db.repository import DatabaseRepository
 from harness.hold_mode import HoldMode
 from harness.startup_recovery import FullRecoveryResult, run_startup_recovery
 from harness.state_manager import StateManager
+from monitoring.event_emitter import emit_dashboard_event
 from monitoring.logger import get_logger
 from portfolio.allocator import PortfolioAllocator
 from portfolio.position_tracker import PositionTracker
@@ -274,6 +275,14 @@ class DecisionLoop:
                     "Strategy evaluated",
                     extra={"data": {"strategy_id": sid}},
                 )
+                try:
+                    emit_dashboard_event(self.redis, "eval_complete", {
+                        "strategy_id": sid,
+                        "signals_count": len(report.signals),
+                        "actionable": any(s.actionable for s in report.signals),
+                    })
+                except Exception:
+                    pass  # Dashboard event failure is non-critical
             except Exception as e:
                 _logger.warning(
                     "Strategy evaluation failed",
@@ -342,6 +351,13 @@ class DecisionLoop:
                     "Drawdown breaker triggered — unwinding all",
                     extra={"data": {"drawdown_pct": str(dd_state.drawdown_pct)}},
                 )
+                try:
+                    emit_dashboard_event(self.redis, "breaker_state", {
+                        "name": "drawdown", "status": "triggered",
+                        "current": str(dd_state.drawdown_pct), "limit": "20.0",
+                    })
+                except Exception:
+                    pass  # Dashboard event failure is non-critical
                 return self._emit_unwind_orders(correlation_id)
 
         # TVL monitor — feed data and check for critical drops
@@ -424,6 +440,19 @@ class DecisionLoop:
         # 4. Decide — decision gate based on strategy reports
         decision = self._decide(snapshot_dict)
 
+        try:
+            action_val = (
+                decision.action.value
+                if hasattr(decision.action, "value")
+                else str(decision.action)
+            )
+            emit_dashboard_event(self.redis, "decision_made", {
+                "decision_id": correlation_id, "action": action_val,
+                "summary": decision.reasoning, "order_count": 0,
+            })
+        except Exception:
+            pass  # Dashboard event failure is non-critical
+
         if decision.action == DecisionAction.HOLD:
             _logger.debug("Decision: HOLD", extra={"data": {
                 "reason": decision.reasoning,
@@ -473,6 +502,12 @@ class DecisionLoop:
         """
         # Hold mode: gate stays closed regardless of signals
         if self.hold_mode.is_active():
+            try:
+                emit_dashboard_event(self.redis, "hold_mode", {
+                    "active": True, "reason": "Hold mode active — gate closed",
+                })
+            except Exception:
+                pass  # Dashboard event failure is non-critical
             return Decision(
                 action=DecisionAction.HOLD,
                 strategy="system",
@@ -723,6 +758,15 @@ class DecisionLoop:
         # Persist trade to PostgreSQL
         self._record_trade(result, status)
 
+        try:
+            emit_dashboard_event(self.redis, "execution_result", {
+                "order_id": tx_id, "tx_hash": result.get("txHash", ""),
+                "status": status, "gas_used": result.get("gasUsed", ""),
+                "effective_gas_price": result.get("effectiveGasPrice", ""),
+            })
+        except Exception:
+            pass  # Dashboard event failure is non-critical
+
         _logger.info(
             "Execution result processed",
             extra={"data": {
@@ -867,6 +911,16 @@ def main() -> None:
                 orders = loop.run_cycle(event)
                 for order in orders:
                     redis.publish("execution:orders", order)
+                    try:
+                        emit_dashboard_event(redis, "order_emitted", {
+                            "order_id": order.get("orderId", ""),
+                            "strategy": order.get("strategy", ""),
+                            "protocol": order.get("protocol", ""),
+                            "action": order.get("action", ""),
+                            "amount": str(order.get("params", {}).get("amount", "")),
+                        })
+                    except Exception:
+                        pass  # Dashboard event failure is non-critical
 
             time.sleep(0.1)
 
