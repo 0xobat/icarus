@@ -820,7 +820,7 @@
       "All routes protected by auth middleware",
       "Frontend builds successfully with next build"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "CONN-010",
