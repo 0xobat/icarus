@@ -687,7 +687,7 @@
       "Both schemas pass JSON validation in verify.sh",
       "Schema patterns match existing market-events/execution-orders/execution-results schemas (additionalProperties: false, version const '1.0.0')"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "CONN-002",

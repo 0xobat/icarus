@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dashboard-events.schema.json",
+  "title": "Dashboard Event",
+  "description": "Lifecycle events published by py-engine to dashboard:events stream",
+  "type": "object",
+  "required": ["version", "timestamp", "eventType", "data"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO 8601 timestamp"
+    },
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "eval_complete",
+        "decision_made",
+        "order_emitted",
+        "execution_result",
+        "breaker_state",
+        "hold_mode",
+        "system_health",
+        "command_ack"
+      ]
+    },
+    "data": {
+      "type": "object",
+      "description": "Event-specific payload"
+    }
+  },
+  "additionalProperties": false
+}
