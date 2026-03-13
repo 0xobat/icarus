@@ -9,9 +9,9 @@ let pool: Pool | null = null;
 export function getPool(): Pool | null {
   if (pool) return pool;
 
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL_PG || process.env.DATABASE_URL;
   if (!connectionString) {
-    console.warn("[icarus] DATABASE_URL not set — PostgreSQL client unavailable");
+    console.warn("[icarus] DATABASE_URL_PG/DATABASE_URL not set — PostgreSQL client unavailable");
     return null;
   }
 

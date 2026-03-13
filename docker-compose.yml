@@ -76,7 +76,7 @@ services:
     env_file: .env
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql://icarus:icarus@postgres:5432/icarus
+      - DATABASE_URL_PG=postgresql://icarus:icarus@postgres:5432/icarus
     ports:
       - "3000:3000"
     volumes:
