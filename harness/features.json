@@ -3,7 +3,7 @@
     "id": "INFRA-001",
     "phase": "dev",
     "category": "infrastructure",
-    "description": "Project scaffolding — monorepo with ts-executor/ and py-engine/ services, shared/schemas/ for message contracts, Docker Compose config, and local dev tooling",
+    "description": "Project scaffolding \u2014 monorepo with ts-executor/ and py-engine/ services, shared/schemas/ for message contracts, Docker Compose config, and local dev tooling",
     "steps": [
       "ts-executor/ builds and runs with TypeScript strict mode, no errors",
       "py-engine/ runs with no import errors; dependencies locked in pyproject.toml",
@@ -18,7 +18,7 @@
     "id": "INFRA-002",
     "phase": "dev",
     "category": "infrastructure",
-    "description": "Redis Streams communication — three channels (market:events, execution:orders, execution:results) using Redis Streams with MAXLEN pruning, plus cache layer for prices, gas, and pool states",
+    "description": "Redis Streams communication \u2014 three channels (market:events, execution:orders, execution:results) using Redis Streams with MAXLEN pruning, plus cache layer for prices, gas, and pool states",
     "steps": [
       "All three channels use Redis Streams (not pub/sub) with consumer group support",
       "MAXLEN pruning on every write (STREAM_MAX_LENGTH env var, default 10000) plus periodic trim in decision loop",
@@ -33,7 +33,7 @@
     "id": "INFRA-003",
     "phase": "dev",
     "category": "infrastructure",
-    "description": "JSON schema contracts — shared message format definitions for market:events, execution:orders, and execution:results Redis channels",
+    "description": "JSON schema contracts \u2014 shared message format definitions for market:events, execution:orders, and execution:results Redis channels",
     "steps": [
       "market-events.schema.json defines all event types (new_block, swap, rate_change, liquidity_change, large_transfer, price_update)",
       "execution-orders.schema.json defines order format with chain/protocol enums, action types, params, limits",
@@ -47,7 +47,7 @@
     "id": "INFRA-004",
     "phase": "dev",
     "category": "infrastructure",
-    "description": "Docker Compose local development — Redis + PostgreSQL + both services with hot-reload dev targets",
+    "description": "Docker Compose local development \u2014 Redis + PostgreSQL + both services with hot-reload dev targets",
     "steps": [
       "docker-compose.yml brings up Redis, PostgreSQL, ts-executor, py-engine",
       "Dev targets: tsx watch for TS, watchfiles auto-reload for Python",
@@ -61,7 +61,7 @@
     "id": "INFRA-005",
     "phase": "dev",
     "category": "infrastructure",
-    "description": "PostgreSQL database — persistent storage for trade history, portfolio state, strategy statuses, and decision audit log",
+    "description": "PostgreSQL database \u2014 persistent storage for trade history, portfolio state, strategy statuses, and decision audit log",
     "steps": [
       "Database models for portfolio positions, trade history, strategy statuses, decision audit log",
       "Repository layer for CRUD operations",
@@ -75,7 +75,7 @@
     "id": "INFRA-006",
     "phase": "dev",
     "category": "infrastructure",
-    "description": "Main decision loop — wires all modules in both services. py-engine: enrich → strategy eval → decision gate → Claude API → verify → emit. ts-executor: component init, order subscription, graceful shutdown",
+    "description": "Main decision loop \u2014 wires all modules in both services. py-engine: enrich \u2192 strategy eval \u2192 decision gate \u2192 Claude API \u2192 verify \u2192 emit. ts-executor: component init, order subscription, graceful shutdown",
     "steps": [
       "Python DecisionLoop class orchestrates the full pipeline",
       "Decision gate: opens when any strategy report has actionable: true signal, no API call otherwise",
@@ -90,7 +90,7 @@
     "id": "LISTEN-001",
     "phase": "dev",
     "category": "listeners",
-    "description": "Alchemy WebSocket subscription manager — persistent WebSocket connections via viem with reconnection, backpressure, and health monitoring",
+    "description": "Alchemy WebSocket subscription manager \u2014 persistent WebSocket connections via viem with reconnection, backpressure, and health monitoring",
     "steps": [
       "WebSocket connection via viem with custom reconnection logic",
       "Exponential backoff reconnection: 200ms initial, 2x growth, 30s cap, resets on success",
@@ -105,7 +105,7 @@
     "id": "LISTEN-002",
     "phase": "dev",
     "category": "listeners",
-    "description": "Market event publisher — transforms raw blockchain events into structured, schema-validated market:events and publishes to Redis Streams",
+    "description": "Market event publisher \u2014 transforms raw blockchain events into structured, schema-validated market:events and publishes to Redis Streams",
     "steps": [
       "Event normalizer supports all 6 market-events schema types",
       "Normalizes raw chain events to schema-compliant format",
@@ -118,7 +118,7 @@
     "id": "LISTEN-003",
     "phase": "dev",
     "category": "listeners",
-    "description": "Base L2 listener — chain event listening for Base with L2-specific gas estimation (OP Stack model + overhead)",
+    "description": "Base L2 listener \u2014 chain event listening for Base with L2-specific gas estimation (OP Stack model + overhead)",
     "steps": [
       "Base chain event subscription via Alchemy WebSocket",
       "L2 gas estimation: OP Stack model with data posting overhead",
@@ -132,12 +132,12 @@
     "id": "EXEC-001",
     "phase": "dev",
     "category": "execution",
-    "description": "Transaction builder — consumes orders from execution:orders, constructs and sends transactions via viem through Safe wallet, with retry logic and result publishing",
+    "description": "Transaction builder \u2014 consumes orders from execution:orders, constructs and sends transactions via viem through Safe wallet, with retry logic and result publishing",
     "steps": [
       "Subscribes to execution:orders Redis Stream",
       "Routes orders to protocol-specific encode modules via adapter map",
       "Pre-flight checks: deadline expiry rejection, gas ceiling enforcement",
-      "Executes via SafeWalletManager (validateOrder → execute → recordSpend)",
+      "Executes via SafeWalletManager (validateOrder \u2192 execute \u2192 recordSpend)",
       "Retry logic: exponential backoff, max 3 retries, non-retryable error detection",
       "Publishes results to execution:results (schema-validated)",
       "All operations logged with correlation IDs",
@@ -149,7 +149,7 @@
     "id": "EXEC-002",
     "phase": "dev",
     "category": "execution",
-    "description": "Safe 1-of-2 multisig wallet — battle-tested wallet with agent EOA + human recovery signer, application-level contract allowlist and spending limits",
+    "description": "Safe 1-of-2 multisig wallet \u2014 battle-tested wallet with agent EOA + human recovery signer, application-level contract allowlist and spending limits",
     "steps": [
       "1-of-2 Safe: agent EOA owner #1, human recovery owner #2, threshold=1",
       "Application-level contract allowlist: case-insensitive, rejects non-allowlisted targets",
@@ -165,11 +165,11 @@
     "id": "EXEC-003",
     "phase": "dev",
     "category": "execution",
-    "description": "Aave V3 encode module — encode-only pure functions for supply and withdraw calldata on Base",
+    "description": "Aave V3 encode module \u2014 encode-only pure functions for supply and withdraw calldata on Base",
     "steps": [
       "encodeSupply(): produces ABI-encoded calldata for Aave V3 Pool.supply()",
       "encodeWithdraw(): produces ABI-encoded calldata for Aave V3 Pool.withdraw()",
-      "Pure functions — no state, no side effects, no chain calls",
+      "Pure functions \u2014 no state, no side effects, no chain calls",
       "Wired into buildAdapterMap() in index.ts"
     ],
     "passes": true
@@ -178,11 +178,11 @@
     "id": "EXEC-004",
     "phase": "dev",
     "category": "execution",
-    "description": "Aerodrome encode module — encode-only pure functions for Aerodrome DEX on Base (LP operations, swaps, reward collection)",
+    "description": "Aerodrome encode module \u2014 encode-only pure functions for Aerodrome DEX on Base (LP operations, swaps, reward collection)",
     "steps": [
       "Encode functions for addLiquidity, removeLiquidity, swap, claimRewards",
       "Stable-stable pool pair support (sAMM pools)",
-      "Pure functions — no state, no side effects, no chain calls",
+      "Pure functions \u2014 no state, no side effects, no chain calls",
       "L2 gas estimation for Base (OP Stack model)",
       "Wired into buildAdapterMap() in index.ts"
     ],
@@ -192,7 +192,7 @@
     "id": "EXEC-005",
     "phase": "dev",
     "category": "execution",
-    "description": "Event reporter — publishes structured TX results to execution:results Redis Stream with schema validation",
+    "description": "Event reporter \u2014 publishes structured TX results to execution:results Redis Stream with schema validation",
     "steps": [
       "Builds result payload from TX receipt (status, hash, gas used, block number)",
       "Schema-validates result before publishing to execution:results",
@@ -205,7 +205,7 @@
     "id": "DATA-001",
     "phase": "dev",
     "category": "data",
-    "description": "Price feed — multi-source token price ingestion via Alchemy Token Prices API with DefiLlama fallback, staleness detection",
+    "description": "Price feed \u2014 multi-source token price ingestion via Alchemy Token Prices API with DefiLlama fallback, staleness detection",
     "steps": [
       "Primary source: Alchemy Token Prices API",
       "Fallback source: DefiLlama price API",
@@ -220,7 +220,7 @@
     "id": "DATA-002",
     "phase": "dev",
     "category": "data",
-    "description": "Gas monitor — track gas prices on Base for transaction timing decisions, with 24h rolling averages",
+    "description": "Gas monitor \u2014 track gas prices on Base for transaction timing decisions, with 24h rolling averages",
     "steps": [
       "Base gas price tracking via Blocknative + beaconcha.in",
       "24h rolling average calculation for circuit breaker comparison",
@@ -234,7 +234,7 @@
     "id": "DATA-003",
     "phase": "dev",
     "category": "data",
-    "description": "DeFi protocol metrics collector — collect and normalize Aave V3 and Aerodrome protocol metrics (TVL, APY, utilization, pool states)",
+    "description": "DeFi protocol metrics collector \u2014 collect and normalize Aave V3 and Aerodrome protocol metrics (TVL, APY, utilization, pool states)",
     "steps": [
       "Aave V3 metrics: supply APY, utilization rate, available liquidity per market",
       "Aerodrome metrics: pool TVL, emission APR, swap volume, AERO price",
@@ -248,11 +248,11 @@
     "id": "DATA-004",
     "phase": "dev",
     "category": "data",
-    "description": "On-chain position reconciliation — query actual on-chain positions via Alchemy and compare against database records, trusting on-chain state",
+    "description": "On-chain position reconciliation \u2014 query actual on-chain positions via Alchemy and compare against database records, trusting on-chain state",
     "steps": [
       "Query on-chain balances and positions via Alchemy Enhanced APIs",
       "Compare against PostgreSQL position records",
-      "Trust on-chain state — update database to match on discrepancy",
+      "Trust on-chain state \u2014 update database to match on discrepancy",
       "Runs as part of startup recovery sequence",
       "Log discrepancies with structured error details"
     ],
@@ -262,10 +262,10 @@
     "id": "AI-001",
     "phase": "dev",
     "category": "ai",
-    "description": "Claude API decision engine — runtime reasoning over strategy reports and portfolio state; assembles structured prompt, calls Claude API, parses schema-compliant execution orders, applies verification gate",
+    "description": "Claude API decision engine \u2014 runtime reasoning over strategy reports and portfolio state; assembles structured prompt, calls Claude API, parses schema-compliant execution orders, applies verification gate",
     "steps": [
       "System prompt: Claude's role, execution-orders output schema, risk rules (durable across calls)",
-      "User message assembled fresh each cycle: objectives → portfolio → risk → reports → market data",
+      "User message assembled fresh each cycle: objectives \u2192 portfolio \u2192 risk \u2192 reports \u2192 market data",
       "Stateless: no conversation memory, fresh prompt each call",
       "Response parsing: validate Claude output against execution-orders schema",
       "Verification gate: orders pass through exposure limits + circuit breaker state check",
@@ -278,7 +278,7 @@
     "id": "AI-002",
     "phase": "dev",
     "category": "ai",
-    "description": "Insight synthesis — packages market data, portfolio state, risk context, and strategy reports into structured prompt sections for Claude API",
+    "description": "Insight synthesis \u2014 packages market data, portfolio state, risk context, and strategy reports into structured prompt sections for Claude API",
     "steps": [
       "Assembles objectives + strategy guidelines section from STRATEGY.md context",
       "Assembles portfolio state section (positions, allocations, P&L, available capital)",
@@ -293,14 +293,14 @@
     "id": "STRAT-001",
     "phase": "dev",
     "category": "strategies",
-    "description": "Strategy protocol and registry — Strategy protocol definition (strategy_id, eval_interval, data_window, evaluate), MarketSnapshot dataclass, StrategyReport structure, auto-discovery from strategies/ directory",
+    "description": "Strategy protocol and registry \u2014 Strategy protocol definition (strategy_id, eval_interval, data_window, evaluate), MarketSnapshot dataclass, StrategyReport structure, auto-discovery from strategies/ directory",
     "steps": [
-      "Strategy protocol with strategy_id, eval_interval, data_window, evaluate(snapshot) → StrategyReport",
+      "Strategy protocol with strategy_id, eval_interval, data_window, evaluate(snapshot) \u2192 StrategyReport",
       "MarketSnapshot dataclass: prices, gas, pools, timestamp; engine pre-slices by data_window",
       "StrategyReport: strategy_id, timestamp, observations, signals, recommendation",
       "Signal types: entry_met, exit_met, harvest_ready, rebalance_needed, threshold_approaching",
       "Auto-discovery: any module in strategies/ exporting a Strategy-conforming class is registered",
-      "Strategies are analysts — they produce reports, not execution orders"
+      "Strategies are analysts \u2014 they produce reports, not execution orders"
     ],
     "passes": true
   },
@@ -308,7 +308,7 @@
     "id": "STRAT-002",
     "phase": "dev",
     "category": "strategies",
-    "description": "Strategy lifecycle manager — manages active/inactive status, per-strategy eval_interval scheduling, and strategy status persistence in PostgreSQL",
+    "description": "Strategy lifecycle manager \u2014 manages active/inactive status, per-strategy eval_interval scheduling, and strategy status persistence in PostgreSQL",
     "steps": [
       "Active/inactive status per strategy (no intermediate states)",
       "Evaluation scheduling respects each strategy's eval_interval",
@@ -322,10 +322,10 @@
     "id": "STRAT-003",
     "phase": "dev",
     "category": "strategies",
-    "description": "LEND-001 Aave lending strategy — supplies stablecoins (USDC, USDbC) to Aave V3 on Base, rotates to highest supply APY market when differential exceeds threshold after gas",
+    "description": "LEND-001 Aave lending strategy \u2014 supplies stablecoins (USDC, USDbC) to Aave V3 on Base, rotates to highest supply APY market when differential exceeds threshold after gas",
     "steps": [
       "Implements Strategy protocol with strategy_id='LEND-001'",
-      "Entry: target APY exceeds current by ≥0.5% after gas, ≥$1M liquidity, gas amortized in 14 days",
+      "Entry: target APY exceeds current by \u22650.5% after gas, \u2265$1M liquidity, gas amortized in 14 days",
       "Exit: supply APY drops below 1.0%, or TVL circuit breaker triggers",
       "Constraints: max 70% portfolio, min $100 position, net monthly gain after gas >$1",
       "Produces StrategyReport with observations, signals, recommendation"
@@ -336,7 +336,7 @@
     "id": "STRAT-004",
     "phase": "dev",
     "category": "strategies",
-    "description": "LP-001 Aerodrome stable LP strategy — provides liquidity to stable-stable pools (USDC/USDbC, USDC/DAI) on Aerodrome, harvests AERO rewards, swaps to USDC, compounds",
+    "description": "LP-001 Aerodrome stable LP strategy \u2014 provides liquidity to stable-stable pools (USDC/USDbC, USDC/DAI) on Aerodrome, harvests AERO rewards, swaps to USDC, compounds",
     "steps": [
       "Implements Strategy protocol with strategy_id='LP-001'",
       "Entry: emission APR >3.0%, pool TVL >$500K, AERO has sufficient swap liquidity",
@@ -350,7 +350,7 @@
     "id": "PORT-001",
     "phase": "dev",
     "category": "portfolio",
-    "description": "Portfolio allocator — manages capital allocation across strategies based on per-strategy limits defined in STRATEGY.md",
+    "description": "Portfolio allocator \u2014 manages capital allocation across strategies based on per-strategy limits defined in STRATEGY.md",
     "steps": [
       "Enforces per-strategy allocation limits (e.g. LEND-001: max 70%, LP-001: max 30%)",
       "Tracks available capital and allocated amounts",
@@ -363,7 +363,7 @@
     "id": "PORT-002",
     "phase": "dev",
     "category": "portfolio",
-    "description": "Position tracker — real-time view of all open positions with P&L calculation, entry/exit recording, and execution result handling",
+    "description": "Position tracker \u2014 real-time view of all open positions with P&L calculation, entry/exit recording, and execution result handling",
     "steps": [
       "Open/close positions with P&L calculation",
       "Query positions by status, protocol, asset",
@@ -377,7 +377,7 @@
     "id": "PORT-003",
     "phase": "dev",
     "category": "portfolio",
-    "description": "Rebalancing engine — detects allocation drift and recommends rebalancing when drift exceeds threshold",
+    "description": "Rebalancing engine \u2014 detects allocation drift and recommends rebalancing when drift exceeds threshold",
     "steps": [
       "Compares current allocation against target allocation from STRATEGY.md",
       "Detects drift beyond configurable threshold",
@@ -390,7 +390,7 @@
     "id": "RISK-001",
     "phase": "dev",
     "category": "risk",
-    "description": "Drawdown circuit breaker — monitors portfolio value relative to peak; triggers at >20% drawdown with direct emission of unwind orders to Redis, bypassing decision gate",
+    "description": "Drawdown circuit breaker \u2014 monitors portfolio value relative to peak; triggers at >20% drawdown with direct emission of unwind orders to Redis, bypassing decision gate",
     "steps": [
       "Tracks portfolio peak value continuously",
       "Triggers at >20% drawdown from peak",
@@ -404,7 +404,7 @@
     "id": "RISK-002",
     "phase": "dev",
     "category": "risk",
-    "description": "Per-position loss limit — closes any position that loses >10% of entry value; 24h cooldown tracked via Redis TTL key",
+    "description": "Per-position loss limit \u2014 closes any position that loses >10% of entry value; 24h cooldown tracked via Redis TTL key",
     "steps": [
       "Monitors each position's value against entry value",
       "Triggers at >10% loss on any single position",
@@ -418,7 +418,7 @@
     "id": "RISK-003",
     "phase": "dev",
     "category": "risk",
-    "description": "Gas spike circuit breaker — pauses non-urgent operations when gas exceeds 3x 24h average; gate-only, does not emit orders",
+    "description": "Gas spike circuit breaker \u2014 pauses non-urgent operations when gas exceeds 3x 24h average; gate-only, does not emit orders",
     "steps": [
       "Compares current gas price against 24h rolling average",
       "Triggers at >3x the 24h average",
@@ -432,7 +432,7 @@
     "id": "RISK-004",
     "phase": "dev",
     "category": "risk",
-    "description": "TX failure rate monitor — pauses execution and enters hold mode when failure rate exceeds 3 failures per hour; gate-only",
+    "description": "TX failure rate monitor \u2014 pauses execution and enters hold mode when failure rate exceeds 3 failures per hour; gate-only",
     "steps": [
       "Tracks TX failure count in rolling 1-hour window",
       "Triggers at >3 failures/hour",
@@ -445,7 +445,7 @@
     "id": "RISK-005",
     "phase": "dev",
     "category": "risk",
-    "description": "Protocol TVL monitor — monitors TVL of protocols with active positions; triggers withdrawal at >30% TVL drop in 24h with direct emission",
+    "description": "Protocol TVL monitor \u2014 monitors TVL of protocols with active positions; triggers withdrawal at >30% TVL drop in 24h with direct emission",
     "steps": [
       "Monitors TVL of Aave V3 and Aerodrome continuously",
       "Triggers at >30% TVL drop within 24h window",
@@ -459,7 +459,7 @@
     "id": "RISK-006",
     "phase": "dev",
     "category": "risk",
-    "description": "Contract allowlist — application-level contract allowlist enforced by SafeWalletManager.validateOrder() before every TX execution. Interim measure until on-chain Safe guard module (RISK-009) is deployed",
+    "description": "Contract allowlist \u2014 application-level contract allowlist enforced by SafeWalletManager.validateOrder() before every TX execution. Interim measure until on-chain Safe guard module (RISK-009) is deployed",
     "steps": [
       "Allowlist of permitted contract addresses (case-insensitive matching)",
       "validateOrder() rejects orders targeting non-allowlisted contracts",
@@ -472,7 +472,7 @@
     "id": "RISK-007",
     "phase": "dev",
     "category": "risk",
-    "description": "Oracle manipulation guard — multi-source price validation that rejects operations when price sources deviate by >2%",
+    "description": "Oracle manipulation guard \u2014 multi-source price validation that rejects operations when price sources deviate by >2%",
     "steps": [
       "Compares prices across multiple sources (Alchemy, DefiLlama)",
       "Rejects operations when deviation exceeds 2% between sources",
@@ -485,7 +485,7 @@
     "id": "RISK-008",
     "phase": "dev",
     "category": "risk",
-    "description": "Exposure limit enforcement — enforces portfolio-level concentration limits: per-protocol max, per-asset max, minimum liquid reserve; all configured via env vars",
+    "description": "Exposure limit enforcement \u2014 enforces portfolio-level concentration limits: per-protocol max, per-asset max, minimum liquid reserve; all configured via env vars",
     "steps": [
       "Per-protocol max allocation enforcement",
       "Per-asset max allocation enforcement",
@@ -499,7 +499,7 @@
     "id": "RISK-009",
     "phase": "dev",
     "category": "risk",
-    "description": "Safe on-chain guard module — deploy AllowlistGuard contract to enforce contract allowlist at the wallet level, unbypassable even if the application is compromised",
+    "description": "Safe on-chain guard module \u2014 deploy AllowlistGuard contract to enforce contract allowlist at the wallet level, unbypassable even if the application is compromised",
     "steps": [
       "Deploy AllowlistGuard contract with permitted contract addresses",
       "Attach guard to Safe via setGuard() transaction",
@@ -512,7 +512,7 @@
     "id": "HARNESS-001",
     "phase": "dev",
     "category": "harness",
-    "description": "State persistence — PostgreSQL for portfolio positions, trade history, strategy statuses, and decision audit log; Redis for market cache, cooldowns (TTL keys), and system status",
+    "description": "State persistence \u2014 PostgreSQL for portfolio positions, trade history, strategy statuses, and decision audit log; Redis for market cache, cooldowns (TTL keys), and system status",
     "steps": [
       "Portfolio positions persisted in PostgreSQL (holdings, entry prices, timestamps)",
       "Trade history and decision audit log in PostgreSQL",
@@ -527,7 +527,7 @@
     "id": "HARNESS-002",
     "phase": "dev",
     "category": "harness",
-    "description": "Startup recovery sequence — load state from PostgreSQL → replay unprocessed Redis Stream messages → on-chain reconciliation → health check → resume or hold",
+    "description": "Startup recovery sequence \u2014 load state from PostgreSQL \u2192 replay unprocessed Redis Stream messages \u2192 on-chain reconciliation \u2192 health check \u2192 resume or hold",
     "steps": [
       "Load portfolio state, positions, strategy statuses from PostgreSQL",
       "Check Redis Streams for unprocessed messages, replay any after last acknowledged",
@@ -542,7 +542,7 @@
     "id": "HARNESS-003",
     "phase": "dev",
     "category": "harness",
-    "description": "Human-in-the-loop approval gates — high-impact actions require explicit owner approval before execution",
+    "description": "Human-in-the-loop approval gates \u2014 high-impact actions require explicit owner approval before execution",
     "steps": [
       "High-impact action detection (large trades, protocol withdrawals)",
       "Approval request mechanism",
@@ -555,7 +555,7 @@
     "id": "HARNESS-004",
     "phase": "dev",
     "category": "harness",
-    "description": "DEPRECATED: Diagnostic mode — merged into HARNESS-005 (hold mode)",
+    "description": "DEPRECATED: Diagnostic mode \u2014 merged into HARNESS-005 (hold mode)",
     "deprecated": "Merged into HARNESS-005. Hold mode covers both API failure and irreconcilable state entry paths.",
     "steps": [],
     "passes": true
@@ -564,7 +564,7 @@
     "id": "HARNESS-005",
     "phase": "dev",
     "category": "harness",
-    "description": "Hold mode — system behavior when Claude API is unavailable or irreconcilable state is detected; no new decisions, auto-resume when trigger clears",
+    "description": "Hold mode \u2014 system behavior when Claude API is unavailable or irreconcilable state is detected; no new decisions, auto-resume when trigger clears",
     "steps": [
       "Tracked as system_status: normal | hold in Redis",
       "Entry path 1: Claude API unavailability (down, timeout after retries, budget exhausted)",
@@ -582,7 +582,7 @@
     "id": "MON-001",
     "phase": "dev",
     "category": "monitoring",
-    "description": "Structured logging — every trade, signal, risk decision, and system event logged as structured JSON with timestamp, service, event, and correlationId",
+    "description": "Structured logging \u2014 every trade, signal, risk decision, and system event logged as structured JSON with timestamp, service, event, and correlationId",
     "steps": [
       "JSON log format: { timestamp, service, event, correlationId, ...data }",
       "Logs to stdout (Railway captures and aggregates)",
@@ -596,7 +596,7 @@
     "id": "MON-002",
     "phase": "dev",
     "category": "monitoring",
-    "description": "Performance dashboard — real-time tracking of portfolio value, cumulative P&L, Sharpe ratio, and position breakdown",
+    "description": "Performance dashboard \u2014 real-time tracking of portfolio value, cumulative P&L, Sharpe ratio, and position breakdown",
     "steps": [
       "Portfolio value tracking over time",
       "Cumulative P&L calculation",
@@ -610,7 +610,7 @@
     "id": "REPORT-001",
     "phase": "dev",
     "category": "reporting",
-    "description": "P&L attribution — break down portfolio performance by strategy, protocol, asset, and time period",
+    "description": "P&L attribution \u2014 break down portfolio performance by strategy, protocol, asset, and time period",
     "steps": [
       "P&L breakdown by strategy (LEND-001, LP-001)",
       "P&L breakdown by protocol (Aave V3, Aerodrome)",
@@ -624,12 +624,12 @@
     "id": "TEST-001",
     "phase": "test",
     "category": "testing",
-    "description": "Integration test suite — E2E lifecycle tests, circuit breaker integration tests, schema validation tests, and startup recovery tests",
+    "description": "Integration test suite \u2014 E2E lifecycle tests, circuit breaker integration tests, schema validation tests, and startup recovery tests",
     "steps": [
-      "E2E lifecycle test: market event → strategy eval → decision gate → order → execution → result",
-      "Circuit breaker integration: drawdown trigger → emergency unwind → position closed",
+      "E2E lifecycle test: market event \u2192 strategy eval \u2192 decision gate \u2192 order \u2192 execution \u2192 result",
+      "Circuit breaker integration: drawdown trigger \u2192 emergency unwind \u2192 position closed",
       "Schema validation: all message types validated against shared schemas in both services",
-      "Startup recovery: state load → stream replay → reconciliation",
+      "Startup recovery: state load \u2192 stream replay \u2192 reconciliation",
       "All tests pass without external dependencies (mocked providers)"
     ],
     "passes": true
@@ -638,7 +638,7 @@
     "id": "TEST-002",
     "phase": "test",
     "category": "testing",
-    "description": "Calldata validation tests — encode/decode roundtrip tests for all protocol adapters, verifying ABI correctness and selector uniqueness",
+    "description": "Calldata validation tests \u2014 encode/decode roundtrip tests for all protocol adapters, verifying ABI correctness and selector uniqueness",
     "steps": [
       "Aave V3: supply/withdraw encode roundtrip with address and selector verification",
       "Aerodrome: addLiquidity/removeLiquidity/swap encode roundtrip",
@@ -651,7 +651,7 @@
     "id": "TEST-003",
     "phase": "test",
     "category": "testing",
-    "description": "Sepolia live tests — on-chain contract interaction tests against Sepolia testnet, skipped by default, enabled via ALCHEMY_SEPOLIA_HTTP_URL env var",
+    "description": "Sepolia live tests \u2014 on-chain contract interaction tests against Sepolia testnet, skipped by default, enabled via ALCHEMY_SEPOLIA_HTTP_URL env var",
     "steps": [
       "Contract existence verification on Sepolia",
       "Aave V3 getReserveData call succeeds",
@@ -665,15 +665,180 @@
     "id": "DEPLOY-001",
     "phase": "deploy",
     "category": "deployment",
-    "description": "Railway production deployment — Dockerfiles for both services, Railway config, persistent volumes for Redis + PostgreSQL, git-push deploy trigger",
+    "description": "Railway production deployment \u2014 Dockerfiles for both services, Railway config, persistent volumes for Redis + PostgreSQL, git-push deploy trigger",
     "steps": [
       "ts-executor Dockerfile: multi-stage build (Node 22 Alpine, dev/prod targets)",
       "py-engine Dockerfile: multi-stage build (Python 3.12-slim, uv-based, dev/prod targets)",
       "Railway persistent volumes for PostgreSQL and Redis",
-      "Deploy trigger: git push to main → container rebuild",
+      "Deploy trigger: git push to main \u2192 container rebuild",
       "Startup sequence runs on deploy (Section 7 of system design)",
       "Rollback via Railway built-in mechanism"
     ],
     "passes": true
+  },
+  {
+    "id": "CONN-001",
+    "phase": "dev",
+    "category": "connectivity",
+    "description": "Shared schemas for dashboard channels \u2014 dashboard-events.schema.json and dashboard-commands.schema.json in shared/schemas/",
+    "steps": [
+      "dashboard-events.schema.json defines eventType enum (eval_complete, decision_made, order_emitted, execution_result, breaker_state, hold_mode, system_health, command_ack) with per-type payload validation and required version field '1.0.0'",
+      "dashboard-commands.schema.json defines commandType enum (strategy:activate, strategy:deactivate, system:enter_hold, system:exit_hold, breaker:reset) with per-type payload validation, required version/command_id/timestamp fields",
+      "Both schemas pass JSON validation in verify.sh",
+      "Schema patterns match existing market-events/execution-orders/execution-results schemas (additionalProperties: false, version const '1.0.0')"
+    ],
+    "passes": false
+  },
+  {
+    "id": "CONN-002",
+    "phase": "dev",
+    "category": "connectivity",
+    "description": "py-engine state publisher \u2014 monitoring/state_publisher.py publishes in-memory state to Redis KV keys with 120s TTL each decision cycle",
+    "steps": [
+      "publish_dashboard_state() serializes PositionTracker, DrawdownBreaker, circuit breakers, exposure limits, strategy statuses, and metrics to JSON",
+      "Writes dashboard:metrics (full MetricsData shape), dashboard:strategies (StrategiesPanelData envelope), dashboard:breakers, dashboard:drawdown, dashboard:exposure, dashboard:reserve, dashboard:hold_mode, dashboard:health",
+      "All Decimal fields converted to float for JSON serialization",
+      "Derives portfolio_change_24h_pct/abs from PortfolioSnapshots table, portfolio_sparkline from last 24 hourly snapshots, pnl_sparkline from sequential snapshot deltas",
+      "Derives error_count_24h per service from Alerts table",
+      "All keys written with 120s TTL via SET EX",
+      "Tests verify correct shape, TTL, Decimal conversion, and 24h derivation logic using mock Redis"
+    ],
+    "passes": false
+  },
+  {
+    "id": "CONN-003",
+    "phase": "dev",
+    "category": "connectivity",
+    "description": "py-engine event emitter \u2014 monitoring/event_emitter.py publishes lifecycle events to dashboard:events Redis stream",
+    "steps": [
+      "emit_dashboard_event(redis, event_type, payload) publishes to dashboard:events stream with MAXLEN 1000",
+      "Adds version '1.0.0' field to all events, validates against dashboard-events schema",
+      "~7 one-liner insertions into DecisionLoop: eval_complete after evaluate(), decision_made after Claude API, order_emitted after order publish, execution_result after result received, breaker_state on change, hold_mode on change, command_ack after command processing",
+      "Tests verify events published with correct schema and version field using mock Redis"
+    ],
+    "passes": false
+  },
+  {
+    "id": "CONN-004",
+    "phase": "dev",
+    "category": "connectivity",
+    "description": "py-engine command listener \u2014 harness/command_listener.py subscribes to dashboard:commands stream and dispatches control operations",
+    "steps": [
+      "listen_for_commands() runs as async task alongside DecisionLoop",
+      "Consumer group 'dashboard-cmd-group' created on startup via XGROUP CREATE (idempotent)",
+      "On startup: XAUTOCLAIM pending messages >60s, discard commands with timestamp >5min old",
+      "Dispatches: strategy:activate/deactivate to strategy_manager, system:enter_hold/exit_hold to hold_mode, breaker:reset to breaker + records audit alert",
+      "XACK after successful processing, emits command_ack event via event emitter",
+      "On failure: logs error, emits command_ack with error details, does not halt loop",
+      "Spawned as asyncio.Task in main.py",
+      "Tests verify dispatch to correct handlers, stale command discard, command_ack emission, and breaker:reset audit logging using mock Redis"
+    ],
+    "passes": false
+  },
+  {
+    "id": "CONN-005",
+    "phase": "dev",
+    "category": "connectivity",
+    "description": "Frontend auth system \u2014 JWT login/logout with middleware protection, login page, and server-side auth helpers",
+    "steps": [
+      "Install dependencies: jose, bcryptjs in frontend/",
+      "src/lib/server/auth.ts \u2014 JWT sign/verify (HS256 via jose), bcrypt password validation, reads ICARUS_JWT_SECRET/ICARUS_ADMIN_USER/ICARUS_ADMIN_PASSWORD_HASH from env",
+      "src/app/api/auth/login/route.ts \u2014 POST validates credentials, sets httpOnly/secure/sameSite=strict cookie with signed JWT (24h expiry)",
+      "src/app/api/auth/logout/route.ts \u2014 POST clears the JWT cookie",
+      "src/app/api/auth/me/route.ts \u2014 GET returns current session info from JWT",
+      "src/middleware.ts \u2014 checks JWT cookie on all routes except /login and /api/auth/login, redirects to /login if invalid",
+      "src/app/login/page.tsx \u2014 login page with username/password form, Cyber Rust design system styling",
+      "Frontend builds successfully with next build"
+    ],
+    "passes": false
+  },
+  {
+    "id": "CONN-006",
+    "phase": "dev",
+    "category": "connectivity",
+    "description": "Frontend server-side clients \u2014 Redis and PostgreSQL singletons for API routes",
+    "steps": [
+      "Install dependencies: ioredis, pg in frontend/",
+      "src/lib/server/redis.ts \u2014 Redis client singleton (reads REDIS_URL env), exports getRedis() for lazy initialization",
+      "src/lib/server/db.ts \u2014 PostgreSQL client singleton (reads DATABASE_URL env), exports query() helper for parameterized queries",
+      "Both handle connection errors gracefully (log + return null/empty)",
+      "Frontend builds successfully with next build"
+    ],
+    "passes": false
+  },
+  {
+    "id": "CONN-007",
+    "phase": "dev",
+    "category": "connectivity",
+    "description": "Frontend API routes \u2014 Redis KV endpoints for dashboard, risk, system, and portfolio reserve data",
+    "steps": [
+      "GET /api/dashboard/metrics \u2014 reads dashboard:metrics from Redis KV, returns MetricsData JSON",
+      "GET /api/dashboard/strategies \u2014 reads dashboard:strategies from Redis KV, returns StrategiesPanelData JSON",
+      "GET /api/dashboard/breakers \u2014 reads dashboard:breakers from Redis KV, returns CircuitBreaker[] JSON",
+      "GET /api/risk/exposure \u2014 reads dashboard:exposure from Redis KV",
+      "GET /api/risk/drawdown \u2014 reads dashboard:drawdown from Redis KV",
+      "GET /api/system/status \u2014 reads dashboard:hold_mode from Redis KV, returns HoldModeData",
+      "GET /api/system/health \u2014 reads dashboard:health from Redis KV, returns ServiceHealth[]",
+      "GET /api/portfolio/reserve \u2014 reads dashboard:reserve from Redis KV",
+      "All routes return null/stale indicator when Redis key is expired/missing",
+      "All routes protected by auth middleware",
+      "Frontend builds successfully with next build"
+    ],
+    "passes": false
+  },
+  {
+    "id": "CONN-008",
+    "phase": "dev",
+    "category": "connectivity",
+    "description": "Frontend API routes \u2014 PostgreSQL endpoints for positions, decisions, executions, and snapshots",
+    "steps": [
+      "GET /api/portfolio/positions \u2014 queries portfolio_positions WHERE status='open', returns Position[] JSON",
+      "GET /api/portfolio/snapshots \u2014 queries portfolio_snapshots with ?range=24h|7d|1m|3m|ytd|all filter",
+      "GET /api/dashboard/decisions/recent \u2014 queries decision_audit_log ORDER BY timestamp DESC LIMIT N (default 10, max 50)",
+      "GET /api/dashboard/executions/recent \u2014 queries trades ORDER BY timestamp DESC LIMIT N (default 10, max 50)",
+      "GET /api/decisions \u2014 paginated with cursor-based pagination (?limit, ?cursor, ?strategy, ?action, ?source filters), returns {data, next_cursor, has_more}",
+      "GET /api/decisions/[id] \u2014 queries single decision by correlation_id, returns DecisionDetail JSON",
+      "All NUMERIC columns converted to number for JSON response",
+      "All routes protected by auth middleware",
+      "Frontend builds successfully with next build"
+    ],
+    "passes": false
+  },
+  {
+    "id": "CONN-009",
+    "phase": "dev",
+    "category": "connectivity",
+    "description": "Frontend SSE endpoint and command routes \u2014 real-time event stream and write operations",
+    "steps": [
+      "GET /api/events \u2014 SSE endpoint using ReadableStream, subscribes to dashboard:events Redis stream via XREAD BLOCK, forwards events as 'data: {json}\\n\\n' messages, JWT validated from cookie before starting stream",
+      "POST /api/commands/strategy/activate \u2014 generates command_id UUID, publishes strategy:activate to dashboard:commands stream, returns {command_id}",
+      "POST /api/commands/strategy/deactivate \u2014 same pattern for strategy:deactivate",
+      "POST /api/commands/hold/enter \u2014 publishes system:enter_hold with reason",
+      "POST /api/commands/hold/exit \u2014 publishes system:exit_hold",
+      "POST /api/commands/breaker/reset \u2014 publishes breaker:reset with breaker_name",
+      "All command routes add version '1.0.0', command_id, and timestamp to stream message",
+      "All routes protected by auth middleware",
+      "Frontend builds successfully with next build"
+    ],
+    "passes": false
+  },
+  {
+    "id": "CONN-010",
+    "phase": "dev",
+    "category": "connectivity",
+    "description": "Frontend client hooks \u2014 React hooks replacing mock-data imports with live API calls and SSE event stream",
+    "steps": [
+      "src/lib/hooks/use-api.ts \u2014 generic fetch wrapper with 401 redirect to /login",
+      "src/lib/hooks/use-event-stream.ts \u2014 EventSource manager for /api/events SSE, reconnection backoff (1s\u21922s\u21924s\u2192max 30s), falls back to REST polling at 10s if SSE fails 3 times",
+      "src/lib/hooks/use-dashboard.ts \u2014 useDashboardMetrics, useDashboardStrategies, useDashboardBreakers, useDashboardDecisions, useDashboardExecutions hooks",
+      "src/lib/hooks/use-portfolio.ts \u2014 usePositions, useSnapshots, useReserve hooks",
+      "src/lib/hooks/use-decisions.ts \u2014 useDecisions (paginated), useDecisionDetail hooks",
+      "src/lib/hooks/use-risk.ts \u2014 useExposure, useDrawdown, useSystemStatus, useSystemHealth hooks",
+      "src/lib/hooks/use-commands.ts \u2014 useStrategyToggle, useHoldMode, useBreakerReset hooks (POST + listen for command_ack on SSE)",
+      "All hooks return {data, isLoading, error} pattern",
+      "All page components switch from mock-data.ts imports to hooks, using existing LoadingSkeleton for loading and connection-banner for errors",
+      "Frontend builds successfully with next build"
+    ],
+    "passes": false
   }
 ]
