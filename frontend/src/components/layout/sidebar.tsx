@@ -47,7 +47,7 @@ export function Sidebar() {
                 <div className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-r bg-primary" />
               )}
               <Icon className="h-[18px] w-[18px]" strokeWidth={1.5} />
-              <span className="font-mono text-[7px] font-medium tracking-wider">
+              <span className="font-mono text-[9px] font-medium tracking-wide">
                 {label}
               </span>
             </Link>
@@ -59,7 +59,7 @@ export function Sidebar() {
       <div className="mt-auto flex flex-col items-center gap-2 pt-4">
         <div className="flex flex-col items-center gap-1">
           <div className="h-1.5 w-1.5 rounded-full bg-success animate-pulse-glow" />
-          <span className="font-mono text-[7px] font-medium tracking-wider text-text-tertiary">
+          <span className="font-mono text-[9px] font-medium tracking-wide text-text-secondary">
             ONLINE
           </span>
         </div>

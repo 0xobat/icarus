@@ -34,14 +34,14 @@ export function AllocationBar({ data }: { data: StrategiesPanelData }) {
               className="h-1.5 w-1.5 rounded-full"
               style={{ backgroundColor: rustShades[i % rustShades.length] }}
             />
-            <span className="font-mono text-[9px] text-text-secondary">
+            <span className="font-mono text-[10px] text-text-secondary">
               {s.id} {s.allocation_pct}%
             </span>
           </div>
         ))}
         <div className="flex items-center gap-1.5">
           <div className="h-1.5 w-1.5 rounded-full bg-bg-active" />
-          <span className="font-mono text-[9px] text-text-secondary">
+          <span className="font-mono text-[10px] text-text-secondary">
             Reserve {data.reserve.pct}%
           </span>
         </div>

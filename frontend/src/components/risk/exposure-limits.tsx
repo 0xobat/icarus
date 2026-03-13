@@ -41,7 +41,7 @@ export function ExposureLimits({ limits }: ExposureLimitsProps) {
         {["Scope", "Name", "Current", "Limit", "Headroom", "Status"].map((h) => (
           <span
             key={h}
-            className="font-mono text-[8px] uppercase tracking-widest text-text-muted"
+            className="font-mono text-[9px] uppercase tracking-widest text-text-tertiary"
           >
             {h}
           </span>
@@ -59,7 +59,7 @@ export function ExposureLimits({ limits }: ExposureLimitsProps) {
               className="grid grid-cols-[80px_1fr_1fr_80px_80px_100px] gap-2 px-4 py-2.5 transition-colors hover:bg-bg-hover"
             >
               {/* Scope */}
-              <span className="rounded bg-bg-elevated px-1.5 py-0.5 text-center font-mono text-[8px] uppercase text-text-tertiary">
+              <span className="rounded bg-bg-elevated px-1.5 py-0.5 text-center font-mono text-[9px] uppercase text-text-secondary">
                 {limit.scope}
               </span>
 
@@ -73,7 +73,7 @@ export function ExposureLimits({ limits }: ExposureLimitsProps) {
                 <span className="font-mono text-[10px] text-text-primary">
                   ${limit.current_allocation.toLocaleString()}
                 </span>
-                <span className="ml-1 font-mono text-[9px] text-text-tertiary">
+                <span className="ml-1 font-mono text-[9px] text-text-secondary">
                   ({limit.current_pct}%)
                 </span>
               </div>

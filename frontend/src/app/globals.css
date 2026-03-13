@@ -11,9 +11,9 @@
   --bg-active: #222226;
 
   /* Border — rust-tinted */
-  --border-subtle: rgba(224, 122, 95, 0.08);
-  --border-default: rgba(224, 122, 95, 0.15);
-  --border-strong: rgba(224, 122, 95, 0.25);
+  --border-subtle: rgba(224, 122, 95, 0.12);
+  --border-default: rgba(224, 122, 95, 0.22);
+  --border-strong: rgba(224, 122, 95, 0.35);
 
   /* Primary — Rust/Terracotta */
   --primary: #E07A5F;
@@ -35,11 +35,11 @@
   --warning: #fbbf24;
   --warning-muted: rgba(251, 191, 36, 0.06);
 
-  /* Text */
+  /* Text — contrast-safe on #0a0a0c surfaces */
   --text-primary: #d4c4b0;
-  --text-secondary: #5a5a5e;
-  --text-tertiary: #3a3a3e;
-  --text-muted: #2a2a2e;
+  --text-secondary: #8a8a90;
+  --text-tertiary: #6a6a70;
+  --text-muted: #4a4a50;
 
   /* Glow */
   --glow-primary: 0 0 20px rgba(224, 122, 95, 0.15);

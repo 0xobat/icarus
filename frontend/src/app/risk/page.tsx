@@ -53,7 +53,7 @@ export default function RiskPage() {
       <div className="grid grid-cols-[7fr_5fr] gap-3">
         <div>
           <div className="mb-2">
-            <span className="font-display text-[10px] font-bold uppercase tracking-widest text-text-primary">
+            <span className="font-display text-[11px] font-bold uppercase tracking-widest text-text-primary">
               Circuit Breakers
             </span>
           </div>

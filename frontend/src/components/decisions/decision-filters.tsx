@@ -52,7 +52,7 @@ export function DecisionFiltersBar({ filters, onFilterChange }: DecisionFiltersP
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border-subtle bg-bg-surface px-4 py-3">
       {/* Strategy dropdown */}
       <div className="flex items-center gap-2">
-        <span className="font-mono text-[8px] uppercase tracking-widest text-text-tertiary">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-text-secondary">
           Strategy
         </span>
         <select
@@ -72,7 +72,7 @@ export function DecisionFiltersBar({ filters, onFilterChange }: DecisionFiltersP
 
       {/* Action chips */}
       <div className="flex items-center gap-1.5">
-        <span className="font-mono text-[8px] uppercase tracking-widest text-text-tertiary">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-text-secondary">
           Action
         </span>
         {ACTIONS.map((action) => (
@@ -80,10 +80,10 @@ export function DecisionFiltersBar({ filters, onFilterChange }: DecisionFiltersP
             key={action}
             onClick={() => toggleAction(action)}
             className={cn(
-              "rounded border px-2 py-0.5 font-mono text-[8px] tracking-wider transition-colors",
+              "rounded border px-2 py-0.5 font-mono text-[9px] tracking-wider transition-colors",
               filters.actions.includes(action)
                 ? actionColors[action]
-                : "border-border-subtle bg-transparent text-text-muted hover:text-text-tertiary"
+                : "border-border-subtle bg-transparent text-text-tertiary hover:text-text-secondary"
             )}
           >
             {action}
@@ -95,7 +95,7 @@ export function DecisionFiltersBar({ filters, onFilterChange }: DecisionFiltersP
 
       {/* Status chips */}
       <div className="flex items-center gap-1.5">
-        <span className="font-mono text-[8px] uppercase tracking-widest text-text-tertiary">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-text-secondary">
           Status
         </span>
         {STATUSES.map((status) => (
@@ -103,10 +103,10 @@ export function DecisionFiltersBar({ filters, onFilterChange }: DecisionFiltersP
             key={status}
             onClick={() => toggleStatus(status)}
             className={cn(
-              "rounded border px-2 py-0.5 font-mono text-[8px] tracking-wider transition-colors capitalize",
+              "rounded border px-2 py-0.5 font-mono text-[9px] tracking-wider transition-colors capitalize",
               filters.statuses.includes(status)
                 ? statusColors[status]
-                : "border-border-subtle bg-transparent text-text-muted hover:text-text-tertiary"
+                : "border-border-subtle bg-transparent text-text-tertiary hover:text-text-secondary"
             )}
           >
             {status}
@@ -118,7 +118,7 @@ export function DecisionFiltersBar({ filters, onFilterChange }: DecisionFiltersP
 
       {/* Date range */}
       <div className="flex items-center gap-1.5">
-        <span className="font-mono text-[8px] uppercase tracking-widest text-text-tertiary">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-text-secondary">
           Range
         </span>
         {DATE_RANGES.map((range) => (
@@ -126,10 +126,10 @@ export function DecisionFiltersBar({ filters, onFilterChange }: DecisionFiltersP
             key={range}
             onClick={() => onFilterChange({ ...filters, dateRange: range })}
             className={cn(
-              "rounded border px-2 py-0.5 font-mono text-[8px] tracking-wider transition-colors",
+              "rounded border px-2 py-0.5 font-mono text-[9px] tracking-wider transition-colors",
               filters.dateRange === range
                 ? "border-primary/20 bg-primary-muted text-primary"
-                : "border-border-subtle bg-transparent text-text-muted hover:text-text-tertiary"
+                : "border-border-subtle bg-transparent text-text-tertiary hover:text-text-secondary"
             )}
           >
             {range}

@@ -29,7 +29,7 @@ export function HoldModeAlert({ data }: { data: HoldModeData }) {
             <span className="text-xs text-text-secondary">{data.reason}</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="font-mono text-[10px] text-text-tertiary">
+            <span className="font-mono text-[10px] text-text-secondary">
               Since {sinceStr}
             </span>
             <button
@@ -37,7 +37,7 @@ export function HoldModeAlert({ data }: { data: HoldModeData }) {
                 setSnoozed(true);
                 setTimeout(() => setSnoozed(false), 10 * 60 * 1000);
               }}
-              className="rounded px-2 py-1 font-mono text-[9px] text-text-secondary border border-border-subtle hover:bg-bg-hover transition-colors"
+              className="rounded px-2 py-1 font-mono text-[10px] text-text-primary border border-border-subtle hover:bg-bg-hover transition-colors"
             >
               SNOOZE 10m
             </button>

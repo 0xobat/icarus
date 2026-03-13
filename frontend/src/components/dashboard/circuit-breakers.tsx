@@ -29,7 +29,7 @@ export function CircuitBreakers() {
         </div>
         <div className="flex items-center gap-3">
           <span className="font-mono text-[10px] text-success">ALL NOMINAL</span>
-          <Link href="/risk" className="font-mono text-[9px] text-primary hover:underline">
+          <Link href="/risk" className="font-mono text-[10px] text-primary hover:underline">
             &rarr; Risk
           </Link>
         </div>
@@ -59,9 +59,9 @@ export function CircuitBreakers() {
 
               {/* Name */}
               <div className="w-28 flex flex-col">
-                <span className="text-xs text-text-secondary">{cb.name}</span>
+                <span className="text-xs text-text-primary">{cb.name}</span>
                 {cb.last_triggered && (
-                  <span className="font-mono text-[7px] text-text-muted">
+                  <span className="font-mono text-[9px] text-text-tertiary">
                     last: {new Date(cb.last_triggered).toLocaleDateString()}
                   </span>
                 )}
@@ -83,7 +83,7 @@ export function CircuitBreakers() {
                   {cb.current}
                   {cb.unit}
                 </span>
-                <span className="font-mono text-[10px] text-text-tertiary">
+                <span className="font-mono text-[10px] text-text-secondary">
                   /{cb.limit}
                   {cb.unit}
                 </span>

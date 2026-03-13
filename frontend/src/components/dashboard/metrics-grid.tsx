@@ -33,7 +33,7 @@ export function MetricsGrid() {
         className="group rounded-lg border border-border-strong bg-bg-surface p-4 transition-all duration-300 hover:shadow-[var(--glow-primary)]"
       >
         <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] font-medium tracking-wider text-text-tertiary uppercase">
+          <span className="font-mono text-[11px] font-medium tracking-wider text-text-secondary uppercase">
             Portfolio Value
           </span>
           <div className="flex items-center gap-2">
@@ -52,9 +52,9 @@ export function MetricsGrid() {
             <span className="font-mono text-[10px] text-success/60">
               (+${metricsData.portfolio_change_24h_abs.toLocaleString()})
             </span>
-            <span className="font-mono text-[10px] text-text-tertiary">24h</span>
+            <span className="font-mono text-[10px] text-text-secondary">24h</span>
           </div>
-          <Link href="/portfolio" className="font-mono text-[9px] text-primary hover:underline">
+          <Link href="/portfolio" className="font-mono text-[10px] text-primary hover:underline">
             &rarr; Portfolio
           </Link>
         </div>
@@ -68,7 +68,7 @@ export function MetricsGrid() {
         className="group rounded-lg border border-border-subtle bg-bg-surface p-4 transition-all duration-300 hover:border-border-default hover:shadow-[var(--glow-primary)]"
       >
         <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] font-medium tracking-wider text-text-tertiary uppercase">
+          <span className="font-mono text-[11px] font-medium tracking-wider text-text-secondary uppercase">
             Current Drawdown
           </span>
           <TrendingDown className="h-3.5 w-3.5 text-text-tertiary transition-colors group-hover:text-primary" strokeWidth={1.5} />
@@ -80,7 +80,7 @@ export function MetricsGrid() {
           <span className="font-mono text-xs text-text-secondary">
             Limit: {metricsData.drawdown_limit}%
           </span>
-          <span className="font-mono text-[10px] text-text-tertiary">from peak</span>
+          <span className="font-mono text-[10px] text-text-secondary">from peak</span>
         </div>
       </motion.div>
 
@@ -92,7 +92,7 @@ export function MetricsGrid() {
         className="group rounded-lg border border-border-subtle bg-bg-surface p-4 transition-all duration-300 hover:border-border-default hover:shadow-[var(--glow-primary)]"
       >
         <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] font-medium tracking-wider text-text-tertiary uppercase">
+          <span className="font-mono text-[11px] font-medium tracking-wider text-text-secondary uppercase">
             {"Today's P&L"}
           </span>
           <div className="flex items-center gap-2">
@@ -118,7 +118,7 @@ export function MetricsGrid() {
         className="group rounded-lg border border-border-subtle bg-bg-surface p-4 transition-all duration-300 hover:border-border-default hover:shadow-[var(--glow-primary)]"
       >
         <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] font-medium tracking-wider text-text-tertiary uppercase">
+          <span className="font-mono text-[11px] font-medium tracking-wider text-text-secondary uppercase">
             TX Success Rate
           </span>
           <Zap className="h-3.5 w-3.5 text-text-tertiary transition-colors group-hover:text-primary" strokeWidth={1.5} />
@@ -130,7 +130,7 @@ export function MetricsGrid() {
           <span className="font-mono text-xs text-success">
             {metricsData.tx_success_count}/{metricsData.tx_total_count}
           </span>
-          <span className="font-mono text-[10px] text-text-tertiary">last 24h</span>
+          <span className="font-mono text-[10px] text-text-secondary">last 24h</span>
         </div>
       </motion.div>
     </div>

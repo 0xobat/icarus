@@ -71,7 +71,7 @@ export function ExecutionTable({ decisions }: ExecutionTableProps) {
         <span className="font-display text-[10px] font-bold uppercase tracking-widest text-text-primary">
           Execution History
         </span>
-        <span className="ml-2 font-mono text-[9px] text-text-tertiary">
+        <span className="ml-2 font-mono text-[9px] text-text-secondary">
           {rows.length} transaction{rows.length !== 1 ? "s" : ""}
         </span>
       </div>
@@ -82,7 +82,7 @@ export function ExecutionTable({ decisions }: ExecutionTableProps) {
           (h) => (
             <span
               key={h || "status"}
-              className="font-mono text-[8px] uppercase tracking-widest text-text-muted"
+              className="font-mono text-[9px] uppercase tracking-widest text-text-tertiary"
             >
               {h}
             </span>
@@ -135,7 +135,7 @@ export function ExecutionTable({ decisions }: ExecutionTableProps) {
               {/* Type badge */}
               <span
                 className={cn(
-                  "inline-flex w-fit items-center rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider",
+                  "inline-flex w-fit items-center rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider",
                   typeColors[row.type] ?? "bg-bg-elevated text-text-secondary border-border-default"
                 )}
               >
@@ -146,7 +146,7 @@ export function ExecutionTable({ decisions }: ExecutionTableProps) {
               <span className="font-mono text-[10px] text-primary">{row.strategy_id}</span>
 
               {/* Description */}
-              <span className="truncate text-[10px] text-text-secondary">{row.description}</span>
+              <span className="truncate text-[10px] text-text-primary">{row.description}</span>
 
               {/* Value */}
               <span className="font-mono text-[10px] text-text-primary">
@@ -154,7 +154,7 @@ export function ExecutionTable({ decisions }: ExecutionTableProps) {
               </span>
 
               {/* Gas */}
-              <span className="font-mono text-[9px] text-text-muted">
+              <span className="font-mono text-[9px] text-text-tertiary">
                 ${row.gas_cost_usd.toFixed(2)}
               </span>
             </div>

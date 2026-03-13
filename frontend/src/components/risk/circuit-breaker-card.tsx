@@ -86,7 +86,7 @@ export function CircuitBreakerCard({ breaker }: CircuitBreakerCardProps) {
         <span className="font-display text-xs font-bold text-text-primary">{breaker.name}</span>
         <span
           className={cn(
-            "rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider",
+            "rounded border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider",
             colors.badge
           )}
         >
@@ -99,7 +99,7 @@ export function CircuitBreakerCard({ breaker }: CircuitBreakerCardProps) {
         <span className={cn("font-mono text-xl font-semibold", colors.text)}>
           {breaker.current}
         </span>
-        <span className="font-mono text-[10px] text-text-muted">
+        <span className="font-mono text-[10px] text-text-tertiary">
           / {breaker.limit}{breaker.unit}
         </span>
       </div>
@@ -130,22 +130,22 @@ export function CircuitBreakerCard({ breaker }: CircuitBreakerCardProps) {
       {/* Meta row */}
       <div className="mt-3 flex items-center justify-between">
         <div>
-          <span className="font-mono text-[8px] uppercase tracking-widest text-text-muted">
+          <span className="font-mono text-[9px] uppercase tracking-widest text-text-tertiary">
             Last triggered
           </span>
-          <p className="font-mono text-[9px] text-text-tertiary">{lastTriggeredStr}</p>
+          <p className="font-mono text-[9px] text-text-secondary">{lastTriggeredStr}</p>
         </div>
         <div className="text-right">
-          <span className="font-mono text-[8px] uppercase tracking-widest text-text-muted">
+          <span className="font-mono text-[9px] uppercase tracking-widest text-text-tertiary">
             Total triggers
           </span>
-          <p className="font-mono text-[9px] text-text-tertiary">{breaker.trigger_count}</p>
+          <p className="font-mono text-[9px] text-text-secondary">{breaker.trigger_count}</p>
         </div>
       </div>
 
       {/* Threshold config */}
       <div className="mt-2 rounded bg-bg-elevated px-2 py-1">
-        <span className="font-mono text-[8px] uppercase tracking-widest text-text-muted">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-text-tertiary">
           Threshold
         </span>
         <span className="ml-2 font-mono text-[9px] text-text-secondary">

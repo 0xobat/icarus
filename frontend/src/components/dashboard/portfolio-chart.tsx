@@ -111,7 +111,7 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-md border border-border-default bg-bg-elevated px-3 py-2 shadow-lg">
-      <p className="font-mono text-[10px] text-text-tertiary">{label}</p>
+      <p className="font-mono text-[10px] text-text-secondary">{label}</p>
       {payload.map((entry) => (
         <p
           key={entry.dataKey}
@@ -188,7 +188,7 @@ export function PortfolioChart({ height = 200, showStrategyOverlay = false }: Po
         </div>
 
         <div className="flex items-center gap-3">
-          <Link href="/portfolio" className="font-mono text-[9px] text-primary hover:underline">
+          <Link href="/portfolio" className="font-mono text-[10px] text-primary hover:underline">
             &rarr; Portfolio
           </Link>
 
@@ -202,7 +202,7 @@ export function PortfolioChart({ height = 200, showStrategyOverlay = false }: Po
                   className={`rounded px-2 py-1 font-mono text-[9px] font-medium tracking-wider transition-all duration-200 border ${
                     overlayStrategies.includes(id)
                       ? "border-border-default text-text-primary"
-                      : "border-border-subtle text-text-tertiary hover:text-text-secondary"
+                      : "border-border-subtle text-text-secondary hover:text-text-primary"
                   }`}
                   style={
                     overlayStrategies.includes(id)
@@ -225,7 +225,7 @@ export function PortfolioChart({ height = 200, showStrategyOverlay = false }: Po
                 className={`rounded px-2.5 py-1 font-mono text-[10px] font-medium tracking-wider transition-all duration-200 ${
                   active === tf.key
                     ? "bg-primary-muted text-primary"
-                    : "text-text-tertiary hover:text-text-secondary"
+                    : "text-text-secondary hover:text-text-primary"
                 }`}
               >
                 {tf.label}
@@ -323,7 +323,7 @@ export function PortfolioChart({ height = 200, showStrategyOverlay = false }: Po
                   backgroundImage: `repeating-linear-gradient(90deg, ${STRATEGY_COLORS[id]} 0, ${STRATEGY_COLORS[id]} 4px, transparent 4px, transparent 6px)`,
                 }}
               />
-              <span className="font-mono text-[9px] text-text-tertiary">
+              <span className="font-mono text-[10px] text-text-secondary">
                 {id} — {STRATEGY_NAMES[id]}
               </span>
             </div>

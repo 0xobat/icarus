@@ -114,7 +114,7 @@ export function PositionsTable({ positions }: { positions: Position[] }) {
                   <div className="font-mono text-[11px] font-medium text-primary">
                     {pos.strategy_id}
                   </div>
-                  <div className="font-mono text-[9px] text-text-tertiary">
+                  <div className="font-mono text-[9px] text-text-secondary">
                     {pos.strategy_name}
                   </div>
                 </td>

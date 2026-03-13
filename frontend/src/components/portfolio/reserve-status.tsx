@@ -33,13 +33,13 @@ export function ReserveStatus({ data }: ReserveStatusProps) {
       <div className="p-4 space-y-4">
         {/* Main value */}
         <div>
-          <p className="font-mono text-[10px] text-text-tertiary uppercase tracking-wider">
+          <p className="font-mono text-[10px] text-text-secondary uppercase tracking-wider">
             Available Liquid Capital
           </p>
           <p className="font-mono text-xl font-semibold text-text-primary mt-1">
             ${data.liquid_reserve.toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </p>
-          <p className="font-mono text-[10px] text-text-tertiary mt-0.5">
+          <p className="font-mono text-[10px] text-text-secondary mt-0.5">
             {data.reserve_pct}% of portfolio
           </p>
         </div>
@@ -63,7 +63,7 @@ export function ReserveStatus({ data }: ReserveStatusProps) {
 
           {/* Labels below bar */}
           <div className="mt-1.5 flex items-center justify-between">
-            <span className="font-mono text-[9px] text-text-tertiary">$0</span>
+            <span className="font-mono text-[9px] text-text-secondary">$0</span>
             <span className="font-mono text-[9px] text-warning">
               Min: ${data.min_reserve_requirement.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </span>
@@ -73,12 +73,12 @@ export function ReserveStatus({ data }: ReserveStatusProps) {
         {/* Headroom */}
         <div className="rounded border border-border-subtle bg-bg-elevated px-3 py-2">
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[10px] text-text-tertiary">Headroom</span>
+            <span className="font-mono text-[10px] text-text-secondary">Headroom</span>
             <span className={`font-mono text-xs font-medium ${headroom >= 0 ? "text-success" : "text-danger"}`}>
               +${headroom.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </span>
           </div>
-          <p className="font-mono text-[9px] text-text-tertiary mt-1">
+          <p className="font-mono text-[9px] text-text-secondary mt-1">
             {((headroom / data.min_reserve_requirement) * 100).toFixed(0)}% above minimum requirement
           </p>
         </div>

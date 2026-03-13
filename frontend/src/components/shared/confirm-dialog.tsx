@@ -30,7 +30,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel = "Confir
             className="w-full max-w-sm rounded-lg border border-border-default bg-bg-surface p-6"
           >
             <h3 className="font-display text-sm font-bold text-text-primary">{title}</h3>
-            <p className="mt-2 text-xs text-text-secondary">{description}</p>
+            <p className="mt-2 text-xs text-text-primary">{description}</p>
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={onCancel}

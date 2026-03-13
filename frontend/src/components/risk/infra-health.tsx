@@ -60,7 +60,7 @@ export function InfraHealth({ services }: InfraHealthProps) {
                 {/* Name */}
                 <div>
                   <span className="text-xs font-medium text-text-primary">{service.name}</span>
-                  <p className="font-mono text-[8px] uppercase tracking-wider text-text-muted">
+                  <p className="font-mono text-[9px] uppercase tracking-wider text-text-tertiary">
                     {service.status}
                   </p>
                 </div>
@@ -69,7 +69,7 @@ export function InfraHealth({ services }: InfraHealthProps) {
               <div className="flex items-center gap-4">
                 {/* Latency */}
                 <div className="text-right">
-                  <span className="font-mono text-[8px] uppercase tracking-widest text-text-muted">
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-text-tertiary">
                     Latency
                   </span>
                   <p className="font-mono text-[10px] text-text-secondary">
@@ -79,7 +79,7 @@ export function InfraHealth({ services }: InfraHealthProps) {
 
                 {/* Last heartbeat */}
                 <div className="text-right">
-                  <span className="font-mono text-[8px] uppercase tracking-widest text-text-muted">
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-text-tertiary">
                     Heartbeat
                   </span>
                   <p className="font-mono text-[10px] text-text-secondary">{heartbeatStr}</p>
@@ -87,7 +87,7 @@ export function InfraHealth({ services }: InfraHealthProps) {
 
                 {/* Error count */}
                 <div className="text-right">
-                  <span className="font-mono text-[8px] uppercase tracking-widest text-text-muted">
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-text-tertiary">
                     Errors 24h
                   </span>
                   <p

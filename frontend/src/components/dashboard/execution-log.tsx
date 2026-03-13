@@ -38,7 +38,7 @@ export function ExecutionLog() {
         <span className="font-display text-xs font-bold tracking-wide text-text-primary uppercase">
           Execution Log
         </span>
-        <Link href="/decisions" className="font-mono text-[10px] text-primary hover:underline">
+        <Link href="/decisions" className="font-mono text-[10px] text-primary hover:underline tracking-wider">
           VIEW ALL &rarr;
         </Link>
       </div>
@@ -69,13 +69,13 @@ export function ExecutionLog() {
               </div>
 
               {/* Time */}
-              <span className="w-16 font-mono text-[10px] text-text-tertiary">
+              <span className="w-16 font-mono text-[10px] text-text-secondary">
                 {timeStr}
               </span>
 
               {/* Type badge */}
               <span
-                className={`rounded px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wider uppercase ${typeStyles[tx.type]}`}
+                className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wider uppercase ${typeStyles[tx.type]}`}
               >
                 {tx.type}
               </span>
@@ -86,7 +86,7 @@ export function ExecutionLog() {
               </span>
 
               {/* Description */}
-              <span className="flex-1 truncate text-xs text-text-secondary">
+              <span className="flex-1 truncate text-xs text-text-primary">
                 {tx.description}
               </span>
 
@@ -102,7 +102,7 @@ export function ExecutionLog() {
               </span>
 
               {/* Link */}
-              <ExternalLink className="h-3 w-3 text-text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
+              <ExternalLink className="h-3 w-3 text-text-secondary opacity-0 transition-opacity group-hover:opacity-100" />
             </motion.div>
           );
         })}

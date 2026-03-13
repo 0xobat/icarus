@@ -46,7 +46,7 @@ export function ManualOverrides({ strategies, breakers }: ManualOverridesProps) 
               Hold Mode
             </span>
           </div>
-          <p className="mt-1 text-[10px] text-text-tertiary">
+          <p className="mt-1 text-[10px] text-text-secondary">
             Halt all new positions. Circuit breakers remain active.
           </p>
           <button
@@ -100,7 +100,7 @@ export function ManualOverrides({ strategies, breakers }: ManualOverridesProps) 
                     )}
                   />
                   <span className="font-mono text-[10px] font-semibold text-primary">{s.id}</span>
-                  <span className="text-[10px] text-text-tertiary">{s.name}</span>
+                  <span className="text-[10px] text-text-secondary">{s.name}</span>
                 </div>
                 <button
                   onClick={() => toggleStrategy(s.id)}
@@ -131,7 +131,7 @@ export function ManualOverrides({ strategies, breakers }: ManualOverridesProps) 
                 <span className="text-[10px] text-text-secondary">{b.name}</span>
                 <button
                   onClick={() => setCbConfirmOpen(b.name)}
-                  className="rounded border border-danger/30 bg-danger-muted px-2 py-0.5 font-mono text-[8px] text-danger hover:bg-danger/20 transition-colors"
+                  className="rounded border border-danger/30 bg-danger-muted px-2 py-0.5 font-mono text-[9px] text-danger hover:bg-danger/20 transition-colors"
                 >
                   TRIGGER
                 </button>

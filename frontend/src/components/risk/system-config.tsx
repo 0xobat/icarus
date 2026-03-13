@@ -64,13 +64,13 @@ export function SystemConfig() {
         <span className="font-display text-[10px] font-bold uppercase tracking-widest text-text-primary">
           System Configuration
         </span>
-        <span className="ml-2 font-mono text-[8px] text-text-muted">(read-only)</span>
+        <span className="ml-2 font-mono text-[9px] text-text-tertiary">(read-only)</span>
       </div>
 
       <div className="divide-y divide-border-subtle">
         {configSections.map((section) => (
           <div key={section.title} className="px-4 py-3">
-            <span className="font-mono text-[8px] font-semibold uppercase tracking-widest text-text-tertiary">
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-widest text-text-secondary">
               {section.title}
             </span>
             <div className="mt-2 space-y-1.5">

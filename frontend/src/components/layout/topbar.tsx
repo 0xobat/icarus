@@ -10,7 +10,7 @@ export function Topbar() {
         <h1 className="font-display text-sm font-bold tracking-wide text-text-primary">
           ICARUS
         </h1>
-        <span className="font-mono text-[10px] text-text-tertiary tracking-wider">
+        <span className="font-mono text-[10px] text-text-secondary tracking-wider">
           v4.2
         </span>
       </div>
@@ -68,7 +68,7 @@ function StatusBadge({
       className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 ${colorMap[color]}`}
     >
       {icon}
-      <span className="font-mono text-[9px] font-medium tracking-wider">
+      <span className="font-mono text-[10px] font-medium tracking-wider">
         {label}: {value}
       </span>
     </div>

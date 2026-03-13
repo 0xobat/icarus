@@ -9,7 +9,7 @@ export function StaleIndicator({ isStale }: StaleIndicatorProps) {
   if (!isStale) return null;
 
   return (
-    <span className="rounded bg-warning-muted px-1.5 py-0.5 font-mono text-[8px] font-medium text-warning tracking-wider">
+    <span className="rounded bg-warning-muted px-1.5 py-0.5 font-mono text-[9px] font-medium text-warning tracking-wider">
       STALE
     </span>
   );

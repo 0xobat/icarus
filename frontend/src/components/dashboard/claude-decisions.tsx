@@ -28,10 +28,10 @@ export function ClaudeDecisions() {
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[10px] text-text-tertiary">
+          <span className="font-mono text-[10px] text-text-secondary">
             {claudeDecisionsData.length} calls today
           </span>
-          <Link href="/decisions" className="font-mono text-[9px] text-cyan hover:underline">
+          <Link href="/decisions" className="font-mono text-[10px] text-cyan hover:underline">
             FULL LOG &rarr;
           </Link>
         </div>
@@ -55,28 +55,28 @@ export function ClaudeDecisions() {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[10px] text-text-tertiary">
+                  <span className="font-mono text-[10px] text-text-secondary">
                     {timeStr}
                   </span>
                   <span
-                    className={`rounded border px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wider ${
+                    className={`rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wider ${
                       actionColors[decision.action] || actionColors.HOLD
                     }`}
                   >
                     {decision.action}
                   </span>
-                  <span className="rounded bg-cyan-muted px-1.5 py-0.5 font-mono text-[9px] text-cyan">
+                  <span className="rounded bg-cyan-muted px-1.5 py-0.5 font-mono text-[10px] text-cyan">
                     {decision.order_count} order{decision.order_count !== 1 ? "s" : ""}
                   </span>
                 </div>
-                <span className="font-mono text-[10px] text-text-tertiary opacity-0 transition-opacity group-hover:opacity-100">
+                <span className="font-mono text-[10px] text-text-secondary opacity-0 transition-opacity group-hover:opacity-100">
                   {decision.id} &rarr;
                 </span>
               </div>
               <p className="mt-1.5 text-xs font-medium text-text-primary">
                 {decision.summary}
               </p>
-              <p className="mt-0.5 text-[11px] text-text-tertiary leading-relaxed">
+              <p className="mt-1 text-[11px] text-text-secondary leading-relaxed">
                 {decision.reasoning}
               </p>
             </motion.div>
@@ -101,7 +101,7 @@ export function ClaudeDecisions() {
           {["Pause all", "Force hold", "Explain last trade"].map((cmd) => (
             <button
               key={cmd}
-              className="rounded border border-cyan/10 bg-cyan-ghost px-2 py-0.5 font-mono text-[7px] text-cyan hover:bg-cyan-muted transition-colors"
+              className="rounded border border-cyan/15 bg-cyan-ghost px-2.5 py-1 font-mono text-[9px] text-cyan hover:bg-cyan-muted transition-colors"
             >
               {cmd}
             </button>

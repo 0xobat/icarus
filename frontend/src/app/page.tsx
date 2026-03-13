@@ -25,7 +25,7 @@ export default function Home() {
           <h1 className="font-display text-2xl font-extrabold tracking-tight text-text-primary">
             COMMAND CENTER
           </h1>
-          <p className="mt-0.5 font-mono text-xs text-text-tertiary">
+          <p className="mt-0.5 font-mono text-xs text-text-secondary">
             {">"} System operating autonomously. All parameters nominal.
           </p>
         </div>
@@ -52,28 +52,28 @@ export default function Home() {
       >
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-4">
-            <span className="font-mono text-[9px] text-text-tertiary tracking-wider">
+            <span className="font-mono text-[10px] text-text-secondary tracking-wider">
               DECISION LOOP
             </span>
             {/* Legend */}
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#E07A5F" }} />
-                <span className="font-mono text-[7px] text-text-tertiary">EVAL</span>
+                <span className="font-mono text-[9px] text-text-secondary">EVAL</span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#00B4D8" }} />
-                <span className="font-mono text-[7px] text-text-tertiary">CLAUDE</span>
+                <span className="font-mono text-[9px] text-text-secondary">CLAUDE</span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#4ade80" }} />
-                <span className="font-mono text-[7px] text-text-tertiary">TX</span>
+                <span className="font-mono text-[9px] text-text-secondary">TX</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="h-1 w-1 rounded-full bg-success animate-breathe" />
-            <span className="font-mono text-[9px] text-success">LIVE</span>
+            <span className="font-mono text-[10px] text-success">LIVE</span>
           </div>
         </div>
         <DecisionLoopPulse events={decisionLoopEvents} />
@@ -114,8 +114,8 @@ function StatChip({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="font-mono text-[9px] text-text-tertiary tracking-wider">{label}</span>
-      <span className={`font-mono text-[10px] font-medium ${color}`}>{value}</span>
+      <span className="font-mono text-[10px] text-text-secondary tracking-wider">{label}</span>
+      <span className={`font-mono text-[11px] font-medium ${color}`}>{value}</span>
     </div>
   );
 }

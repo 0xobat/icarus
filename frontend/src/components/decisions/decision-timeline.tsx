@@ -65,12 +65,12 @@ export function DecisionTimeline({ decisions, selectedId, onSelect }: DecisionTi
             >
               <div className="flex items-center gap-2">
                 {/* Timestamp */}
-                <span className="font-mono text-[9px] text-text-tertiary">{timeStr}</span>
+                <span className="font-mono text-[9px] text-text-secondary">{timeStr}</span>
 
                 {/* Action badge */}
                 <span
                   className={cn(
-                    "rounded border px-1.5 py-0.5 font-mono text-[8px] tracking-wider",
+                    "rounded border px-1.5 py-0.5 font-mono text-[9px] tracking-wider",
                     actionColors[decision.action] ?? actionColors.HOLD
                   )}
                 >
@@ -80,7 +80,7 @@ export function DecisionTimeline({ decisions, selectedId, onSelect }: DecisionTi
                 {/* Source badge */}
                 <span
                   className={cn(
-                    "rounded border px-1.5 py-0.5 font-mono text-[8px] tracking-wider",
+                    "rounded border px-1.5 py-0.5 font-mono text-[9px] tracking-wider",
                     decision.source === "claude"
                       ? "border-cyan/20 bg-cyan-muted text-cyan"
                       : "border-primary/20 bg-primary-muted text-primary"
@@ -91,7 +91,7 @@ export function DecisionTimeline({ decisions, selectedId, onSelect }: DecisionTi
 
                 {/* Order count */}
                 {decision.orders.length > 0 && (
-                  <span className="font-mono text-[8px] text-text-muted">
+                  <span className="font-mono text-[9px] text-text-tertiary">
                     {decision.orders.length} order{decision.orders.length !== 1 ? "s" : ""}
                   </span>
                 )}
@@ -101,7 +101,7 @@ export function DecisionTimeline({ decisions, selectedId, onSelect }: DecisionTi
               <p className="mt-1 text-xs font-medium text-text-primary">{decision.summary}</p>
 
               {/* Execution status */}
-              <span className={cn("mt-0.5 font-mono text-[8px]", execStatus.color)}>
+              <span className={cn("mt-0.5 font-mono text-[9px]", execStatus.color)}>
                 {execStatus.label}
               </span>
             </motion.button>

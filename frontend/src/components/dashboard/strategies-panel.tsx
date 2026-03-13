@@ -19,7 +19,7 @@ export function StrategiesPanel() {
             Active Strategies
           </span>
         </div>
-        <span className="font-mono text-[10px] text-text-tertiary">
+        <span className="font-mono text-[10px] text-text-secondary">
           {strategiesPanel.strategies.filter((s) => s.status === "active").length}/{strategiesPanel.strategies.length} running
         </span>
       </div>
@@ -62,7 +62,7 @@ export function StrategiesPanel() {
                   </span>
                 )}
               </div>
-              <span className="text-xs text-text-secondary">{strategy.name}</span>
+              <span className="text-xs text-text-secondary leading-snug">{strategy.name}</span>
             </div>
 
             {/* Allocation */}
@@ -72,7 +72,7 @@ export function StrategiesPanel() {
               </div>
               <div
                 className={`font-mono text-[10px] ${
-                  strategy.pnl_pct > 0 ? "text-success" : "text-text-tertiary"
+                  strategy.pnl_pct > 0 ? "text-success" : "text-text-secondary"
                 }`}
               >
                 {strategy.pnl_pct > 0 ? "+" : ""}
@@ -82,7 +82,7 @@ export function StrategiesPanel() {
 
             {/* Last eval */}
             <div className="w-14 text-right">
-              <span className="font-mono text-[10px] text-text-tertiary">
+              <span className="font-mono text-[10px] text-text-secondary">
                 {strategy.last_eval_ago}
               </span>
             </div>
