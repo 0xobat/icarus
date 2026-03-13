@@ -38,3 +38,15 @@ watchPatterns = ["ts-executor/**", "shared/**"]
 [services.ts-executor.deploy]
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
+
+# ── Next.js dashboard ──
+[services.frontend]
+
+[services.frontend.build]
+buildCommand = "cd frontend && pnpm install && pnpm build"
+startCommand = "cd frontend && pnpm start"
+watchPatterns = ["frontend/**"]
+
+[services.frontend.deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

@@ -63,6 +63,26 @@ services:
       - ./shared:/app/shared
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://icarus:icarus@postgres:5432/icarus
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src
+    restart: unless-stopped
+
 volumes:
   redis-data:
   postgres-data:
