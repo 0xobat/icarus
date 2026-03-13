@@ -7,9 +7,11 @@ emit execution:orders → process execution:results → update portfolio.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import sys
+import threading
 import time
 import uuid
 from dataclasses import asdict
@@ -24,6 +26,7 @@ from data.price_feed import PriceFeedManager
 from data.redis_client import CHANNELS, RedisManager
 from db.database import DatabaseConfig, DatabaseManager
 from db.repository import DatabaseRepository
+from harness.command_listener import listen_for_commands
 from harness.hold_mode import HoldMode
 from harness.startup_recovery import FullRecoveryResult, run_startup_recovery
 from harness.state_manager import StateManager
@@ -50,6 +53,7 @@ from strategies.base import (
     TokenPrice,
 )
 from strategies.lifecycle_manager import LifecycleManager
+from strategies.manager import StrategyManager
 
 _logger = get_logger("main", enable_file=False)
 
@@ -889,6 +893,42 @@ def main() -> None:
             "hold_mode": recovery_result.entered_hold_mode,
         }},
     )
+
+    # Create strategy manager for dashboard command dispatch
+    strategy_manager = StrategyManager(repository=repository, strategies=discovered)
+
+    # Build circuit breakers dict for command listener
+    circuit_breakers = {
+        "drawdown": loop.drawdown,
+        "gas_spike": loop.gas_spike,
+        "tx_failures": loop.tx_failures,
+        "position_loss": loop.position_loss,
+        "tvl_monitor": loop.tvl_monitor,
+    }
+
+    # Spawn command listener in background thread with its own event loop
+    def _run_command_listener() -> None:
+        cmd_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(cmd_loop)
+        try:
+            cmd_loop.run_until_complete(
+                listen_for_commands(
+                    redis, strategy_manager, loop.hold_mode,
+                    circuit_breakers, emit_dashboard_event, repository,
+                ),
+            )
+        except Exception:
+            _logger.exception("Command listener exited with error")
+        finally:
+            cmd_loop.close()
+
+    _command_listener_thread = threading.Thread(
+        target=_run_command_listener,
+        daemon=True,
+        name="command-listener",
+    )
+    _command_listener_thread.start()
+    _logger.info("Command listener started")
 
     # Subscribe to market events and execution results
     event_queue: list[dict[str, Any]] = []

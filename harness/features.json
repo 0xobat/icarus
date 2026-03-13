@@ -839,6 +839,6 @@
       "All page components switch from mock-data.ts imports to hooks, using existing LoadingSkeleton for loading and connection-banner for errors",
       "Frontend builds successfully with next build"
     ],
-    "passes": false
+    "passes": true
   }
 ]

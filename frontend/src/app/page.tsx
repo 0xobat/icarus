@@ -9,9 +9,15 @@ import { ClaudeDecisions } from "@/components/dashboard/claude-decisions";
 import { DecisionLoopPulse } from "@/components/dashboard/system-pulse";
 import { PortfolioChart } from "@/components/dashboard/portfolio-chart";
 import { HoldModeAlert } from "@/components/dashboard/hold-mode-alert";
-import { holdMode, decisionLoopEvents } from "@/lib/mock-data";
+import { SkeletonCard } from "@/components/shared/loading-skeleton";
+import { StaleIndicator } from "@/components/shared/stale-indicator";
+import { useSystemStatus } from "@/lib/hooks/use-risk";
+import { useDashboardMetrics } from "@/lib/hooks/use-dashboard";
 
 export default function Home() {
+  const { data: holdModeData, isLoading: holdLoading, stale: holdStale } = useSystemStatus();
+  const { data: metricsData, isLoading: metricsLoading, stale: metricsStale } = useDashboardMetrics();
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-4">
       {/* Header */}
@@ -31,17 +37,39 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3 rounded-md border border-border-subtle bg-bg-surface px-3 py-1.5">
-            <StatChip label="TX SUCCESS" value="98.2%" color="text-success" />
-            <div className="h-3 w-px bg-border-subtle" />
-            <StatChip label="DRAWDOWN" value="-4.2%" color="text-amber" />
-            <div className="h-3 w-px bg-border-subtle" />
-            <StatChip label="GAS" value="45 gwei" color="text-text-secondary" />
+            {metricsLoading ? (
+              <span className="font-mono text-[10px] text-text-secondary">Loading...</span>
+            ) : metricsData ? (
+              <>
+                <StatChip label="TX SUCCESS" value={`${metricsData.tx_success_rate}%`} color="text-success" />
+                <div className="h-3 w-px bg-border-subtle" />
+                <StatChip label="DRAWDOWN" value={`-${metricsData.drawdown_current}%`} color="text-amber" />
+                <div className="h-3 w-px bg-border-subtle" />
+                <StatChip label="GAS" value="--" color="text-text-secondary" />
+              </>
+            ) : (
+              <>
+                <StatChip label="TX SUCCESS" value="--" color="text-text-secondary" />
+                <div className="h-3 w-px bg-border-subtle" />
+                <StatChip label="DRAWDOWN" value="--" color="text-text-secondary" />
+                <div className="h-3 w-px bg-border-subtle" />
+                <StatChip label="GAS" value="--" color="text-text-secondary" />
+              </>
+            )}
+            {metricsStale && <StaleIndicator isStale />}
           </div>
         </div>
       </motion.div>
 
       {/* Hold Mode Alert */}
-      <HoldModeAlert data={holdMode} />
+      {holdLoading ? (
+        <SkeletonCard />
+      ) : holdModeData ? (
+        <>
+          {holdStale && <StaleIndicator isStale />}
+          <HoldModeAlert data={holdModeData} />
+        </>
+      ) : null}
 
       {/* Decision Loop pulse */}
       <motion.div
@@ -76,7 +104,7 @@ export default function Home() {
             <span className="font-mono text-[10px] text-success">LIVE</span>
           </div>
         </div>
-        <DecisionLoopPulse events={decisionLoopEvents} />
+        <DecisionLoopPulse events={[]} />
       </motion.div>
 
       {/* Metrics */}
