@@ -733,7 +733,7 @@
       "Spawned as asyncio.Task in main.py",
       "Tests verify dispatch to correct handlers, stale command discard, command_ack emission, and breaker:reset audit logging using mock Redis"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "CONN-005",
