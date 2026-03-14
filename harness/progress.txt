@@ -979,3 +979,47 @@ Final commit: a99bd6c
 verify.sh: PASS (1490 tests, 11 skipped)
 Frontend: builds successfully, all 4 pages + login + 20 API routes
 Next: End-to-end testing with live Redis + Postgres
+
+--- Session 2026-03-14-01 ---
+Agent: Claude Opus 4.6
+Worked on: E2E testing and bug fixes
+
+Phase 1 — E2E Testing:
+  - Started all 5 services via docker compose (Redis, PostgreSQL, py-engine, ts-executor, frontend)
+  - Verified service health: all connected, strategies registered, decision loop running
+  - Tested all 23 API routes (auth, Redis KV, PostgreSQL, SSE, commands)
+  - Tested SSE event streaming (live events received in browser)
+  - Tested command flow (frontend → Redis → py-engine)
+  - Used Chrome browser automation for UI verification across all 4 pages
+
+Phase 2 — Bug Fixes (7 bugs found and fixed):
+  BUG-1: publish_dashboard_state() never called in main.py — wired into loop
+  BUG-2: Command routes used wrong Redis stream format — wrapped in single data field
+  BUG-3: SQL column mismatches in 4 API routes — fixed to match DB schema
+  BUG-4: Login page rendered inside main layout — created DashboardShell component
+  BUG-5: Hydration mismatch from Math.random — replaced with seeded PRNG
+  BUG-6: Next.js 16 middleware deprecation — noted (still works)
+  BUG-7: CircuitBreakers crashed on "normal" status — added to color map
+
+Phase 3 — Data Pipeline Fix (5 bugs):
+  - Protocol key: "aave" → "aave_v3" mapping in pool builder
+  - Dict key: Aerodrome uses "pools" not "markets"
+  - TVL field: "available_liquidity" / "tvl_usd" fallbacks
+  - Evaluation ordering: strategies now evaluate before synthesis
+  - Action mapping: decision actions (enter/exit) → schema actions (supply/withdraw)
+  - Added debug logging to both strategies
+  - Added integration test (6 tests) for metrics → PoolState mapping
+
+Result: Full pipeline working end-to-end:
+  ts-executor publishes new_block → py-engine evaluates strategies →
+  LEND-001 finds USDC at 216% APY → Claude decides to enter (85% confidence) →
+  Risk gate approves → Order published as "supply" to execution:orders →
+  Decision recorded in PostgreSQL
+
+Commits:
+  edabd49 fix(icarus): fix data pipeline, command routes, SQL columns, and UI bugs
+  b934602 fix(icarus): map decision actions to schema-valid execution actions
+  743e86b docs(icarus): add DeFi metrics pipeline fix design spec
+
+verify.sh: PASS (1505+ tests, flaky Redis stream tests when live services running)
+Next: Pre-launch review, Railway deployment

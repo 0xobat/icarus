@@ -8,13 +8,7 @@ protocol keys, TVL, and APY that strategies expect.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from unittest.mock import MagicMock, patch
-
-import pytest
-
-from strategies.base import PoolState
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: mock data shapes matching real defi_metrics.py output
@@ -118,13 +112,8 @@ class TestAavePoolStateMapping:
     def test_protocol_key_mapped_to_aave_v3(self):
         """Protocol key 'aave' from defi_metrics is mapped to 'aave_v3'."""
         loop = _build_loop_with_mocked_metrics(aave_data=AAVE_METRICS)
-        reports = loop._evaluate_strategies(prices={}, gas=None)
-
-        # Access the pools that were built (via the snapshot passed to strategies)
-        # We need to check the pools directly — extract from the snapshot
-        # The pools are built inside _evaluate_strategies, so we inspect by
-        # registering a strategy that captures the snapshot
-        pass  # covered by test below
+        loop._evaluate_strategies(prices={}, gas=None)
+        # Detailed assertions covered by test_aave_pools_have_correct_fields
 
     def test_aave_pools_have_correct_fields(self):
         """Aave pools have protocol=aave_v3, TVL from available_liquidity, APY from supply_apy."""

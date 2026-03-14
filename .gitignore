@@ -39,3 +39,4 @@ coverage/
 # Database
 *.db
 .claude/worktrees/
+.claude/tasks/

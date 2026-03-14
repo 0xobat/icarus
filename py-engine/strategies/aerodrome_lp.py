@@ -10,9 +10,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from monitoring.logger import get_logger
-
-_logger = get_logger("strategy.LP-001", enable_file=False)
-
 from strategies.base import (
     MarketSnapshot,
     Observation,
@@ -22,6 +19,8 @@ from strategies.base import (
     StrategyReport,
     TokenPrice,
 )
+
+_logger = get_logger("strategy.LP-001", enable_file=False)
 
 STRATEGY_ID = "LP-001"
 
@@ -85,8 +84,10 @@ class AerodromeLpStrategy:
             p for p in snapshot.pools
             if p.protocol == "aerodrome" and self._is_stable_pair(p.pool_id)
         ]
-        _logger.debug("Aerodrome pool filter: %d input, %d eligible (protocol=aerodrome, stable pair)",
-                       len(snapshot.pools), len(aero_pools))
+        _logger.debug(
+            "Aerodrome pool filter: %d input, %d eligible",
+            len(snapshot.pools), len(aero_pools),
+        )
 
         # Find AERO price
         aero_price = self._get_aero_price(snapshot.prices)
@@ -145,8 +146,11 @@ class AerodromeLpStrategy:
         entry_tvl_met = best_pool.tvl >= MIN_TVL_ENTRY
         aero_has_liquidity = aero_price is not None and aero_price > 0
         entry_met = entry_apr_met and entry_tvl_met and aero_has_liquidity
-        _logger.debug("Aerodrome entry check: pool=%s apr=%.4f threshold=%.4f tvl=$%.0f tvl_threshold=$%.0f liquidity=%s",
-                       best_pool.pool_id, best_pool.apy, MIN_EMISSION_APR, best_pool.tvl, MIN_TVL_ENTRY, aero_has_liquidity)
+        _logger.debug(
+            "Aerodrome entry: pool=%s apr=%.4f thr=%.4f tvl=$%.0f liq=%s",
+            best_pool.pool_id, best_pool.apy, MIN_EMISSION_APR,
+            best_pool.tvl, aero_has_liquidity,
+        )
 
         if entry_met:
             signals.append(Signal(

@@ -10,9 +10,6 @@ from __future__ import annotations
 from datetime import timedelta
 
 from monitoring.logger import get_logger
-
-_logger = get_logger("strategy.LEND-001", enable_file=False)
-
 from strategies.base import (
     GasInfo,
     MarketSnapshot,
@@ -24,6 +21,8 @@ from strategies.base import (
     Strategy,
     StrategyReport,
 )
+
+_logger = get_logger("strategy.LEND-001", enable_file=False)
 
 STRATEGY_ID = "LEND-001"
 
