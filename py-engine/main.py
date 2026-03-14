@@ -703,6 +703,61 @@ class DecisionLoop:
 
         return None
 
+    # Maps (strategy_prefix, decision_action) → schema-compliant action.
+    # Falls back to params["action"] if Claude already provides a schema action.
+    _ACTION_MAP: dict[tuple[str, str], str] = {
+        ("LEND", "enter"): "supply",
+        ("LEND", "exit"): "withdraw",
+        ("LEND", "rotate"): "withdraw",  # rotate = withdraw + supply (first leg)
+        ("LP", "enter"): "mint_lp",
+        ("LP", "exit"): "burn_lp",
+        ("LP", "harvest"): "collect_fees",
+        ("LP", "rotate"): "burn_lp",  # rotate = burn + mint (first leg)
+    }
+
+    # Valid schema actions for execution:orders
+    _VALID_ACTIONS = frozenset({
+        "supply", "withdraw", "swap", "mint_lp", "burn_lp",
+        "stake", "unstake", "collect_fees", "flash_loan",
+    })
+
+    def _resolve_action(self, decision: Decision) -> str:
+        """Map a decision-level action to a schema-compliant execution action.
+
+        Uses strategy prefix (e.g. "LEND" from "LEND-001") and decision action
+        (e.g. "enter") to look up the protocol-level action (e.g. "supply").
+        Falls back to the raw action if it's already schema-valid.
+
+        Args:
+            decision: The decision containing action and strategy.
+
+        Returns:
+            A schema-valid action string.
+        """
+        raw_action = (decision.params or {}).get("action", decision.action)
+        if isinstance(raw_action, DecisionAction):
+            raw_action = raw_action.value
+
+        # If Claude already returned a valid schema action, use it directly
+        if raw_action in self._VALID_ACTIONS:
+            return raw_action
+
+        # Map by strategy prefix
+        strategy_prefix = (decision.strategy or "").split("-")[0].upper()
+        mapped = self._ACTION_MAP.get((strategy_prefix, raw_action))
+        if mapped:
+            return mapped
+
+        _logger.warning(
+            "Unknown action mapping, defaulting to raw action",
+            extra={"data": {
+                "strategy": decision.strategy,
+                "raw_action": raw_action,
+                "strategy_prefix": strategy_prefix,
+            }},
+        )
+        return raw_action
+
     def _decision_to_orders(
         self, decision: Decision, correlation_id: str,
     ) -> list[dict[str, Any]]:
@@ -719,6 +774,8 @@ class DecisionLoop:
             return []
 
         params = decision.params
+        action = self._resolve_action(decision)
+
         return [{
             "version": "1.0.0",
             "orderId": uuid.uuid4().hex,
@@ -726,9 +783,9 @@ class DecisionLoop:
             "timestamp": __import__("datetime").datetime.now(
                 __import__("datetime").UTC,
             ).isoformat(),
-            "chain": params.get("chain", "ethereum"),
+            "chain": params.get("chain", "base"),
             "protocol": params.get("protocol", "unknown"),
-            "action": params.get("action", decision.action),
+            "action": action,
             "strategy": decision.strategy or "unknown",
             "priority": params.get("priority", "normal"),
             "params": {
