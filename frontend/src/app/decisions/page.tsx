@@ -24,7 +24,7 @@ export default function DecisionsPage() {
   });
   const { data: selectedDecision } = useDecisionDetail(selectedId);
 
-  const decisionDetails = decisionsResult?.data ?? [];
+  const decisionDetails = useMemo(() => decisionsResult?.data ?? [], [decisionsResult]);
 
   const filteredDecisions = useMemo(() => {
     return decisionDetails.filter((d) => {

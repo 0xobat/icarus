@@ -27,60 +27,61 @@ export function useEventStream(): UseEventStreamReturn {
     }
   }, []);
 
-  const connectSSE = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
+  useEffect(() => {
+    function startPolling() {
+      if (pollingRef.current) return;
+      pollingRef.current = setInterval(() => {
+        setConnected(true);
+        // Polling triggers re-fetches through hooks' own intervals
+      }, 10000);
     }
 
-    const es = new EventSource("/api/events");
-    eventSourceRef.current = es;
+    function connectSSE() {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
 
-    es.onopen = () => {
-      setConnected(true);
-      setError(null);
-      sseFailCountRef.current = 0;
-      backoffRef.current = 1000;
-    };
+      const es = new EventSource("/api/events");
+      eventSourceRef.current = es;
 
-    es.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data);
-        if (parsed.eventType) {
-          dispatch(parsed.eventType, parsed);
+      es.onopen = () => {
+        setConnected(true);
+        setError(null);
+        sseFailCountRef.current = 0;
+        backoffRef.current = 1000;
+      };
+
+      es.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          if (parsed.eventType) {
+            dispatch(parsed.eventType, parsed);
+          }
+        } catch {
+          // ignore parse errors
         }
-      } catch {
-        // ignore parse errors
-      }
-    };
+      };
 
-    es.onerror = () => {
-      es.close();
-      eventSourceRef.current = null;
-      setConnected(false);
-      sseFailCountRef.current += 1;
+      es.onerror = () => {
+        es.close();
+        eventSourceRef.current = null;
+        setConnected(false);
+        sseFailCountRef.current += 1;
 
-      if (sseFailCountRef.current >= 3) {
-        setError("SSE failed, falling back to polling");
-        startPolling();
-        return;
-      }
+        if (sseFailCountRef.current >= 3) {
+          setError("SSE failed, falling back to polling");
+          startPolling();
+          return;
+        }
 
-      const delay = Math.min(backoffRef.current, 30000);
-      backoffRef.current = delay * 2;
-      setTimeout(connectSSE, delay);
-    };
-  }, [dispatch]);
+        const delay = Math.min(backoffRef.current, 30000);
+        backoffRef.current = delay * 2;
+        setTimeout(connectSSE, delay);
+      };
+    }
 
-  const startPolling = useCallback(() => {
-    if (pollingRef.current) return;
-    pollingRef.current = setInterval(() => {
-      setConnected(true);
-      // Polling triggers re-fetches through hooks' own intervals
-    }, 10000);
-  }, []);
-
-  useEffect(() => {
     connectSSE();
+
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -91,7 +92,7 @@ export function useEventStream(): UseEventStreamReturn {
         pollingRef.current = null;
       }
     };
-  }, [connectSSE]);
+  }, [dispatch]);
 
   const subscribe = useCallback(
     (eventType: string, callback: EventCallback) => {

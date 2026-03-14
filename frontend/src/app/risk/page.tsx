@@ -33,13 +33,16 @@ export default function RiskPage() {
     );
   }
 
-  // Extend circuit breakers with mock history and trigger count for detailed cards
-  const breakersWithHistory = (circuitBreakersData ?? []).map((cb) => ({
+  // Extend circuit breakers with deterministic history for detailed cards
+  const breakersWithHistory = (circuitBreakersData ?? []).map((cb, cbIdx) => ({
     ...cb,
-    history: Array.from({ length: 24 }, (_, i) =>
-      Math.max(0, cb.current + (Math.random() - 0.5) * cb.current * 0.8 - i * 0.05)
-    ).reverse(),
-    trigger_count: cb.last_triggered ? Math.floor(Math.random() * 8) + 1 : 0,
+    history: Array.from({ length: 24 }, (_, i) => {
+      // Deterministic pseudo-variation based on index and breaker position
+      const seed = ((cbIdx + 1) * 7 + (i + 1) * 13) % 100;
+      const variation = (seed / 100 - 0.5) * cb.current * 0.8;
+      return Math.max(0, cb.current + variation - i * 0.05);
+    }).reverse(),
+    trigger_count: cb.last_triggered ? ((cbIdx + 1) * 3) % 8 + 1 : 0,
   }));
 
   return (
