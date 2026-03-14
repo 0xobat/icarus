@@ -7,12 +7,15 @@ import { useDashboardBreakers } from "@/lib/hooks/use-dashboard";
 import { SkeletonCard } from "@/components/shared/loading-skeleton";
 import { StaleWrapper } from "@/components/shared/stale-indicator";
 
-const statusColors = {
+const statusColors: Record<string, { bar: string; text: string; bg: string }> = {
+  normal: { bar: "bg-primary", text: "text-primary", bg: "bg-primary-muted" },
   safe: { bar: "bg-primary", text: "text-primary", bg: "bg-primary-muted" },
   warning: { bar: "bg-warning", text: "text-warning", bg: "bg-warning-muted" },
   critical: { bar: "bg-danger", text: "text-danger", bg: "bg-danger-muted" },
   triggered: { bar: "bg-danger", text: "text-danger", bg: "bg-danger-muted" },
 };
+
+const defaultColors = { bar: "bg-primary", text: "text-primary", bg: "bg-primary-muted" };
 
 export function CircuitBreakers() {
   const { data: circuitBreakersData, isLoading, stale } = useDashboardBreakers();
@@ -47,7 +50,7 @@ export function CircuitBreakers() {
         <div className="space-y-0.5 p-3">
           {circuitBreakersData.map((cb, i) => {
             const pct = Math.min((cb.current / cb.limit) * 100, 100);
-            const colors = statusColors[cb.status];
+            const colors = statusColors[cb.status] ?? defaultColors;
 
             return (
               <motion.div

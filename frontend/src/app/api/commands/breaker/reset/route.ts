@@ -19,16 +19,14 @@ export async function POST(request: NextRequest) {
     "~",
     "1000",
     "*",
-    "version",
-    "1.0.0",
-    "command_id",
-    commandId,
-    "timestamp",
-    timestamp,
-    "commandType",
-    "breaker:reset",
     "data",
-    JSON.stringify({ breaker_name: body.breaker_name }),
+    JSON.stringify({
+      version: "1.0.0",
+      command_id: commandId,
+      timestamp,
+      commandType: "breaker:reset",
+      data: { breaker_name: body.breaker_name },
+    }),
   );
 
   return NextResponse.json({ command_id: commandId });

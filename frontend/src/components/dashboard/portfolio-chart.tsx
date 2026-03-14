@@ -25,15 +25,27 @@ const STRATEGY_NAMES: Record<string, string> = {
   "LP-001": "Aerodrome Stable LP",
 };
 
+// Deterministic PRNG (mulberry32) to avoid SSR/client hydration mismatch
+function seededRandom(seed: number) {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 // Generate mock data for different timeframes
 function generateData(hours: number, baseValue: number) {
+  const rand = seededRandom(hours * 31 + 7);
   const points = Math.min(hours * 2, 200);
   const data = [];
-  let value = baseValue - (Math.random() * baseValue * 0.08);
+  let value = baseValue - (rand() * baseValue * 0.08);
 
   for (let i = 0; i <= points; i++) {
     const trend = (i / points) * baseValue * 0.05;
-    const noise = (Math.random() - 0.45) * baseValue * 0.008;
+    const noise = (rand() - 0.45) * baseValue * 0.008;
     const cycle = Math.sin(i / (points / 6)) * baseValue * 0.015;
     value = value + trend / points + noise + cycle / points;
 

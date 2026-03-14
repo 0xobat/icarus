@@ -8,7 +8,6 @@ export async function GET(request: NextRequest) {
   const cursor = params.get("cursor");
   const strategy = params.get("strategy");
   const actionParam = params.get("action");
-  const sourceParam = params.get("source");
 
   const conditions: string[] = [];
   const values: unknown[] = [];
@@ -21,8 +20,8 @@ export async function GET(request: NextRequest) {
   }
 
   if (strategy) {
-    conditions.push(`trigger_reports @> $${paramIndex}::jsonb`);
-    values.push(JSON.stringify([{ strategy_id: strategy }]));
+    conditions.push(`strategy_reports_json::text LIKE $${paramIndex}`);
+    values.push(`%${strategy}%`);
     paramIndex++;
   }
 
@@ -30,19 +29,9 @@ export async function GET(request: NextRequest) {
     const actions = actionParam.split(",").map((a) => a.trim()).filter(Boolean);
     if (actions.length > 0) {
       const placeholders = actions.map((_, i) => `$${paramIndex + i}`).join(", ");
-      conditions.push(`action IN (${placeholders})`);
+      conditions.push(`decision_action IN (${placeholders})`);
       values.push(...actions);
       paramIndex += actions.length;
-    }
-  }
-
-  if (sourceParam) {
-    const sources = sourceParam.split(",").map((s) => s.trim()).filter(Boolean);
-    if (sources.length > 0) {
-      const placeholders = sources.map((_, i) => `$${paramIndex + i}`).join(", ");
-      conditions.push(`source IN (${placeholders})`);
-      values.push(...sources);
-      paramIndex += sources.length;
     }
   }
 
@@ -51,8 +40,8 @@ export async function GET(request: NextRequest) {
   // Fetch limit + 1 to determine has_more
   values.push(limit + 1);
   const rows = await query(
-    `SELECT correlation_id, timestamp, source, action, summary, reasoning,
-            trigger_reports, orders, verification
+    `SELECT correlation_id, timestamp, decision_action, reasoning,
+            strategy_reports_json, orders_json, passed_verification, risk_flags_json
      FROM decision_audit_log
      ${whereClause}
      ORDER BY correlation_id DESC
@@ -63,18 +52,27 @@ export async function GET(request: NextRequest) {
   const hasMore = rows.length > limit;
   const pageRows = hasMore ? rows.slice(0, limit) : rows;
 
-  const data = pageRows.map((row) => ({
-    id: row.correlation_id,
-    timestamp: row.timestamp,
-    source: row.source,
-    action: row.action,
-    summary: row.summary,
-    reasoning: row.reasoning,
-    trigger_reports: row.trigger_reports,
-    orders: row.orders,
-    verification: row.verification,
-    executions: [],
-  }));
+  const data = pageRows.map((row) => {
+    let orders: unknown[] = [];
+    let triggerReports: unknown[] = [];
+    let riskFlags: unknown = null;
+    try { orders = typeof row.orders_json === "string" ? JSON.parse(row.orders_json) : row.orders_json ?? []; } catch { /* ignore */ }
+    try { triggerReports = typeof row.strategy_reports_json === "string" ? JSON.parse(row.strategy_reports_json) : row.strategy_reports_json ?? []; } catch { /* ignore */ }
+    try { riskFlags = typeof row.risk_flags_json === "string" ? JSON.parse(row.risk_flags_json) : row.risk_flags_json; } catch { /* ignore */ }
+
+    return {
+      id: row.correlation_id,
+      timestamp: row.timestamp,
+      source: "claude",
+      action: row.decision_action,
+      summary: row.reasoning,
+      reasoning: row.reasoning,
+      trigger_reports: triggerReports,
+      orders,
+      verification: { passed: row.passed_verification, checks: riskFlags },
+      executions: [],
+    };
+  });
 
   const nextCursor = hasMore && pageRows.length > 0
     ? pageRows[pageRows.length - 1].correlation_id

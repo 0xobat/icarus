@@ -32,6 +32,7 @@ from harness.startup_recovery import FullRecoveryResult, run_startup_recovery
 from harness.state_manager import StateManager
 from monitoring.event_emitter import emit_dashboard_event
 from monitoring.logger import get_logger
+from monitoring.state_publisher import publish_dashboard_state
 from portfolio.allocator import PortfolioAllocator
 from portfolio.position_tracker import PositionTracker
 from portfolio.rebalancer import PortfolioRebalancer
@@ -240,24 +241,45 @@ class DecisionLoop:
             avg_24h_gwei=float(self.gas_monitor.get_rolling_average() or 30),
         )
 
+        # Protocol key mapping: defi_metrics keys → strategy-expected keys
+        protocol_key_map = {"aave": "aave_v3", "aerodrome": "aerodrome"}
+
         pools: list[PoolState] = []
-        for protocol in ("aave", "aerodrome"):
+        for protocol_key in ("aave", "aerodrome"):
             try:
-                metrics = self.defi_metrics.get_metrics(protocol)
+                metrics = self.defi_metrics.get_metrics(protocol_key)
                 if metrics and isinstance(metrics, dict):
-                    for market in metrics.get("markets", []):
+                    # Aerodrome uses "pools", Aave uses "markets"
+                    items = metrics.get("markets", metrics.get("pools", []))
+                    mapped_protocol = protocol_key_map.get(protocol_key, protocol_key)
+
+                    for item in items:
+                        # Normalize TVL: try each field without defaults
+                        tvl = float(
+                            item.get("tvl")
+                            or item.get("available_liquidity")
+                            or item.get("tvl_usd")
+                            or 0
+                        )
+                        # Normalize APY: try "supply_apy", "apy"
+                        apy = float(
+                            item.get("supply_apy")
+                            or item.get("apy")
+                            or 0
+                        )
+
                         pools.append(PoolState(
-                            protocol=protocol,
-                            pool_id=market.get("symbol", "unknown"),
-                            tvl=float(market.get("tvl", 0)),
-                            apy=float(market.get("supply_apy", 0)),
+                            protocol=mapped_protocol,
+                            pool_id=item.get("symbol", "unknown"),
+                            tvl=tvl,
+                            apy=apy,
                             utilization=(
-                                float(market["utilization_rate"])
-                                if "utilization_rate" in market else None
+                                float(item["utilization_rate"])
+                                if "utilization_rate" in item else None
                             ),
                         ))
             except Exception:
-                pass
+                _logger.debug("Failed to build pools from %s metrics", protocol_key, exc_info=True)
 
         snapshot = MarketSnapshot(
             prices=token_prices,
@@ -396,14 +418,19 @@ class DecisionLoop:
             _logger.warning("TX failure breaker active — skipping cycle")
             return []
 
-        # 3. Synthesize insights (feed latest strategy reports first)
+        # 3. Evaluate strategies FIRST so synthesizer gets current-cycle data
+        strategy_reports = self._evaluate_strategies(prices, gas)
+        for report in strategy_reports:
+            self._latest_reports[report.strategy_id] = report
+
+        # 3b. Synthesize insights with current strategy reports
         self.synthesizer.update_strategy_reports(self._latest_reports)
         snapshot = self.synthesizer.synthesize()
         snapshot_dict = snapshot.to_dict()
         snapshot_dict["correlationId"] = correlation_id
         snapshot_dict["market_event"] = event
 
-        # 3b. Evaluate portfolio drift and include rebalance signals
+        # 3c. Evaluate portfolio drift and include rebalance signals
         current_allocs = self.allocator.get_current_allocations()
         target_allocs = self.allocator.get_target_allocations()
         rebalance_report = self.rebalancer.evaluate(
@@ -429,11 +456,6 @@ class DecisionLoop:
                         .get("parameters", {})
                     ),
                 })
-
-        # 3c. Evaluate strategies and accumulate reports
-        strategy_reports = self._evaluate_strategies(prices, gas)
-        for report in strategy_reports:
-            self._latest_reports[report.strategy_id] = report
 
         # Include all accumulated reports in snapshot for Claude
         if self._latest_reports:
@@ -961,6 +983,28 @@ def main() -> None:
                         })
                     except Exception:
                         pass  # Dashboard event failure is non-critical
+
+            # Publish dashboard state to Redis KV keys (CONN-002)
+            try:
+                dashboard_breakers = {
+                    "gas_spike": loop.gas_spike,
+                    "tx_failures": loop.tx_failures,
+                    "position_loss": loop.position_loss,
+                    "tvl_monitor": loop.tvl_monitor,
+                    "hold_mode": loop.hold_mode,
+                }
+                publish_dashboard_state(
+                    redis_client=redis,
+                    tracker=loop.tracker,
+                    drawdown_breaker=loop.drawdown,
+                    circuit_breakers=dashboard_breakers,
+                    exposure_limiter=loop.exposure,
+                    strategy_manager=loop.lifecycle,
+                    position_tracker=loop.tracker,
+                    db_repo=repository,
+                )
+            except Exception:
+                pass  # Dashboard state publish failure is non-critical
 
             time.sleep(0.1)
 

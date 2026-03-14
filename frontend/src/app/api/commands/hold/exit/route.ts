@@ -18,16 +18,14 @@ export async function POST(request: NextRequest) {
     "~",
     "1000",
     "*",
-    "version",
-    "1.0.0",
-    "command_id",
-    commandId,
-    "timestamp",
-    timestamp,
-    "commandType",
-    "system:exit_hold",
     "data",
-    JSON.stringify({}),
+    JSON.stringify({
+      version: "1.0.0",
+      command_id: commandId,
+      timestamp,
+      commandType: "system:exit_hold",
+      data: {},
+    }),
   );
 
   return NextResponse.json({ command_id: commandId });

@@ -19,16 +19,14 @@ export async function POST(request: NextRequest) {
     "~",
     "1000",
     "*",
-    "version",
-    "1.0.0",
-    "command_id",
-    commandId,
-    "timestamp",
-    timestamp,
-    "commandType",
-    "strategy:activate",
     "data",
-    JSON.stringify({ strategy_id: body.strategy_id }),
+    JSON.stringify({
+      version: "1.0.0",
+      command_id: commandId,
+      timestamp,
+      commandType: "strategy:activate",
+      data: { strategy_id: body.strategy_id },
+    }),
   );
 
   return NextResponse.json({ command_id: commandId });

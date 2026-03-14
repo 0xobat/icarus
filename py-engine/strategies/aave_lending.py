@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from monitoring.logger import get_logger
+
+_logger = get_logger("strategy.LEND-001", enable_file=False)
+
 from strategies.base import (
     GasInfo,
     MarketSnapshot,
@@ -190,13 +194,27 @@ class AaveLendingStrategy:
 
     def _filter_pools(self, pools: list[PoolState]) -> list[PoolState]:
         """Filter pools to eligible Aave V3 markets with whitelisted assets."""
-        return [
+        _logger.debug("Pool filter input: %d pools, required protocol=%s, assets=%s",
+                       len(pools), ALLOWED_PROTOCOL, WHITELISTED_ASSETS)
+        eligible = [
             p for p in pools
             if p.protocol == ALLOWED_PROTOCOL
             and p.pool_id in WHITELISTED_ASSETS
             and p.tvl >= MIN_LIQUIDITY_USD
             and p.apy > 0
         ]
+        _logger.debug("Pool filter result: %d eligible", len(eligible))
+        for p in pools:
+            if p not in eligible and p.pool_id in WHITELISTED_ASSETS:
+                reasons = []
+                if p.protocol != ALLOWED_PROTOCOL:
+                    reasons.append(f"protocol={p.protocol}")
+                if p.tvl < MIN_LIQUIDITY_USD:
+                    reasons.append(f"tvl=${p.tvl:,.0f}")
+                if p.apy <= 0:
+                    reasons.append(f"apy={p.apy}")
+                _logger.debug("  Filtered out: %s — %s", p.pool_id, ", ".join(reasons))
+        return eligible
 
     def _check_entry(self, pool: PoolState, gas: GasInfo, current_apy: float = 0.0) -> bool:
         """Check if entry conditions are met for a pool.
@@ -216,6 +234,8 @@ class AaveLendingStrategy:
         decision gate which knows the actual position size.
         """
         improvement = pool.apy - current_apy
+        _logger.debug("Entry check: pool=%s apy=%.4f current=%.4f improvement=%.4f threshold=%.4f",
+                       pool.pool_id, pool.apy, current_apy, improvement, MIN_APY_IMPROVEMENT)
         if improvement < MIN_APY_IMPROVEMENT:
             return False
 

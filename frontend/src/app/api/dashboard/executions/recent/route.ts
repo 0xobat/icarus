@@ -6,7 +6,8 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(parseInt(limitParam ?? "10", 10) || 10, 1), 50);
 
   const rows = await query(
-    `SELECT id, tx_hash, timestamp, type, strategy_id, description, value, status
+    `SELECT id, trade_id, tx_hash, timestamp, action, strategy, protocol,
+            asset_in, amount_in, status, gas_used, error_message
      FROM trades
      ORDER BY timestamp DESC
      LIMIT $1`,
@@ -15,12 +16,13 @@ export async function GET(request: NextRequest) {
 
   const executions = rows.map((row) => ({
     id: row.id,
+    trade_id: row.trade_id,
     tx_hash: row.tx_hash ?? undefined,
     timestamp: row.timestamp,
-    type: row.type,
-    strategy_id: row.strategy_id,
-    description: row.description,
-    value: parseFloat(row.value),
+    type: row.action,
+    strategy_id: row.strategy,
+    description: `${row.action} ${row.asset_in ?? ""} on ${row.protocol ?? ""}`.trim(),
+    value: parseFloat(row.amount_in ?? "0"),
     status: row.status,
   }));
 
