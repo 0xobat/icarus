@@ -9,58 +9,49 @@ const RANGE_INTERVALS: Record<string, string | null> = {
   all: null,
 };
 
+function toSnapshots(rows: Record<string, unknown>[]) {
+  return rows.map((row) => ({
+    timestamp: row.timestamp,
+    total_value: parseFloat(String(row.total_value_usd ?? "0")),
+  }));
+}
+
 export async function GET(request: NextRequest) {
   const range = request.nextUrl.searchParams.get("range") ?? "24h";
 
-  let interval: string | null;
-  if (range === "ytd") {
-    const year = new Date().getUTCFullYear();
+  try {
+    if (range === "ytd") {
+      const year = new Date().getUTCFullYear();
+      const rows = await query(
+        `SELECT timestamp, total_value_usd
+         FROM portfolio_snapshots
+         WHERE timestamp >= $1
+         ORDER BY timestamp ASC`,
+        [`${year}-01-01T00:00:00Z`],
+      );
+      return NextResponse.json({ data: toSnapshots(rows) });
+    }
+
+    const interval = RANGE_INTERVALS[range] ?? RANGE_INTERVALS["24h"];
+
+    if (interval === null) {
+      const rows = await query(
+        `SELECT timestamp, total_value_usd
+         FROM portfolio_snapshots
+         ORDER BY timestamp ASC`,
+      );
+      return NextResponse.json({ data: toSnapshots(rows) });
+    }
+
     const rows = await query(
-      `SELECT timestamp, total_value
+      `SELECT timestamp, total_value_usd
        FROM portfolio_snapshots
-       WHERE timestamp >= $1
+       WHERE timestamp >= NOW() - $1::interval
        ORDER BY timestamp ASC`,
-      [`${year}-01-01T00:00:00Z`],
+      [interval],
     );
-
-    const snapshots = rows.map((row) => ({
-      timestamp: row.timestamp,
-      total_value: parseFloat(row.total_value),
-    }));
-
-    return NextResponse.json({ data: snapshots });
+    return NextResponse.json({ data: toSnapshots(rows) });
+  } catch {
+    return NextResponse.json({ error: "Database error" }, { status: 500 });
   }
-
-  interval = RANGE_INTERVALS[range] ?? RANGE_INTERVALS["24h"];
-
-  if (interval === null) {
-    // "all" — no time filter
-    const rows = await query(
-      `SELECT timestamp, total_value
-       FROM portfolio_snapshots
-       ORDER BY timestamp ASC`,
-    );
-
-    const snapshots = rows.map((row) => ({
-      timestamp: row.timestamp,
-      total_value: parseFloat(row.total_value),
-    }));
-
-    return NextResponse.json({ data: snapshots });
-  }
-
-  const rows = await query(
-    `SELECT timestamp, total_value
-     FROM portfolio_snapshots
-     WHERE timestamp >= NOW() - $1::interval
-     ORDER BY timestamp ASC`,
-    [interval],
-  );
-
-  const snapshots = rows.map((row) => ({
-    timestamp: row.timestamp,
-    total_value: parseFloat(row.total_value),
-  }));
-
-  return NextResponse.json({ data: snapshots });
 }

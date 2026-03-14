@@ -18,14 +18,21 @@ export async function middleware(request: NextRequest) {
   }
 
   const token = request.cookies.get("icarus-session")?.value;
+  const isApiRoute = pathname.startsWith("/api/");
 
   if (!token) {
+    if (isApiRoute) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
   try {
     const secret = process.env.ICARUS_JWT_SECRET;
     if (!secret) {
+      if (isApiRoute) {
+        return NextResponse.json({ error: "Auth not configured" }, { status: 500 });
+      }
       return NextResponse.redirect(new URL("/login", request.url));
     }
     await jwtVerify(token, new TextEncoder().encode(secret), {
@@ -33,6 +40,9 @@ export async function middleware(request: NextRequest) {
     });
     return NextResponse.next();
   } catch {
+    if (isApiRoute) {
+      return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 });
+    }
     return NextResponse.redirect(new URL("/login", request.url));
   }
 }

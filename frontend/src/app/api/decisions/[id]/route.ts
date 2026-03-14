@@ -7,13 +7,18 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  const rows = await query(
+  let rows;
+  try {
+    rows = await query(
     `SELECT correlation_id, timestamp, decision_action, reasoning,
             strategy_reports_json, orders_json, passed_verification, risk_flags_json
      FROM decision_audit_log
      WHERE correlation_id = $1`,
-    [id],
-  );
+      [id],
+    );
+  } catch {
+    return NextResponse.json({ error: "Database error" }, { status: 500 });
+  }
 
   if (rows.length === 0) {
     return NextResponse.json({ error: "Decision not found" }, { status: 404 });

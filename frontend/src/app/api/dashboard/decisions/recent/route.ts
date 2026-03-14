@@ -5,13 +5,18 @@ export async function GET(request: NextRequest) {
   const limitParam = request.nextUrl.searchParams.get("limit");
   const limit = Math.min(Math.max(parseInt(limitParam ?? "10", 10) || 10, 1), 50);
 
-  const rows = await query(
-    `SELECT correlation_id, timestamp, decision_action, reasoning, orders_json
-     FROM decision_audit_log
-     ORDER BY timestamp DESC
-     LIMIT $1`,
-    [limit],
-  );
+  let rows;
+  try {
+    rows = await query(
+      `SELECT correlation_id, timestamp, decision_action, reasoning, orders_json
+       FROM decision_audit_log
+       ORDER BY timestamp DESC
+       LIMIT $1`,
+      [limit],
+    );
+  } catch {
+    return NextResponse.json({ error: "Database error" }, { status: 500 });
+  }
 
   const decisions = rows.map((row) => {
     let orders: unknown[] = [];

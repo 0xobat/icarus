@@ -29,20 +29,16 @@ export function getPool(): Pool | null {
 
 /**
  * Execute a parameterized SQL query and return the rows.
- * Returns an empty array on error or if the pool is unavailable.
+ * Returns an empty array if the pool is unavailable.
+ * Throws on query errors so callers can distinguish errors from empty results.
  */
 export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[],
 ): Promise<T[]> {
-  try {
-    const db = getPool();
-    if (!db) return [];
+  const db = getPool();
+  if (!db) return [];
 
-    const result = await db.query<T>(text, params);
-    return result.rows;
-  } catch (err) {
-    console.error("[icarus] PostgreSQL query error:", err);
-    return [];
-  }
+  const result = await db.query<T>(text, params);
+  return result.rows;
 }

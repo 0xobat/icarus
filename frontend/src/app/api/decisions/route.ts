@@ -39,15 +39,20 @@ export async function GET(request: NextRequest) {
 
   // Fetch limit + 1 to determine has_more
   values.push(limit + 1);
-  const rows = await query(
-    `SELECT correlation_id, timestamp, decision_action, reasoning,
-            strategy_reports_json, orders_json, passed_verification, risk_flags_json
-     FROM decision_audit_log
-     ${whereClause}
-     ORDER BY correlation_id DESC
-     LIMIT $${paramIndex}`,
-    values,
-  );
+  let rows;
+  try {
+    rows = await query(
+      `SELECT correlation_id, timestamp, decision_action, reasoning,
+              strategy_reports_json, orders_json, passed_verification, risk_flags_json
+       FROM decision_audit_log
+       ${whereClause}
+       ORDER BY correlation_id DESC
+       LIMIT $${paramIndex}`,
+      values,
+    );
+  } catch {
+    return NextResponse.json({ error: "Database error" }, { status: 500 });
+  }
 
   const hasMore = rows.length > limit;
   const pageRows = hasMore ? rows.slice(0, limit) : rows;

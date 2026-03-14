@@ -9,25 +9,40 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Redis unavailable" }, { status: 503 });
   }
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const strategyId = body.strategy_id;
+  if (typeof strategyId !== "string" || strategyId.trim().length === 0) {
+    return NextResponse.json({ error: "Missing required field: strategy_id" }, { status: 400 });
+  }
+
   const commandId = randomUUID();
   const timestamp = new Date().toISOString();
 
-  await redis.xadd(
-    "dashboard:commands",
-    "MAXLEN",
-    "~",
-    "1000",
-    "*",
-    "data",
-    JSON.stringify({
-      version: "1.0.0",
-      command_id: commandId,
-      timestamp,
-      commandType: "strategy:activate",
-      data: { strategy_id: body.strategy_id },
-    }),
-  );
+  try {
+    await redis.xadd(
+      "dashboard:commands",
+      "MAXLEN",
+      "~",
+      "1000",
+      "*",
+      "data",
+      JSON.stringify({
+        version: "1.0.0",
+        command_id: commandId,
+        timestamp,
+        commandType: "strategy:activate",
+        data: { strategy_id: strategyId.trim() },
+      }),
+    );
+  } catch {
+    return NextResponse.json({ error: "Failed to publish command" }, { status: 500 });
+  }
 
   return NextResponse.json({ command_id: commandId });
 }

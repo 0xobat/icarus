@@ -5,14 +5,19 @@ export async function GET(request: NextRequest) {
   const limitParam = request.nextUrl.searchParams.get("limit");
   const limit = Math.min(Math.max(parseInt(limitParam ?? "10", 10) || 10, 1), 50);
 
-  const rows = await query(
-    `SELECT id, trade_id, tx_hash, timestamp, action, strategy, protocol,
-            asset_in, amount_in, status, gas_used, error_message
-     FROM trades
-     ORDER BY timestamp DESC
-     LIMIT $1`,
-    [limit],
-  );
+  let rows;
+  try {
+    rows = await query(
+      `SELECT id, trade_id, tx_hash, timestamp, action, strategy, protocol,
+              asset_in, amount_in, status, gas_used, error_message
+       FROM trades
+       ORDER BY timestamp DESC
+       LIMIT $1`,
+      [limit],
+    );
+  } catch {
+    return NextResponse.json({ error: "Database error" }, { status: 500 });
+  }
 
   const executions = rows.map((row) => ({
     id: row.id,
