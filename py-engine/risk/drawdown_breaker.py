@@ -61,6 +61,11 @@ class DrawdownBreaker:
         self._trading_halted = False
         self._triggered_at: str | None = None
         self._alerts: list[dict[str, Any]] = []
+        self._max_alerts = 1000
+
+    def _prune_alerts(self) -> None:
+        if len(self._alerts) > self._max_alerts:
+            self._alerts = self._alerts[-(self._max_alerts // 2):]
 
     @property
     def peak_value(self) -> Decimal:
@@ -132,6 +137,7 @@ class DrawdownBreaker:
                 "timestamp": now,
             }
             self._alerts.append(alert)
+            self._prune_alerts()
             _logger.critical(
                 "CRITICAL drawdown — all trading halted",
                 extra={"data": alert},
@@ -150,6 +156,7 @@ class DrawdownBreaker:
                 "timestamp": now,
             }
             self._alerts.append(alert)
+            self._prune_alerts()
             _logger.warning(
                 "WARNING drawdown — new entries paused",
                 extra={"data": alert},

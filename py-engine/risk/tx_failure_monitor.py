@@ -87,6 +87,11 @@ class TxFailureMonitor:
         self._is_paused = False
         self._diagnostic_mode = False
         self._alerts: list[dict[str, Any]] = []
+        self._max_alerts = 1000
+
+    def _prune_alerts(self) -> None:
+        if len(self._alerts) > self._max_alerts:
+            self._alerts = self._alerts[-(self._max_alerts // 2):]
 
     @property
     def is_paused(self) -> bool:
@@ -176,6 +181,7 @@ class TxFailureMonitor:
                 "timestamp": current.isoformat(),
             }
             self._alerts.append(alert)
+            self._prune_alerts()
             _logger.critical(
                 "TX failure threshold breached — execution PAUSED",
                 extra={"data": alert},

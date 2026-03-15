@@ -1063,6 +1063,16 @@ def main() -> None:
             except Exception:
                 pass  # Dashboard state publish failure is non-critical
 
+            # Emit system_health event to dashboard:events stream
+            try:
+                emit_dashboard_event(redis, "system_health", {
+                    "redis": "connected",
+                    "postgres": "connected",
+                    "cycle_count": loop._cycle_count,
+                })
+            except Exception:
+                pass  # Dashboard event failure is non-critical
+
             time.sleep(0.1)
 
     finally:

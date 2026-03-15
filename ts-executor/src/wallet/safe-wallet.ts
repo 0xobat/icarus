@@ -46,6 +46,26 @@ import type { SafeWalletLike } from '../execution/transaction-builder.js';
 
 // ── Options ──────────────────────────────────────
 
+/** Pluggable daily spending persistence. Defaults to in-memory; use RedisSpendingStore for durability. */
+export interface SpendingStore {
+  getDailySpent(day: string): Promise<bigint>;
+  addDailySpend(day: string, amountWei: bigint): Promise<bigint>;
+}
+
+/** In-memory spending store (default, resets on restart). */
+class InMemorySpendingStore implements SpendingStore {
+  private spent = new Map<string, bigint>();
+  async getDailySpent(day: string): Promise<bigint> {
+    return this.spent.get(day) ?? 0n;
+  }
+  async addDailySpend(day: string, amountWei: bigint): Promise<bigint> {
+    const current = this.spent.get(day) ?? 0n;
+    const updated = current + amountWei;
+    this.spent.set(day, updated);
+    return updated;
+  }
+}
+
 export interface SafeWalletOptions {
   /** Private key for the agent EOA signer. Defaults to env WALLET_PRIVATE_KEY. */
   privateKey?: string;
@@ -67,6 +87,8 @@ export interface SafeWalletOptions {
   confirmations?: number;
   /** Structured log callback. */
   onLog?: (event: string, message: string, extra?: Record<string, unknown>) => void;
+  /** Pluggable spending persistence. Defaults to in-memory. */
+  spendingStore?: SpendingStore;
 }
 
 // ── ERC-20 ABI for balance queries ──────────────
@@ -102,10 +124,7 @@ export class SafeWalletManager implements SafeWalletLike {
   private readonly allowlistSet: Set<Address>;
   private readonly confirmations: number;
   private readonly log: (event: string, message: string, extra?: Record<string, unknown>) => void;
-
-  // Daily spending tracker
-  private dailySpent: bigint = 0n;
-  private currentDay: string = '';
+  private readonly spendingStore: SpendingStore;
 
   private constructor(
     account: PrivateKeyAccount,
@@ -117,6 +136,7 @@ export class SafeWalletManager implements SafeWalletLike {
     allowlist: Set<Address>,
     confirmations: number,
     onLog: (event: string, message: string, extra?: Record<string, unknown>) => void,
+    spendingStore: SpendingStore,
   ) {
     this.account = account;
     this.safeAddress = safeAddress;
@@ -127,6 +147,7 @@ export class SafeWalletManager implements SafeWalletLike {
     this.allowlistSet = allowlist;
     this.confirmations = confirmations;
     this.log = onLog;
+    this.spendingStore = spendingStore;
   }
 
   /**
@@ -160,6 +181,7 @@ export class SafeWalletManager implements SafeWalletLike {
     const allowlist = opts.allowlist ?? loadAllowlistFromEnv();
     const confirmations = opts.confirmations ?? 1;
     const onLog = opts.onLog ?? (() => {});
+    const spendingStore = opts.spendingStore ?? new InMemorySpendingStore();
 
     let protocolKit: Safe;
 
@@ -209,6 +231,7 @@ export class SafeWalletManager implements SafeWalletLike {
       allowlist,
       confirmations,
       onLog,
+      spendingStore,
     );
   }
 
@@ -294,7 +317,7 @@ export class SafeWalletManager implements SafeWalletLike {
   // ── Spending Limits ──────────────────────────────
 
   /** Validate an order against allowlist and spending limits. */
-  validateOrder(target: Address, amountWei: bigint): { allowed: boolean; reason?: string } {
+  async validateOrder(target: Address, amountWei: bigint): Promise<{ allowed: boolean; reason?: string }> {
     // Allowlist check — fail-closed: reject all when allowlist is empty
     if (this.allowlistSet.size === 0) {
       return { allowed: false, reason: 'Contract allowlist is empty — all transactions rejected (fail-closed). Set CONTRACT_ALLOWLIST env var.' };
@@ -319,9 +342,10 @@ export class SafeWalletManager implements SafeWalletLike {
       };
     }
 
-    // Daily cap — reset if new day
-    this.resetDailyIfNeeded();
-    const projectedDaily = this.dailySpent + amountWei;
+    // Daily cap — durable via spending store
+    const today = new Date().toISOString().slice(0, 10);
+    const dailySpent = await this.spendingStore.getDailySpent(today);
+    const projectedDaily = dailySpent + amountWei;
     if (projectedDaily > this.limits.dailyCapWei) {
       return {
         allowed: false,
@@ -333,12 +357,12 @@ export class SafeWalletManager implements SafeWalletLike {
   }
 
   /** Record a spend against the daily limit. */
-  recordSpend(amountWei: bigint): void {
-    this.resetDailyIfNeeded();
-    this.dailySpent += amountWei;
+  async recordSpend(amountWei: bigint): Promise<void> {
+    const today = new Date().toISOString().slice(0, 10);
+    const newTotal = await this.spendingStore.addDailySpend(today, amountWei);
     this.log('safe_spend_recorded', 'Spend recorded', {
       amount: formatEther(amountWei),
-      dailyTotal: formatEther(this.dailySpent),
+      dailyTotal: formatEther(newTotal),
       dailyCap: formatEther(this.limits.dailyCapWei),
     });
   }
@@ -370,18 +394,4 @@ export class SafeWalletManager implements SafeWalletLike {
 
   // ── Private helpers ──────────────────────────────
 
-  /** Reset daily counter if the UTC day has changed. */
-  private resetDailyIfNeeded(): void {
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    if (today !== this.currentDay) {
-      if (this.currentDay) {
-        this.log('safe_daily_reset', 'Daily spending counter reset', {
-          previousDay: this.currentDay,
-          previousSpent: formatEther(this.dailySpent),
-        });
-      }
-      this.currentDay = today;
-      this.dailySpent = 0n;
-    }
-  }
 }

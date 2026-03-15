@@ -31,10 +31,10 @@ export interface SafeWalletLike {
   executeBatch(txs: Array<{
     to: Address; value?: bigint; data?: Hex; operation?: number;
   }>): Promise<{ hash: `0x${string}`; receipt: TransactionReceipt }>;
-  validateOrder(target: Address, amountWei: bigint): {
+  validateOrder(target: Address, amountWei: bigint): Promise<{
     allowed: boolean; reason?: string;
-  };
-  recordSpend(amountWei: bigint): void;
+  }> | { allowed: boolean; reason?: string };
+  recordSpend(amountWei: bigint): Promise<void> | void;
 }
 
 export interface ExecutionOrder {
@@ -193,7 +193,7 @@ export class TransactionBuilder {
       // 2. Allowlist + spending limit check via Safe wallet
       const target = await this.resolveTarget(order);
       const amount = BigInt(order.params.amount);
-      const validation = this.safeWallet.validateOrder(target, amount);
+      const validation = await this.safeWallet.validateOrder(target, amount);
       if (!validation.allowed) {
         const result = this.buildResult(order, 'failed', {
           error: `Order validation failed: ${validation.reason ?? 'not allowed'}`,
@@ -208,7 +208,7 @@ export class TransactionBuilder {
 
       // 4. Record spend on success
       if (result.status === 'confirmed') {
-        this.safeWallet.recordSpend(BigInt(order.params.amount));
+        await this.safeWallet.recordSpend(BigInt(order.params.amount));
       }
 
       return result;
@@ -219,7 +219,22 @@ export class TransactionBuilder {
 
   /** Pre-flight validation: deadline and gas ceiling checks. */
   async preflight(order: ExecutionOrder): Promise<string | null> {
-    const { limits, orderId } = order;
+    const { limits, orderId, params } = order;
+
+    // Check recipient — must be a valid Ethereum address if provided
+    // Actions that send funds (supply, mint_lp, swap) require an explicit recipient
+    const ACTIONS_REQUIRING_RECIPIENT = new Set(['supply', 'withdraw', 'mint_lp', 'burn_lp', 'swap', 'stake', 'unstake']);
+    if (ACTIONS_REQUIRING_RECIPIENT.has(order.action)) {
+      const recipient = params.recipient;
+      if (!recipient || typeof recipient !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(recipient)) {
+        this.log('exec_invalid_recipient', 'Order missing or invalid recipient address', {
+          orderId,
+          action: order.action,
+          recipient: recipient ?? 'undefined',
+        });
+        return `Invalid or missing recipient address for action '${order.action}'. Got: ${recipient ?? 'undefined'}`;
+      }
+    }
 
     // Check deadline
     const nowUnix = Math.floor(Date.now() / 1000);

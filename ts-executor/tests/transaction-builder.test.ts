@@ -53,6 +53,7 @@ function makeOrder(overrides: Partial<ExecutionOrder> = {}): ExecutionOrder {
     params: {
       tokenIn: '0x1234567890abcdef1234567890abcdef12345678',
       amount: '1000000000000000000',
+      recipient: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
     },
     limits: {
       maxGasWei: '50000000000000000', // 0.05 ETH

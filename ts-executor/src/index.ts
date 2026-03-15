@@ -11,9 +11,35 @@ import {
   type ProtocolAdapter,
 } from "./execution/transaction-builder.js";
 import { EventReporter } from "./execution/event-reporter.js";
-import { SafeWalletManager } from "./wallet/safe-wallet.js";
+import { SafeWalletManager, type SpendingStore } from "./wallet/safe-wallet.js";
 import * as aave from "./execution/aave-v3-adapter.js";
 import * as aerodrome from "./execution/aerodrome-adapter.js";
+import type Redis from "ioredis";
+
+const SPENDING_KEY_PREFIX = "ts-executor:daily-spent:";
+const SPENDING_TTL_SECONDS = 48 * 60 * 60; // 48h
+
+/** Redis-backed daily spending store. Survives process restarts. */
+class RedisSpendingStore implements SpendingStore {
+  constructor(private readonly client: Redis) {}
+
+  async getDailySpent(day: string): Promise<bigint> {
+    const val = await this.client.get(`${SPENDING_KEY_PREFIX}${day}`);
+    return val ? BigInt(val) : 0n;
+  }
+
+  async addDailySpend(day: string, amountWei: bigint): Promise<bigint> {
+    const key = `${SPENDING_KEY_PREFIX}${day}`;
+    // INCRBY is atomic — safe for concurrent access
+    const newTotal = await this.client.incrby(key, Number(amountWei));
+    // Set TTL only if not already set (avoids resetting on every spend)
+    const ttl = await this.client.ttl(key);
+    if (ttl < 0) {
+      await this.client.expire(key, SPENDING_TTL_SECONDS);
+    }
+    return BigInt(newTotal);
+  }
+}
 
 const SERVICE_NAME = "ts-executor";
 
@@ -166,9 +192,12 @@ async function initializeComponents(): Promise<{
     onLog: log,
   });
 
+  const spendingStore = new RedisSpendingStore(redis.raw);
+
   const safeWallet = await SafeWalletManager.create({
     chain,
     onLog: log,
+    spendingStore,
   });
 
   const adapterMap = buildAdapterMap();

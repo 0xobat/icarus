@@ -74,6 +74,11 @@ class GasSpikeBreaker:
         self._queue: list[QueuedOperation] = []
         self._activated_at: str | None = None
         self._alerts: list[dict[str, Any]] = []
+        self._max_alerts = 1000
+
+    def _prune_alerts(self) -> None:
+        if len(self._alerts) > self._max_alerts:
+            self._alerts = self._alerts[-(self._max_alerts // 2):]
 
     @property
     def is_active(self) -> bool:
@@ -131,6 +136,7 @@ class GasSpikeBreaker:
                 "timestamp": now,
             }
             self._alerts.append(alert)
+            self._prune_alerts()
             _logger.warning(
                 "Gas spike breaker ACTIVATED",
                 extra={"data": alert},
@@ -146,6 +152,7 @@ class GasSpikeBreaker:
                 "timestamp": now,
             }
             self._alerts.append(alert)
+            self._prune_alerts()
             _logger.info(
                 "Gas spike breaker DEACTIVATED",
                 extra={"data": alert},

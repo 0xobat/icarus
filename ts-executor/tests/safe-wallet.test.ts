@@ -212,7 +212,7 @@ describe('SafeWalletManager', () => {
         dailyCapWei: parseEther('10'),
       });
 
-      const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1.5'));
+      const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1.5'));
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('per-tx cap');
     });
@@ -225,10 +225,10 @@ describe('SafeWalletManager', () => {
       });
 
       // First spend: 1.5 ETH
-      wallet.recordSpend(parseEther('1.5'));
+      await wallet.recordSpend(parseEther('1.5'));
 
       // Second would exceed daily: 1.5 + 1 = 2.5 > 2
-      const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+      const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('Daily spend');
     });
@@ -241,7 +241,7 @@ describe('SafeWalletManager', () => {
       });
 
       // Spend today
-      wallet.recordSpend(parseEther('1.5'));
+      await wallet.recordSpend(parseEther('1.5'));
 
       // Simulate day change
       const tomorrow = new Date();
@@ -250,7 +250,7 @@ describe('SafeWalletManager', () => {
       Date.prototype.toISOString = vi.fn().mockReturnValue(tomorrow.toISOString());
 
       // Should be allowed again after reset
-      const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1.5'));
+      const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1.5'));
       expect(result.allowed).toBe(true);
 
       // Restore
@@ -266,7 +266,7 @@ describe('SafeWalletManager', () => {
         dailyCapWei: parseEther('100'),
       });
 
-      const result = wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
+      const result = await wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('not on the allowlist');
     });
@@ -279,7 +279,7 @@ describe('SafeWalletManager', () => {
       });
 
       // Pass the mixed-case version — should still match
-      const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+      const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
       expect(result.allowed).toBe(true);
     });
 
@@ -290,11 +290,11 @@ describe('SafeWalletManager', () => {
         dailyCapWei: parseEther('100'),
       });
 
-      const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+      const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('fail-closed');
 
-      const result2 = wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
+      const result2 = await wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
       expect(result2.allowed).toBe(false);
       expect(result2.reason).toContain('CONTRACT_ALLOWLIST');
     });
@@ -309,7 +309,7 @@ describe('SafeWalletManager', () => {
       });
 
       // Allowlisted but exceeds per-tx cap
-      const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+      const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('per-tx cap');
     });
@@ -321,7 +321,7 @@ describe('SafeWalletManager', () => {
         dailyCapWei: parseEther('100'),
       });
 
-      const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+      const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
       expect(result.allowed).toBe(true);
     });
   });
@@ -336,11 +336,11 @@ describe('SafeWalletManager', () => {
         onLog: (event, _msg, extra) => logs.push({ event, extra }),
       });
 
-      wallet.recordSpend(parseEther('1'));
-      wallet.recordSpend(parseEther('2'));
+      await wallet.recordSpend(parseEther('1'));
+      await wallet.recordSpend(parseEther('2'));
 
       // Third spend would push over daily limit
-      const result = wallet.validateOrder(TEST_CONTRACT, parseEther('3'));
+      const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('3'));
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('Daily spend');
 
@@ -376,10 +376,10 @@ describe('SafeWalletManager', () => {
           dailyCapWei: parseEther('100'),
         });
 
-        const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+        const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
         expect(result.allowed).toBe(true);
 
-        const result2 = wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
+        const result2 = await wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
         expect(result2.allowed).toBe(true);
       } finally {
         delete process.env.CONTRACT_ALLOWLIST;
@@ -395,7 +395,7 @@ describe('SafeWalletManager', () => {
           dailyCapWei: parseEther('100'),
         });
 
-        const result = wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
+        const result = await wallet.validateOrder(TEST_CONTRACT_2, parseEther('1'));
         expect(result.allowed).toBe(false);
         expect(result.reason).toContain('not on the allowlist');
       } finally {
@@ -412,7 +412,7 @@ describe('SafeWalletManager', () => {
           dailyCapWei: parseEther('100'),
         });
 
-        const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+        const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
         expect(result.allowed).toBe(false);
         expect(result.reason).toContain('fail-closed');
       } finally {
@@ -428,7 +428,7 @@ describe('SafeWalletManager', () => {
         dailyCapWei: parseEther('100'),
       });
 
-      const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+      const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('fail-closed');
     });
@@ -442,7 +442,7 @@ describe('SafeWalletManager', () => {
           dailyCapWei: parseEther('100'),
         });
 
-        const result = wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
+        const result = await wallet.validateOrder(TEST_CONTRACT, parseEther('1'));
         expect(result.allowed).toBe(true);
       } finally {
         delete process.env.CONTRACT_ALLOWLIST;
@@ -458,8 +458,8 @@ describe('SafeWalletManager', () => {
       });
 
       // Trigger some log events
-      wallet.recordSpend(parseEther('1'));
-      wallet.validateOrder(TEST_CONTRACT, parseEther('0.1'));
+      await wallet.recordSpend(parseEther('1'));
+      await wallet.validateOrder(TEST_CONTRACT, parseEther('0.1'));
 
       const allLogText = JSON.stringify(logs);
       expect(allLogText).not.toContain(TEST_PRIVATE_KEY);

@@ -75,6 +75,11 @@ class TVLMonitor:
         self._config = config or TVLMonitorConfig()
         self._snapshots: dict[tuple[str, str], list[TVLSnapshot]] = defaultdict(list)
         self._alerts: list[dict[str, Any]] = []
+        self._max_alerts = 1000
+
+    def _prune_alerts(self) -> None:
+        if len(self._alerts) > self._max_alerts:
+            self._alerts = self._alerts[-(self._max_alerts // 2):]
 
     @property
     def config(self) -> TVLMonitorConfig:
@@ -171,6 +176,7 @@ class TVLMonitor:
                 "timestamp": now,
             }
             self._alerts.append(alert)
+            self._prune_alerts()
             _logger.critical(
                 "CRITICAL TVL drop — emergency withdrawal triggered",
                 extra={"data": alert},
@@ -187,6 +193,7 @@ class TVLMonitor:
                 "timestamp": now,
             }
             self._alerts.append(alert)
+            self._prune_alerts()
             _logger.warning(
                 "WARNING TVL drop — monitoring closely",
                 extra={"data": alert},

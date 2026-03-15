@@ -71,7 +71,7 @@ def publish_dashboard_state(
     try:
         client = redis_client.client
         _publish_metrics(client, tracker, drawdown_breaker, db_repo)
-        _publish_strategies(client, tracker, strategy_manager, exposure_limiter)
+        _publish_strategies(client, tracker, strategy_manager, exposure_limiter, db_repo)
         _publish_breakers(client, drawdown_breaker, circuit_breakers)
         _publish_drawdown(client, drawdown_breaker)
         _publish_exposure(client, exposure_limiter)
@@ -167,12 +167,13 @@ def _publish_strategies(
     tracker: Any,
     strategy_manager: Any,
     exposure_limiter: Any,
+    db_repo: Any,
 ) -> None:
     """Publish dashboard:strategies — StrategiesPanelData envelope."""
     summary = tracker.get_summary()
     total_value = _safe_float(summary.get("total_value", 0))
 
-    # Get strategy statuses
+    # Get strategy statuses — try file-based state first, fall back to PostgreSQL
     strategies: list[dict[str, Any]] = []
     try:
         statuses = strategy_manager._state.get_strategy_statuses()
@@ -182,7 +183,19 @@ def _publish_strategies(
                 "status": status,
             })
     except Exception:
-        _logger.debug("Failed to get strategy statuses")
+        _logger.debug("Failed to get strategy statuses from state manager")
+
+    # Fall back to PostgreSQL if file-based state is empty
+    if not strategies:
+        try:
+            db_statuses = db_repo.get_strategy_statuses()
+            for row in db_statuses:
+                strategies.append({
+                    "strategy_id": row.strategy_id,
+                    "status": row.status,
+                })
+        except Exception:
+            _logger.debug("Failed to get strategy statuses from PostgreSQL")
 
     # Reserve info
     reserve_amount = 0.0
