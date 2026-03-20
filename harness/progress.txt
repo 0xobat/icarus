@@ -1023,3 +1023,38 @@ Commits:
 
 verify.sh: PASS (1505+ tests, flaky Redis stream tests when live services running)
 Next: Pre-launch review, Railway deployment
+
+--- Team Session 2026-03-20-01 (Launch Readiness Audit + Fixes) ---
+Lead: Claude Opus 4.6
+Agents: 11 (4 audit + 3 wave 2A + 2 wave 2B + 1 wave 2C + 1 test fix)
+Waves: 4
+
+Wave 1 — Parallel Audit (4 read-only agents):
+  agent-py-engine: py-engine audit — 4 CRIT, 7 HIGH, 10 MED, 8 LOW found
+  agent-ts-executor: ts-executor audit — 6 CRIT, 7 HIGH, 8 MED, 6 LOW found
+  agent-frontend: frontend audit — 4 CRIT, 6 HIGH, 9 MED, 6 LOW found
+  agent-integration: integration audit — 2 CRIT, 5 HIGH, 7 MED, 5 LOW found
+
+Wave 2A — Money Safety Fixes (3 agents):
+  agent-py-safe: Guard all Decimal conversions, thread-safe queues, HOLD audit logging — MERGED (commit e9556ac)
+  agent-ts-safe: Order serialization, BigInt spending, no double-spend retry, graceful shutdown — MERGED (commit 2764d29)
+  agent-frontend-safe: Wire manual overrides to backend APIs, live status indicators — MERGED (commit 7bb01a6)
+
+Wave 2B — Security + Resilience (2 agents):
+  agent-security: Timing-safe auth, fail-closed rate limit, security headers, trade record enrichment, SSE auth — MERGED (commit 6ea9caa)
+  agent-resilience: Env validation, gas staleness detection, breaker queue release, command group fix, env var alignment — MERGED (commit 2497fa0, conflict resolved)
+  Post-merge: Fix command listener test for id=0 (commit c2e4e8f)
+
+Wave 2C — Polish (1 agent):
+  agent-polish: 12 medium/low fixes across all services — MERGED (commit 57c9734, conflict resolved)
+    py-engine: public stream_max_len, bounded loss events, empty response guard, price format guard
+    ts-executor: non-retryable patterns, Safe address fallback, gauge validation
+    frontend: metrics sign display, logout button, delete mock-data.ts, decision ordering
+    integration: dashboard stream trimming
+
+Summary: 41 issues fixed across 4 waves (13 CRIT, 11 HIGH, 12 MED, 5 LOW)
+Baseline commit: ce1b94d
+Final commit: 57c9734
+Tests: 1715 (1496 Python + 219 TypeScript), all passing
+verify.sh: PASS
+Next: Railway production deployment
