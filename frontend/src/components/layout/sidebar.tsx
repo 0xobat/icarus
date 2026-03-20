@@ -10,6 +10,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSystemStatus } from "@/lib/hooks/use-risk";
 
 const navItems = [
   { href: "/", label: "CMD", icon: LayoutDashboard },
@@ -20,6 +21,22 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: statusData, error } = useSystemStatus();
+
+  const holdActive = statusData?.active ?? false;
+
+  let statusLabel: string;
+  let dotColor: string;
+  if (error) {
+    statusLabel = "ERROR";
+    dotColor = "bg-danger";
+  } else if (holdActive) {
+    statusLabel = "HOLD";
+    dotColor = "bg-amber";
+  } else {
+    statusLabel = "ONLINE";
+    dotColor = "bg-success";
+  }
 
   return (
     <aside className="flex w-[60px] flex-col items-center border-r border-border-subtle bg-bg-surface py-4 gap-1">
@@ -58,9 +75,9 @@ export function Sidebar() {
       {/* System status */}
       <div className="mt-auto flex flex-col items-center gap-2 pt-4">
         <div className="flex flex-col items-center gap-1">
-          <div className="h-1.5 w-1.5 rounded-full bg-success animate-pulse-glow" />
+          <div className={cn("h-1.5 w-1.5 rounded-full", dotColor, !error && !holdActive && "animate-pulse-glow")} />
           <span className="font-mono text-[9px] font-medium tracking-wide text-text-secondary">
-            ONLINE
+            {statusLabel}
           </span>
         </div>
       </div>

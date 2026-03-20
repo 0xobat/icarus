@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Pause, Play, AlertTriangle, Zap } from "lucide-react";
+import { Pause, Play, AlertTriangle, Zap, Loader2 } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { useHoldMode, useStrategyToggle, useBreakerReset } from "@/lib/hooks/use-commands";
+import { useSystemStatus } from "@/lib/hooks/use-risk";
 import type { StrategyData, CircuitBreaker } from "@/lib/types";
 
 interface ManualOverridesProps {
@@ -13,15 +15,56 @@ interface ManualOverridesProps {
 }
 
 export function ManualOverrides({ strategies, breakers }: ManualOverridesProps) {
-  const [holdMode, setHoldMode] = useState(false);
+  const { data: systemStatus } = useSystemStatus();
+  const holdModeCmd = useHoldMode();
+  const strategyToggle = useStrategyToggle();
+  const breakerReset = useBreakerReset();
+
+  const holdActive = systemStatus?.active ?? false;
+
   const [holdConfirmOpen, setHoldConfirmOpen] = useState(false);
   const [strategyStates, setStrategyStates] = useState<Record<string, boolean>>(
     Object.fromEntries(strategies.map((s) => [s.id, s.status === "active"]))
   );
   const [cbConfirmOpen, setCbConfirmOpen] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
 
-  const toggleStrategy = (id: string) => {
-    setStrategyStates((prev) => ({ ...prev, [id]: !prev[id] }));
+  const handleHoldConfirm = async () => {
+    setCommandError(null);
+    if (holdActive) {
+      await holdModeCmd.exit();
+    } else {
+      await holdModeCmd.enter("Manual hold via dashboard");
+    }
+    setHoldConfirmOpen(false);
+    if (holdModeCmd.error) {
+      setCommandError(holdModeCmd.error);
+    }
+  };
+
+  const handleStrategyToggle = async (id: string) => {
+    setCommandError(null);
+    const isActive = strategyStates[id];
+    if (isActive) {
+      await strategyToggle.deactivate(id);
+    } else {
+      await strategyToggle.activate(id);
+    }
+    if (strategyToggle.error) {
+      setCommandError(strategyToggle.error);
+    } else {
+      setStrategyStates((prev) => ({ ...prev, [id]: !prev[id] }));
+    }
+  };
+
+  const handleBreakerTrigger = async () => {
+    if (!cbConfirmOpen) return;
+    setCommandError(null);
+    await breakerReset.execute({ breaker_name: cbConfirmOpen });
+    if (breakerReset.error) {
+      setCommandError(breakerReset.error);
+    }
+    setCbConfirmOpen(null);
   };
 
   return (
@@ -31,10 +74,13 @@ export function ManualOverrides({ strategies, breakers }: ManualOverridesProps) 
       transition={{ duration: 0.4 }}
       className="rounded-lg border border-border-subtle bg-bg-surface"
     >
-      <div className="border-b border-border-subtle px-4 py-3">
+      <div className="border-b border-border-subtle px-4 py-3 flex items-center justify-between">
         <span className="font-display text-[10px] font-bold uppercase tracking-widest text-text-primary">
           Manual Overrides
         </span>
+        {commandError && (
+          <span className="font-mono text-[10px] text-danger">{commandError}</span>
+        )}
       </div>
 
       <div className="grid grid-cols-3 divide-x divide-border-subtle">
@@ -51,35 +97,38 @@ export function ManualOverrides({ strategies, breakers }: ManualOverridesProps) 
           </p>
           <button
             onClick={() => setHoldConfirmOpen(true)}
+            disabled={holdModeCmd.loading}
             className={cn(
               "mt-3 flex items-center gap-2 rounded-md px-4 py-2 font-mono text-xs font-semibold transition-colors",
-              holdMode
+              holdActive
                 ? "bg-warning text-black hover:bg-warning/80"
-                : "border border-border-subtle bg-bg-elevated text-text-secondary hover:bg-bg-hover"
+                : "border border-border-subtle bg-bg-elevated text-text-secondary hover:bg-bg-hover",
+              holdModeCmd.loading && "opacity-50 cursor-not-allowed"
             )}
           >
-            <div
-              className={cn(
-                "h-2 w-2 rounded-full",
-                holdMode ? "bg-black animate-pulse-glow" : "bg-text-muted"
-              )}
-            />
-            {holdMode ? "HOLD ACTIVE" : "ACTIVATE HOLD"}
+            {holdModeCmd.loading ? (
+              <Loader2 className="h-2 w-2 animate-spin" />
+            ) : (
+              <div
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  holdActive ? "bg-black animate-pulse-glow" : "bg-text-muted"
+                )}
+              />
+            )}
+            {holdActive ? "HOLD ACTIVE" : "ACTIVATE HOLD"}
           </button>
 
           <ConfirmDialog
             open={holdConfirmOpen}
-            title={holdMode ? "Deactivate Hold Mode" : "Activate Hold Mode"}
+            title={holdActive ? "Deactivate Hold Mode" : "Activate Hold Mode"}
             description={
-              holdMode
+              holdActive
                 ? "This will allow the system to resume normal operations and open new positions."
                 : "This will halt all new position entries. Existing positions will be maintained. Circuit breakers remain active."
             }
-            confirmLabel={holdMode ? "Deactivate" : "Activate Hold"}
-            onConfirm={() => {
-              setHoldMode(!holdMode);
-              setHoldConfirmOpen(false);
-            }}
+            confirmLabel={holdActive ? "Deactivate" : "Activate Hold"}
+            onConfirm={handleHoldConfirm}
             onCancel={() => setHoldConfirmOpen(false)}
           />
         </div>
@@ -103,10 +152,16 @@ export function ManualOverrides({ strategies, breakers }: ManualOverridesProps) 
                   <span className="text-[10px] text-text-secondary">{s.name}</span>
                 </div>
                 <button
-                  onClick={() => toggleStrategy(s.id)}
-                  className="flex h-[22px] w-[22px] items-center justify-center rounded border border-border-subtle text-text-tertiary hover:bg-bg-hover hover:text-primary transition-colors"
+                  onClick={() => handleStrategyToggle(s.id)}
+                  disabled={strategyToggle.loading}
+                  className={cn(
+                    "flex h-[22px] w-[22px] items-center justify-center rounded border border-border-subtle text-text-tertiary hover:bg-bg-hover hover:text-primary transition-colors",
+                    strategyToggle.loading && "opacity-50 cursor-not-allowed"
+                  )}
                 >
-                  {strategyStates[s.id] ? (
+                  {strategyToggle.loading ? (
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  ) : strategyStates[s.id] ? (
                     <Pause className="h-2.5 w-2.5" />
                   ) : (
                     <Play className="h-2.5 w-2.5" />
@@ -131,9 +186,13 @@ export function ManualOverrides({ strategies, breakers }: ManualOverridesProps) 
                 <span className="text-[10px] text-text-secondary">{b.name}</span>
                 <button
                   onClick={() => setCbConfirmOpen(b.name)}
-                  className="rounded border border-danger/30 bg-danger-muted px-2 py-0.5 font-mono text-[9px] text-danger hover:bg-danger/20 transition-colors"
+                  disabled={breakerReset.loading}
+                  className={cn(
+                    "rounded border border-danger/30 bg-danger-muted px-2 py-0.5 font-mono text-[9px] text-danger hover:bg-danger/20 transition-colors",
+                    breakerReset.loading && "opacity-50 cursor-not-allowed"
+                  )}
                 >
-                  TRIGGER
+                  {breakerReset.loading ? "..." : "TRIGGER"}
                 </button>
               </div>
             ))}
@@ -144,7 +203,7 @@ export function ManualOverrides({ strategies, breakers }: ManualOverridesProps) 
             title={`Force Trigger: ${cbConfirmOpen}`}
             description={`This will manually trigger the ${cbConfirmOpen} circuit breaker. The system will take protective action including potential position unwinding.`}
             confirmLabel="Force Trigger"
-            onConfirm={() => setCbConfirmOpen(null)}
+            onConfirm={handleBreakerTrigger}
             onCancel={() => setCbConfirmOpen(null)}
           />
         </div>

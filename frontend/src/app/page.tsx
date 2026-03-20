@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { MetricsGrid } from "@/components/dashboard/metrics-grid";
 import { StrategiesPanel } from "@/components/dashboard/strategies-panel";
@@ -13,10 +14,26 @@ import { SkeletonCard } from "@/components/shared/loading-skeleton";
 import { StaleIndicator } from "@/components/shared/stale-indicator";
 import { useSystemStatus } from "@/lib/hooks/use-risk";
 import { useDashboardMetrics } from "@/lib/hooks/use-dashboard";
+import { useEventStream } from "@/lib/hooks/use-event-stream";
+import type { DecisionLoopEvent } from "@/lib/types";
 
 export default function Home() {
   const { data: holdModeData, isLoading: holdLoading, stale: holdStale } = useSystemStatus();
   const { data: metricsData, isLoading: metricsLoading, stale: metricsStale } = useDashboardMetrics();
+  const { subscribe } = useEventStream();
+  const [loopEvents, setLoopEvents] = useState<DecisionLoopEvent[]>([]);
+
+  const handleEvent = useCallback((data: unknown) => {
+    const event = data as DecisionLoopEvent;
+    if (event && event.type && event.timestamp) {
+      setLoopEvents((prev) => [...prev.slice(-199), event]);
+    }
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribe("decision_loop", handleEvent);
+    return unsub;
+  }, [subscribe, handleEvent]);
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4">
@@ -104,7 +121,7 @@ export default function Home() {
             <span className="font-mono text-[10px] text-success">LIVE</span>
           </div>
         </div>
-        <DecisionLoopPulse events={[]} />
+        <DecisionLoopPulse events={loopEvents} />
       </motion.div>
 
       {/* Metrics */}
