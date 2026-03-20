@@ -1,4 +1,6 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { verifyJWT } from "@/lib/server/auth";
 import { getRedis } from "@/lib/server/redis";
 
 /**
@@ -15,8 +17,23 @@ function hashToObject(fields: string[]): Record<string, string> {
 /**
  * SSE endpoint — subscribes to dashboard:events Redis stream via XREAD BLOCK,
  * forwards events as `data: {json}\n\n` messages.
+ *
+ * Defense-in-depth: verifies JWT auth within the route handler in addition
+ * to middleware, since SSE connections are long-lived.
  */
 export async function GET(request: NextRequest) {
+  // Defense-in-depth: verify auth within route handler
+  const cookieStore = await cookies();
+  const token = cookieStore.get("icarus-session")?.value;
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  try {
+    await verifyJWT(token);
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const redis = getRedis();
   if (!redis) {
     return new Response("Redis unavailable", { status: 503 });

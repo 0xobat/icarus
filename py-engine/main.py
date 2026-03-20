@@ -163,6 +163,11 @@ class DecisionLoop:
         self.lifecycle = LifecycleManager(state)
 
         # AI
+        # Cache recently emitted orders so execution results can be enriched
+        # with strategy/protocol/action metadata (FIX: CRIT-001 trade records)
+        self._recent_orders: dict[str, dict[str, Any]] = {}
+        self._max_cached_orders = 1000
+
         self.synthesizer = InsightSynthesizer(
             price_feed=self.price_feed,
             gas_monitor=self.gas_monitor,
@@ -862,11 +867,22 @@ class DecisionLoop:
         """Process an execution:results message.
 
         Updates position tracker and records TX success/failure for
-        the failure monitor breaker.
+        the failure monitor breaker.  Enriches the result with metadata
+        from the original order (strategy, protocol, action, chain, params).
 
         Args:
             result: An execution:results message from Redis.
         """
+        # Enrich result with original order metadata
+        order_id = result.get("orderId", "unknown")
+        original = self._recent_orders.pop(order_id, {})
+        if original:
+            result.setdefault("protocol", original.get("protocol"))
+            result.setdefault("strategy", original.get("strategy"))
+            result.setdefault("action", original.get("action"))
+            result.setdefault("chain", original.get("chain"))
+            result.setdefault("params", original.get("params", {}))
+
         self.tracker.on_execution_result(result)
 
         status = result.get("status", "")
@@ -1072,6 +1088,16 @@ def main() -> None:
                 event = event_queue.popleft()
                 orders = loop.run_cycle(event)
                 for order in orders:
+                    # Cache order for enriching execution results
+                    oid = order.get("orderId", "")
+                    if oid:
+                        loop._recent_orders[oid] = order
+                    # Prune cache if it grows too large
+                    if len(loop._recent_orders) > loop._max_cached_orders:
+                        # Remove oldest entries (first inserted)
+                        excess = len(loop._recent_orders) - loop._max_cached_orders
+                        for old_key in list(loop._recent_orders)[:excess]:
+                            del loop._recent_orders[old_key]
                     redis.publish("execution:orders", order)
                     try:
                         emit_dashboard_event(redis, "order_emitted", {

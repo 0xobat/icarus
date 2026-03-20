@@ -5,9 +5,12 @@ import { getRedis } from "@/lib/server/redis";
 const MAX_ATTEMPTS = 5;
 const WINDOW_SECONDS = 60;
 
-async function checkRateLimit(ip: string): Promise<{ allowed: boolean; remaining: number }> {
+/** Dummy bcrypt hash used to prevent timing-based username enumeration. */
+const DUMMY_HASH = "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012";
+
+async function checkRateLimit(ip: string): Promise<{ allowed: boolean; remaining: number; resetIn?: number }> {
   const redis = getRedis();
-  if (!redis) return { allowed: true, remaining: MAX_ATTEMPTS };
+  if (!redis) return { allowed: false, remaining: 0, resetIn: WINDOW_SECONDS };
 
   const key = `ratelimit:login:${ip}`;
   const count = await redis.incr(key);
@@ -49,14 +52,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (username !== adminUser) {
-      const res = NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
-      res.headers.set("X-RateLimit-Remaining", String(remaining));
-      return res;
-    }
+    // Always run bcrypt to prevent timing-based username enumeration
+    const isValidUser = username === adminUser;
+    const hashToCheck = isValidUser ? adminHash : DUMMY_HASH;
+    const passwordValid = await validatePassword(password, hashToCheck);
 
-    const valid = await validatePassword(password, adminHash);
-    if (!valid) {
+    if (!isValidUser || !passwordValid) {
       const res = NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
       res.headers.set("X-RateLimit-Remaining", String(remaining));
       return res;
