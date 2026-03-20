@@ -25,11 +25,15 @@ function useCommand(url: string): CommandResult {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(params ?? {}),
         });
+        if (!res.ok) {
+          const errorBody = await res.json().catch(() => ({}));
+          throw new Error((errorBody as Record<string, string>).error || `Command failed: ${res.status}`);
+        }
         const json = await res.json();
         setCommandId(json.command_id ?? null);
       } catch (e) {
         if (e instanceof Error && e.message === "Unauthorized") return;
-        setError(`Command failed: ${url}`);
+        setError(e instanceof Error ? e.message : `Command failed: ${url}`);
       } finally {
         setLoading(false);
       }
