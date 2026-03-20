@@ -314,7 +314,10 @@ class DecisionEngine:
 
         # Cost tracker
         cap_env = os.environ.get("AI_MONTHLY_COST_CAP_USD")
-        cap = monthly_cost_cap_usd or (Decimal(cap_env) if cap_env else Decimal("50"))
+        try:
+            cap = monthly_cost_cap_usd or (Decimal(cap_env) if cap_env else Decimal("50"))
+        except Exception:
+            cap = Decimal("50")
         self._cost_tracker = CostTracker(monthly_cap_usd=cap)
 
         # Anthropic client -- either injected (for tests) or created from SDK
