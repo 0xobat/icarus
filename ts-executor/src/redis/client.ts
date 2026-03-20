@@ -239,7 +239,14 @@ export class RedisManager {
     };
 
     // Fire and forget — runs until stopped
-    readLoop().catch(() => {});
+    readLoop().catch((err) => {
+      console.error(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        service: 'ts-executor',
+        event: 'stream_reader_died',
+        message: `Stream reader for ${channel} died unexpectedly: ${err instanceof Error ? err.message : String(err)}`,
+      }));
+    });
   }
 
   /**

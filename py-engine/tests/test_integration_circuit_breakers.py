@@ -129,13 +129,11 @@ class TestGasSpikeIntegration:
         assert len(breaker.queued_operations) == 1
 
         # Gas drops: 80 vs average 30 = 2.67x < 3x threshold
+        # deactivate() now automatically releases queued operations
         state = breaker.update(Decimal("80"), Decimal("30"))
         assert not state.is_active
 
-        # Release queued operations
-        released = breaker.release_queue()
-        assert len(released) == 1
-        assert released[0].operation_id == "op-supply-1"
+        # Queue was already released during deactivation
         assert len(breaker.queued_operations) == 0
 
     def test_spike_alerts_on_activation_and_deactivation(self) -> None:

@@ -143,23 +143,29 @@ class GasSpikeBreaker:
             )
 
         elif current_gas <= threshold and self._is_active:
-            self._is_active = False
-            alert = {
-                "event": "gas_spike_deactivated",
-                "current_gas": str(current_gas),
-                "average_gas": str(average_gas),
-                "queued_released": len(self._queue),
-                "timestamp": now,
-            }
-            self._alerts.append(alert)
-            self._prune_alerts()
-            _logger.info(
-                "Gas spike breaker DEACTIVATED",
-                extra={"data": alert},
-            )
-            self._activated_at = None
+            self.deactivate()
 
         return self.get_state()
+
+    def deactivate(self) -> None:
+        """Deactivate the gas spike breaker and release all queued operations."""
+        now = datetime.now(UTC).isoformat()
+        alert = {
+            "event": "gas_spike_deactivated",
+            "current_gas": str(self._current_gas),
+            "average_gas": str(self._average_gas),
+            "queued_released": len(self._queue),
+            "timestamp": now,
+        }
+        self._is_active = False
+        self._alerts.append(alert)
+        self._prune_alerts()
+        _logger.info(
+            "Gas spike breaker DEACTIVATED",
+            extra={"data": alert},
+        )
+        self._activated_at = None
+        self.release_queue()
 
     def is_operation_allowed(self, operation_type: str) -> bool:
         """Check if an operation is allowed given current gas conditions.

@@ -312,11 +312,11 @@ export class TransactionBuilder {
         return `Gas cost ${estimatedCostWei} exceeds ceiling ${limits.maxGasWei}`;
       }
     } catch (err) {
-      this.log('exec_gas_check_error', 'Failed to check gas price', {
+      this.log('preflight_reject', 'Cannot verify gas price — rejecting order for safety', {
         orderId,
         error: err instanceof Error ? err.message : String(err),
       });
-      // Don't reject on gas check failure — proceed with caution
+      return `Gas price unavailable — cannot verify gas ceiling`;
     }
 
     return null;

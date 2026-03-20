@@ -65,7 +65,7 @@ async def listen_for_commands(
     # Create consumer group idempotently
     try:
         client.xgroup_create(
-            DASHBOARD_COMMANDS_STREAM, CONSUMER_GROUP, id="$", mkstream=True,
+            DASHBOARD_COMMANDS_STREAM, CONSUMER_GROUP, id="0", mkstream=True,
         )
         _logger.info("Consumer group created", extra={"data": {
             "group": CONSUMER_GROUP, "stream": DASHBOARD_COMMANDS_STREAM,
