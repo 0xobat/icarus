@@ -76,7 +76,11 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
     async buildTransaction(action, params) {
       const asset = params.tokenIn as Address;
       const amount = BigInt(params.amount);
-      const recipient = (params.recipient ?? params.tokenIn) as Address;
+      const safeAddr = process.env.SAFE_ADDRESS as Address | undefined;
+      const recipient = (params.recipient ?? safeAddr) as Address | undefined;
+      if (!recipient) {
+        throw new Error(`aave_v3 ${action} requires a recipient (set params.recipient or SAFE_ADDRESS env var)`);
+      }
       switch (action) {
         case "supply":
           return {
@@ -136,16 +140,24 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
             }),
           };
         case "stake":
-          return {
-            to: p.gauge as Address,
-            data: aerodrome.encodeGaugeDeposit(amount),
-          };
         case "unstake":
-          return {
-            to: p.gauge as Address,
-            data: aerodrome.encodeGaugeWithdraw(amount),
-          };
         case "collect_fees":
+          if (!p.gauge || !p.gauge.startsWith("0x")) {
+            throw new Error(`Aerodrome ${action} requires a valid gauge address`);
+          }
+          if (action === "stake") {
+            return {
+              to: p.gauge as Address,
+              data: aerodrome.encodeGaugeDeposit(amount),
+            };
+          }
+          if (action === "unstake") {
+            return {
+              to: p.gauge as Address,
+              data: aerodrome.encodeGaugeWithdraw(amount),
+            };
+          }
+          // action === "collect_fees"
           return {
             to: p.gauge as Address,
             data: aerodrome.encodeGetReward(recipient),

@@ -564,11 +564,13 @@ class DecisionLoop:
 
     def _trim_streams(self) -> None:
         """Trim all Redis streams to configured max length."""
-        max_len = self.redis._stream_max_len
+        max_len = self.redis.stream_max_len
         channels = (
             CHANNELS["MARKET_EVENTS"],
             CHANNELS["EXECUTION_ORDERS"],
             CHANNELS["EXECUTION_RESULTS"],
+            "dashboard:events",
+            "dashboard:commands",
         )
         for channel in channels:
             try:

@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
               strategy_reports_json, orders_json, passed_verification, risk_flags_json
        FROM decision_audit_log
        ${whereClause}
-       ORDER BY correlation_id DESC
+       ORDER BY timestamp DESC, correlation_id DESC
        LIMIT $${paramIndex}`,
       values,
     );

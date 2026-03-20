@@ -528,6 +528,11 @@ export class TransactionBuilder {
       'nonce too low',
       'already known',
       'deadline expired',
+      'gas too low',
+      'contract not deployed',
+      'invalid opcode',
+      'execution reverted',
+      'out of gas',
     ];
     const lowerError = error.toLowerCase();
     return nonRetryable.some((pattern) => lowerError.includes(pattern.toLowerCase()));

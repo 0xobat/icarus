@@ -1,9 +1,11 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { ShieldCheck, Sparkles, Bell } from "lucide-react";
 import { useSystemHealth, useSystemStatus } from "@/lib/hooks/use-risk";
 
 export function Topbar() {
+  const router = useRouter();
   const { data: healthData } = useSystemHealth();
   const { data: statusData } = useSystemStatus();
 
@@ -51,6 +53,11 @@ export function Topbar() {
     ? `${((connectedServices / totalServices) * 100).toFixed(1)}%`
     : "--";
 
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  };
+
   return (
     <header className="flex h-[38px] shrink-0 items-center justify-between border-b border-border-subtle bg-bg-surface px-6">
       {/* Left — branding */}
@@ -88,6 +95,12 @@ export function Topbar() {
         <button className="relative rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary">
           <Bell className="h-3.5 w-3.5" />
           <div className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber" />
+        </button>
+        <button
+          onClick={handleLogout}
+          className="font-mono text-[10px] font-medium tracking-wider text-text-tertiary transition-colors hover:text-text-secondary"
+        >
+          LOGOUT
         </button>
       </div>
     </header>

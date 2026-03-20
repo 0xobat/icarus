@@ -93,6 +93,7 @@ class PositionLossLimit:
         self._redis = redis
         self._cooldowns: dict[str, datetime] = {}
         self._loss_events: list[LossEvent] = []
+        self._max_loss_events = 1000
 
     @property
     def loss_threshold(self) -> Decimal:
@@ -187,6 +188,9 @@ class PositionLossLimit:
             timestamp=now.isoformat(),
         )
         self._loss_events.append(event)
+        # Prune oldest events if list exceeds max size
+        if len(self._loss_events) > self._max_loss_events:
+            self._loss_events = self._loss_events[-self._max_loss_events :]
 
         # Start in-memory cooldown for this strategy
         cooldown_until = now + timedelta(hours=self._cooldown_hours)
