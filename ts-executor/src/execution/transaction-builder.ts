@@ -110,6 +110,14 @@ export interface TransactionBuilderOptions {
   publicClient?: PublicClient;
 }
 
+/** Error indicating a TX was submitted to the mempool but confirmation failed (e.g., timeout). */
+class TxSubmittedError extends Error {
+  constructor(public readonly txHash: string, message: string) {
+    super(message);
+    this.name = 'TxSubmittedError';
+  }
+}
+
 // ── Transaction Builder ──────────────────────────────
 
 /** Builds and submits Ethereum transactions from execution orders via Safe wallet. */
@@ -124,6 +132,9 @@ export class TransactionBuilder {
   private readonly reporter: EventReporter | null;
   private redis: RedisManager | null = null;
   private _processing = false;
+  private _orderQueue: Array<{ data: ExecutionOrder }> = [];
+  private _processingOrder = false;
+  private _stopping = false;
 
   /** Safe wallet accessor. Throws if not configured. */
   private get safeWallet(): SafeWalletLike {
@@ -160,13 +171,49 @@ export class TransactionBuilder {
   async start(redis: RedisManager): Promise<void> {
     this.redis = redis;
     await redis.subscribe(CHANNELS.EXECUTION_ORDERS, (data) => {
-      this.handleOrder(data as unknown as ExecutionOrder).catch((err) => {
-        this.log('exec_order_error', 'Unhandled error processing order', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+      void this._enqueueOrder(data as unknown as ExecutionOrder);
     });
     this.log('exec_started', 'Transaction builder listening for orders');
+  }
+
+  /** Enqueue an order for serial processing. Prevents concurrent execution and spending limit races. */
+  private async _enqueueOrder(data: ExecutionOrder): Promise<void> {
+    if (this._stopping) {
+      this.log('order_rejected', 'Order rejected — shutting down', { orderId: data.orderId });
+      return;
+    }
+    this._orderQueue.push({ data });
+    if (!this._processingOrder) {
+      await this._processNextOrder();
+    }
+  }
+
+  /** Process orders one at a time from the queue. */
+  private async _processNextOrder(): Promise<void> {
+    if (this._processingOrder || this._orderQueue.length === 0) return;
+    this._processingOrder = true;
+    try {
+      const next = this._orderQueue.shift()!;
+      await this.handleOrder(next.data);
+    } catch (err) {
+      this.log('order_error', `Order processing failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      this._processingOrder = false;
+      if (this._orderQueue.length > 0) {
+        // Process next order — don't await, let it run in the next microtask
+        void this._processNextOrder();
+      }
+    }
+  }
+
+  /** Signal shutdown and wait for the current in-flight order to complete. */
+  async gracefulStop(): Promise<void> {
+    this._stopping = true;
+    const maxWait = 120_000; // 2 minutes
+    const start = Date.now();
+    while (this._processingOrder && Date.now() - start < maxWait) {
+      await new Promise(r => setTimeout(r, 500));
+    }
   }
 
   /** Process a single execution order. */
@@ -278,9 +325,20 @@ export class TransactionBuilder {
   /** Execute a transaction with retry logic. */
   private async executeWithRetry(order: ExecutionOrder): Promise<ExecutionResult> {
     let lastError: string = '';
+    let lastTxHash: string | undefined;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       if (attempt > 0) {
+        // If a previous attempt obtained a TX hash, do NOT retry — the TX may still
+        // land on-chain. Retrying would submit a second TX, causing a double-spend.
+        if (lastTxHash) {
+          this.log('exec_no_retry_tx_pending', 'TX hash obtained on previous attempt — not retrying to prevent double-spend', {
+            orderId: order.orderId,
+            txHash: lastTxHash,
+            attempt,
+          });
+          break;
+        }
         const delay = this.initialRetryDelayMs * Math.pow(2, attempt - 1);
         this.log('exec_retry', 'Retrying transaction', {
           orderId: order.orderId,
@@ -295,10 +353,19 @@ export class TransactionBuilder {
         return result;
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
+        // If the error suggests a TX was submitted (e.g., receipt timeout),
+        // mark it so we don't retry and risk a double-spend
+        if (this.isTxPossiblySubmitted(lastError)) {
+          lastTxHash = 'unknown-pending';
+        }
+        if (err instanceof TxSubmittedError) {
+          lastTxHash = err.txHash;
+        }
         this.log('exec_attempt_failed', 'Transaction attempt failed', {
           orderId: order.orderId,
           attempt,
           error: lastError,
+          txHash: lastTxHash,
         });
 
         // Don't retry on non-retryable errors
@@ -308,8 +375,9 @@ export class TransactionBuilder {
       }
     }
 
-    return this.buildResult(order, 'failed', {
+    return this.buildResult(order, lastTxHash ? 'timeout' : 'failed', {
       error: lastError,
+      txHash: lastTxHash,
       retryCount: this.maxRetries,
     });
   }
@@ -406,11 +474,8 @@ export class TransactionBuilder {
       };
     }
 
-    // 2. Fallback: raw transfer
-    return {
-      to: params.tokenIn as `0x${string}`,
-      value: BigInt(params.amount),
-    };
+    // 2. No fallback — unknown protocols must fail to prevent burning ETH
+    throw new Error(`No adapter registered for protocol: ${protocol}`);
   }
 
   /** Attempt to decode the revert reason from a failed TX. */
@@ -439,6 +504,21 @@ export class TransactionBuilder {
     } catch {
       return 'Unable to fetch revert reason';
     }
+  }
+
+  /** Check if an error suggests a TX was submitted but receipt was not obtained. */
+  private isTxPossiblySubmitted(error: string): boolean {
+    const lowerError = error.toLowerCase();
+    // Only match receipt/confirmation timeouts — NOT connection timeouts.
+    // "connection timeout" means we never reached the RPC, so no TX was submitted.
+    // "receipt timeout" / "waitForTransactionReceipt" means TX was sent but confirmation wasn't received.
+    const receiptPatterns = [
+      'waitfortransactionreceipt',
+      'transaction receipt',
+      'receipt timeout',
+      'confirmation timeout',
+    ];
+    return receiptPatterns.some((p) => lowerError.includes(p));
   }
 
   /** Check if an error is non-retryable. */

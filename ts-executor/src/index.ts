@@ -30,14 +30,19 @@ class RedisSpendingStore implements SpendingStore {
 
   async addDailySpend(day: string, amountWei: bigint): Promise<bigint> {
     const key = `${SPENDING_KEY_PREFIX}${day}`;
-    // INCRBY is atomic — safe for concurrent access
-    const newTotal = await this.client.incrby(key, Number(amountWei));
-    // Set TTL only if not already set (avoids resetting on every spend)
+    // Use GET+SET with BigInt arithmetic to avoid Number truncation.
+    // Number(amountWei) silently loses precision for values > Number.MAX_SAFE_INTEGER
+    // (~9e15 wei ≈ 0.009 ETH), which would under-record spending and bypass daily caps.
+    // Not atomic, but order serialization (see TransactionBuilder._enqueueOrder) eliminates concurrency.
+    const current = await this.client.get(key);
+    const currentBig = current ? BigInt(current) : 0n;
+    const newTotal = currentBig + amountWei;
+    await this.client.set(key, newTotal.toString());
     const ttl = await this.client.ttl(key);
     if (ttl < 0) {
       await this.client.expire(key, SPENDING_TTL_SECONDS);
     }
-    return BigInt(newTotal);
+    return newTotal;
   }
 }
 
@@ -97,6 +102,9 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
       const deadline = BigInt(
         p.deadline ?? String(Math.floor(Date.now() / 1000) + 1800),
       );
+      // Default to stable=true (safe for stablecoin-only strategy per STRATEGY.md).
+      // Explicit check: if p.stable is undefined, default true; otherwise parse string.
+      const stable = p.stable !== undefined ? p.stable !== "false" : true;
       switch (action) {
         case "mint_lp":
           return {
@@ -104,7 +112,7 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
             data: aerodrome.encodeAddLiquidity({
               tokenA: p.tokenIn as Address,
               tokenB: p.tokenOut as Address,
-              stable: p.stable !== "false",
+              stable,
               amountADesired: amount,
               amountBDesired: BigInt(p.amountB ?? amount.toString()),
               amountAMin: BigInt(p.amountAMin ?? "0"),
@@ -119,7 +127,7 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
             data: aerodrome.encodeRemoveLiquidity({
               tokenA: p.tokenIn as Address,
               tokenB: p.tokenOut as Address,
-              stable: p.stable !== "false",
+              stable,
               liquidity: amount,
               amountAMin: BigInt(p.amountAMin ?? "0"),
               amountBMin: BigInt(p.amountBMin ?? "0"),
@@ -151,7 +159,7 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
               [{
                 from: p.tokenIn as Address,
                 to: p.tokenOut as Address,
-                stable: p.stable !== "false",
+                stable,
                 factory: aerodrome.POOL_FACTORY,
               }],
               recipient,
@@ -255,6 +263,7 @@ async function main(): Promise<void> {
       log("shutdown", "TypeScript executor shutting down...");
 
       try {
+        await txBuilder.gracefulStop();
         await wsManager.disconnect();
         await l2Manager.disconnectAll();
         await redis.disconnect();

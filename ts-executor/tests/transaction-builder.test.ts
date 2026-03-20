@@ -80,12 +80,25 @@ function mockPublicClient(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
+/** Default mock adapter that returns a valid transaction for any action. */
+function createDefaultAdapters(): Map<string, ProtocolAdapter> {
+  const adapters = new Map<string, ProtocolAdapter>();
+  adapters.set('aave_v3', {
+    buildTransaction: vi.fn().mockResolvedValue({
+      to: '0x1234567890abcdef1234567890abcdef12345678' as `0x${string}`,
+      data: '0xdeadbeef' as `0x${string}`,
+    }),
+  });
+  return adapters;
+}
+
 function createBuilder(opts: Partial<TransactionBuilderOptions> = {}) {
   return new TransactionBuilder({
     safeWallet: createMockSafeWallet(),
     publicClient: mockPublicClient(),
     initialRetryDelayMs: 10, // Fast retries for tests
     onLog: () => {},
+    adapters: createDefaultAdapters(),
     ...opts,
   });
 }
@@ -263,8 +276,9 @@ describe('TransactionBuilder', () => {
       await builder.handleOrder(order);
 
       expect(safeWallet.validateOrder).toHaveBeenCalledTimes(1);
+      // With adapter registered, resolveTarget uses adapter's target address
       expect(safeWallet.validateOrder).toHaveBeenCalledWith(
-        order.params.tokenIn as Address,
+        '0x1234567890abcdef1234567890abcdef12345678',
         BigInt(order.params.amount),
       );
     });
@@ -554,7 +568,7 @@ describe('TransactionBuilder', () => {
       );
     });
 
-    it('falls through to raw transfer when no adapter found', async () => {
+    it('rejects order with unknown protocol instead of raw transfer fallback', async () => {
       vi.useRealTimers();
 
       const adapters = new Map<string, ProtocolAdapter>();
@@ -563,19 +577,15 @@ describe('TransactionBuilder', () => {
       });
 
       const safeWallet = createMockSafeWallet();
-      const builder = createBuilder({ adapters, safeWallet });
+      const builder = createBuilder({ adapters, safeWallet, maxRetries: 0 });
 
       const order = makeOrder({ protocol: 'unknown_protocol' });
       const result = await builder.handleOrder(order);
 
-      expect(result.status).toBe('confirmed');
-      // Should use raw transfer fallback (value = BigInt(amount))
-      expect(safeWallet.executeTransaction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          to: order.params.tokenIn,
-          value: BigInt(order.params.amount),
-        }),
-      );
+      expect(result.status).toBe('failed');
+      expect(result.error).toContain('No adapter registered for protocol: unknown_protocol');
+      // Should NOT have called executeTransaction
+      expect(safeWallet.executeTransaction).not.toHaveBeenCalled();
     });
 
     it('passes order limits to adapter', async () => {
