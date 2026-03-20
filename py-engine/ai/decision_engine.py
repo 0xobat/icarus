@@ -415,6 +415,9 @@ class DecisionEngine:
                     system=_SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": user_prompt}],
                 )
+                if not response.content:
+                    last_error = "Claude returned empty content"
+                    continue
                 response_text = response.content[0].text
                 input_tokens = response.usage.input_tokens
                 output_tokens = response.usage.output_tokens

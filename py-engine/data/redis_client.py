@@ -88,6 +88,11 @@ class RedisManager:
         self._max_backoff = 30.0
 
     @property
+    def stream_max_len(self) -> int:
+        """Return the configured max length for stream pruning."""
+        return self._stream_max_len
+
+    @property
     def connected(self) -> bool:
         """Check whether the Redis connection is established."""
         return self._connected

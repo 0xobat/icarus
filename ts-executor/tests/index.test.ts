@@ -18,6 +18,7 @@ vi.mock('../src/wallet/safe-wallet.js', () => ({
 
 beforeAll(() => {
   vi.stubEnv('WALLET_PRIVATE_KEY', '0x' + 'a'.repeat(64));
+  vi.stubEnv('SAFE_ADDRESS', '0x' + '1'.repeat(40));
 });
 
 afterAll(() => {

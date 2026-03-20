@@ -106,7 +106,11 @@ def _compress_prices(prices: dict[str, Any]) -> dict[str, str]:
     compressed: dict[str, str] = {}
     for token, data in prices.items():
         if isinstance(data, dict):
-            price = data.get("price_usd", 0)
+            raw_price = data.get("price_usd", 0)
+            try:
+                price = float(raw_price)
+            except (ValueError, TypeError):
+                price = 0.0
             sources = data.get("sources", [])
             src_count = len(sources)
             src_label = "source" if src_count == 1 else "sources"

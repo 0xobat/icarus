@@ -62,11 +62,11 @@ export function MetricsGrid() {
           </div>
           <div className="mt-1 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-xs text-success">
-                +{metricsData.portfolio_change_24h_pct}%
+              <span className={`font-mono text-xs ${metricsData.portfolio_change_24h_pct >= 0 ? "text-success" : "text-danger"}`}>
+                {metricsData.portfolio_change_24h_pct >= 0 ? "+" : ""}{metricsData.portfolio_change_24h_pct}%
               </span>
-              <span className="font-mono text-[10px] text-success/60">
-                (+${metricsData.portfolio_change_24h_abs.toLocaleString()})
+              <span className={`font-mono text-[10px] ${metricsData.portfolio_change_24h_pct >= 0 ? "text-success/60" : "text-danger/60"}`}>
+                ({metricsData.portfolio_change_24h_abs >= 0 ? "+" : "-"}${Math.abs(metricsData.portfolio_change_24h_abs).toLocaleString()})
               </span>
               <span className="font-mono text-[10px] text-text-secondary">24h</span>
             </div>
@@ -117,11 +117,11 @@ export function MetricsGrid() {
             </div>
           </div>
           <div className="mt-2 font-mono text-2xl font-semibold tracking-tight text-text-primary">
-            +${metricsData.pnl_today.toLocaleString()}
+            {metricsData.pnl_today >= 0 ? "+" : "-"}${Math.abs(metricsData.pnl_today).toLocaleString()}
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <span className="font-mono text-xs text-success">
-              +{metricsData.pnl_today_pct}%
+            <span className={`font-mono text-xs ${metricsData.pnl_today_pct >= 0 ? "text-success" : "text-danger"}`}>
+              {metricsData.pnl_today_pct >= 0 ? "+" : ""}{metricsData.pnl_today_pct}%
             </span>
           </div>
         </motion.div>
