@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import uuid
+from collections import deque
 from dataclasses import asdict
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -57,6 +58,25 @@ from strategies.lifecycle_manager import LifecycleManager
 from strategies.manager import StrategyManager
 
 _logger = get_logger("main", enable_file=False)
+
+
+def _safe_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
+    """Convert value to Decimal, returning default on failure.
+
+    Args:
+        value: The value to convert.
+        default: Fallback Decimal if conversion fails.
+
+    Returns:
+        Decimal representation of value, or default.
+    """
+    try:
+        result = Decimal(str(value))
+        if result.is_nan() or result.is_infinite():
+            return default
+        return result
+    except Exception:
+        return default
 
 _shutdown = False
 
@@ -103,7 +123,11 @@ class DecisionLoop:
         self.gas_monitor = GasMonitor(redis=redis)
 
         # Portfolio
-        total_capital = Decimal(os.environ.get("TOTAL_CAPITAL", "10000"))
+        try:
+            total_capital = Decimal(os.environ.get("TOTAL_CAPITAL", "10000"))
+        except Exception:
+            _logger.warning("Invalid TOTAL_CAPITAL env var, defaulting to 10000")
+            total_capital = Decimal("10000")
         self.allocator = PortfolioAllocator(
             total_capital,
         )
@@ -348,7 +372,7 @@ class DecisionLoop:
 
         # Update position values from latest prices
         price_map = {
-            token: Decimal(str(data.get("price_usd", 0)))
+            token: _safe_decimal(data.get("price_usd", 0))
             for token, data in prices.items()
         }
         self.tracker.update_prices(price_map)
@@ -367,9 +391,13 @@ class DecisionLoop:
             return loss_orders
 
         # 2. Check circuit breakers before any decision
-        portfolio_value = Decimal(
-            self.tracker.get_summary().get("total_value", "0"),
-        )
+        try:
+            portfolio_value = Decimal(
+                self.tracker.get_summary().get("total_value", "0"),
+            )
+        except Exception:
+            _logger.warning("Invalid portfolio value — defaulting to 0")
+            portfolio_value = Decimal("0")
         if portfolio_value > 0:
             dd_state = self.drawdown.update(portfolio_value)
             if self.drawdown.should_unwind_all():
@@ -390,12 +418,22 @@ class DecisionLoop:
         for protocol_key in ("aave", "aerodrome"):
             tvl_result = self.defi_metrics.fetch_tvl(protocol_key)
             if tvl_result is not None:
-                self.tvl_monitor.record_tvl(
-                    protocol=protocol_key,
-                    chain="base",
-                    tvl_usd=Decimal(str(tvl_result.tvl_usd)),
-                    source="defi_metrics",
-                )
+                try:
+                    tvl_decimal = Decimal(str(tvl_result.tvl_usd))
+                    if tvl_decimal.is_nan() or tvl_decimal.is_infinite():
+                        raise ValueError("non-finite TVL")
+                    self.tvl_monitor.record_tvl(
+                        protocol=protocol_key,
+                        chain="base",
+                        tvl_usd=tvl_decimal,
+                        source="defi_metrics",
+                    )
+                except Exception:
+                    _logger.warning(
+                        "Skipping TVL recording — invalid value",
+                        extra={"data": {"protocol": protocol_key,
+                                        "tvl_usd": repr(tvl_result.tvl_usd)}},
+                    )
 
         tvl_orders = self.tvl_monitor.generate_withdrawal_orders(
             positions=_positions_as_dicts(self.tracker.query()),
@@ -409,10 +447,16 @@ class DecisionLoop:
             return tvl_orders
 
         if gas is not None:
-            self.gas_spike.update(
-                current_gas=Decimal(str(gas.standard)),
-                average_gas=self.gas_monitor.get_rolling_average() or Decimal("30"),
-            )
+            try:
+                current_gas = Decimal(str(gas.standard))
+                if current_gas.is_nan() or current_gas.is_infinite():
+                    raise ValueError("non-finite gas")
+                self.gas_spike.update(
+                    current_gas=current_gas,
+                    average_gas=self.gas_monitor.get_rolling_average() or Decimal("30"),
+                )
+            except Exception:
+                _logger.warning("Skipping gas spike update — invalid gas value")
 
         if not self.tx_failures.can_execute():
             _logger.warning("TX failure breaker active — skipping cycle")
@@ -483,6 +527,7 @@ class DecisionLoop:
             _logger.debug("Decision: HOLD", extra={"data": {
                 "reason": decision.reasoning,
             }})
+            self._record_decision(correlation_id, decision, [])
             return []
 
         # 5. Risk gate — every non-hold decision must pass
@@ -780,9 +825,7 @@ class DecisionLoop:
             "version": "1.0.0",
             "orderId": uuid.uuid4().hex,
             "correlationId": correlation_id,
-            "timestamp": __import__("datetime").datetime.now(
-                __import__("datetime").UTC,
-            ).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "chain": params.get("chain", "base"),
             "protocol": params.get("protocol", "unknown"),
             "action": action,
@@ -1010,8 +1053,8 @@ def main() -> None:
     _logger.info("Command listener started")
 
     # Subscribe to market events and execution results
-    event_queue: list[dict[str, Any]] = []
-    result_queue: list[dict[str, Any]] = []
+    event_queue: deque[dict[str, Any]] = deque()
+    result_queue: deque[dict[str, Any]] = deque()
 
     redis.subscribe("market:events", lambda msg: event_queue.append(msg))
     redis.subscribe("execution:results", lambda msg: result_queue.append(msg))
@@ -1022,11 +1065,11 @@ def main() -> None:
         while not _shutdown:
             # Process pending execution results
             while result_queue:
-                loop.process_result(result_queue.pop(0))
+                loop.process_result(result_queue.popleft())
 
             # Process pending market events
             while event_queue:
-                event = event_queue.pop(0)
+                event = event_queue.popleft()
                 orders = loop.run_cycle(event)
                 for order in orders:
                     redis.publish("execution:orders", order)

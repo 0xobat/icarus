@@ -249,7 +249,7 @@ class TestDecisionAuditLog:
         assert decision_data["correlation_id"] == "test-cid"
         assert decision_data["passed_verification"] == (len(orders) > 0)
 
-    def test_decision_not_recorded_on_hold(self) -> None:
+    def test_hold_decision_recorded_in_audit_log(self) -> None:
         loop = _make_loop()
         loop.synthesizer.synthesize = MagicMock(return_value=SimpleNamespace(
             to_dict=lambda: {"active_signals": []},
@@ -257,8 +257,11 @@ class TestDecisionAuditLog:
 
         loop.run_cycle(_make_event())
 
-        # HOLD decisions return early before risk gate, no audit needed
-        loop.repository.record_decision.assert_not_called()
+        # HOLD decisions must be recorded for audit completeness
+        loop.repository.record_decision.assert_called_once()
+        decision_data = loop.repository.record_decision.call_args[0][0]
+        assert decision_data["decision_action"] == "hold"
+        assert decision_data["orders"] == []
 
     def test_decision_recording_failure_does_not_crash(self) -> None:
         loop = _make_loop()
