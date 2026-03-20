@@ -292,7 +292,7 @@ class TestConsumerGroupCreation:
         )
 
         mock_redis.client.xgroup_create.assert_called_once_with(
-            DASHBOARD_COMMANDS_STREAM, CONSUMER_GROUP, id="$", mkstream=True,
+            DASHBOARD_COMMANDS_STREAM, CONSUMER_GROUP, id="0", mkstream=True,
         )
 
     @pytest.mark.asyncio()
