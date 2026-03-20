@@ -178,6 +178,18 @@ async function initializeComponents(): Promise<{
   safeWallet: SafeWalletManager;
 }> {
   const chain = resolveChain();
+
+  // Validate protocol addresses for production chain
+  if (chain.id === 8453 && !process.env.AAVE_V3_POOL_ADDRESS) {
+    log("config_warning", "AAVE_V3_POOL_ADDRESS not set for Base mainnet — using Sepolia fallback address. Set this env var before production use.");
+  }
+  if (chain.id === 8453 && !process.env.AERODROME_ROUTER) {
+    log("config_warning", "AERODROME_ROUTER not set for Base mainnet. Verify address is correct for production use.");
+  }
+  if (chain.id === 8453 && !process.env.AERODROME_POOL_FACTORY) {
+    log("config_warning", "AERODROME_POOL_FACTORY not set for Base mainnet. Verify address is correct for production use.");
+  }
+
   const redis = new RedisManager();
   const reporter = new EventReporter({ chain, onLog: log });
   const publisher = new MarketEventPublisher({ onLog: log });

@@ -171,7 +171,7 @@ describe('TransactionBuilder', () => {
       expect(rejection).toBeNull();
     });
 
-    it('does not reject on gas check failure', async () => {
+    it('rejects when gas price fetch fails', async () => {
       const failingClient = mockPublicClient({
         getGasPrice: vi.fn().mockRejectedValue(new Error('RPC error')),
       });
@@ -180,7 +180,7 @@ describe('TransactionBuilder', () => {
       const order = makeOrder();
 
       const rejection = await builder.preflight(order);
-      expect(rejection).toBeNull(); // Should not reject — proceed with caution
+      expect(rejection).toContain('Gas price unavailable');
     });
   });
 

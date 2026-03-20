@@ -156,6 +156,7 @@ class DecisionLoop:
 
         self._adjustment_made = False
         self._cycle_count = 0
+        self._last_gas_update: datetime | None = None
         self._trim_interval = int(os.environ.get("STREAM_TRIM_INTERVAL_CYCLES", "100"))
 
         # Strategy evaluation state (INFRA-006)
@@ -409,10 +410,21 @@ class DecisionLoop:
             return tvl_orders
 
         if gas is not None:
+            self._last_gas_update = datetime.now(UTC)
             self.gas_spike.update(
                 current_gas=Decimal(str(gas.standard)),
                 average_gas=self.gas_monitor.get_rolling_average() or Decimal("30"),
             )
+        else:
+            # Check gas data staleness
+            if self._last_gas_update is not None:
+                gas_age = (datetime.now(UTC) - self._last_gas_update).total_seconds()
+                if gas_age > 300:  # 5 minutes
+                    _logger.warning(
+                        "Gas data stale — releasing gas spike breaker",
+                        extra={"data": {"stale_seconds": gas_age}},
+                    )
+                    self.gas_spike.deactivate()
 
         if not self.tx_failures.can_execute():
             _logger.warning("TX failure breaker active — skipping cycle")

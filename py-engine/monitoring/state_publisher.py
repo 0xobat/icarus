@@ -138,7 +138,7 @@ def _publish_metrics(
 
     # Drawdown
     drawdown_current = _safe_float(drawdown_breaker.drawdown_pct) * 100
-    drawdown_limit = float(os.environ.get("DRAWDOWN_LIMIT_PCT", "20"))
+    drawdown_limit = float(os.environ.get("MAX_DRAWDOWN_PERCENT", "20"))
 
     # P&L today
     pnl_today = portfolio_change_24h_abs
@@ -294,7 +294,7 @@ def _publish_breakers(
 def _publish_drawdown(client: Any, drawdown_breaker: Any) -> None:
     """Publish dashboard:drawdown — drawdown state."""
     dd_state = drawdown_breaker.get_state()
-    drawdown_limit = float(os.environ.get("DRAWDOWN_LIMIT_PCT", "20"))
+    drawdown_limit = float(os.environ.get("MAX_DRAWDOWN_PERCENT", "20"))
 
     data = {
         "current_pct": _safe_float(dd_state.drawdown_pct) * 100,
