@@ -13,7 +13,7 @@ export function AllocationBar({ data }: { data: StrategiesPanelData }) {
       <div className="flex h-2 w-full overflow-hidden rounded-full bg-bg-elevated">
         {activeStrategies.map((s, i) => (
           <div
-            key={s.id}
+            key={s.id ?? i}
             style={{
               width: `${s.allocation_pct}%`,
               backgroundColor: rustShades[i % rustShades.length],
@@ -29,7 +29,7 @@ export function AllocationBar({ data }: { data: StrategiesPanelData }) {
       {/* Legend */}
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
         {activeStrategies.map((s, i) => (
-          <div key={s.id} className="flex items-center gap-1.5">
+          <div key={s.id ?? i} className="flex items-center gap-1.5">
             <div
               className="h-1.5 w-1.5 rounded-full"
               style={{ backgroundColor: rustShades[i % rustShades.length] }}

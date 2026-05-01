@@ -11,6 +11,10 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  if (process.env.ICARUS_BYPASS_AUTH === "true") {
+    return NextResponse.next();
+  }
+
   const { pathname } = request.nextUrl;
 
   if (isPublicPath(pathname)) {

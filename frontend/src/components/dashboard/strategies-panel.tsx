@@ -77,7 +77,7 @@ export function StrategiesPanel() {
               {/* Allocation */}
               <div className="text-right">
                 <div className="font-mono text-xs font-medium text-text-primary">
-                  ${strategy.allocation.toLocaleString()}
+                  ${(strategy.allocation ?? 0).toLocaleString()}
                 </div>
                 <div
                   className={`font-mono text-[10px] ${
