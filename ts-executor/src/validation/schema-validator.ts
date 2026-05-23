@@ -13,12 +13,15 @@ export interface ValidationResult {
 
 export type SchemaName = 'market-events' | 'execution-orders' | 'execution-results';
 
-// In Docker the shared/ volume is mounted at /app/shared; locally it's three dirs up.
-// Use SCHEMA_DIR env var if set, otherwise try both locations.
+// v4-compat schemas live in shared/schemas/v4-compat/ until ts-executor
+// completes the v2 envelope migration (snake_case + chain discriminator +
+// template_id/candidate_id). The v2 schemas live in shared/schemas/ root.
+// In Docker the shared/ volume is mounted at /app/shared; locally it's three
+// dirs up from this file. Use SCHEMA_DIR env var to override either path.
 const SCHEMA_DIR = process.env.SCHEMA_DIR
   ?? ((() => {
-    const dockerPath = resolve('/app/shared/schemas');
-    const localPath = resolve(__dirname, '../../../shared/schemas');
+    const dockerPath = resolve('/app/shared/schemas/v4-compat');
+    const localPath = resolve(__dirname, '../../../shared/schemas/v4-compat');
     try { readFileSync(resolve(dockerPath, 'market-events.schema.json')); return dockerPath; } catch { /* ignore */ }
     return localPath;
   })());

@@ -97,8 +97,12 @@ fi
 # ──────────────────────────────────────────────────────────────────────────────
 section "Shared schemas (JSON Schema)"
 if [ -d "shared/schemas" ] && ls shared/schemas/*.json >/dev/null 2>&1; then
-  for schema in shared/schemas/*.json; do
-    run_or_fail "$(basename "$schema") parses as JSON" \
+  # v2 schemas (singular, snake_case) live at shared/schemas/ root.
+  # v4-compat schemas (plural, camelCase) live in shared/schemas/v4-compat/
+  # and are consumed by ts-executor until its v2 envelope migration.
+  for schema in shared/schemas/*.json shared/schemas/v4-compat/*.json; do
+    [ -f "$schema" ] || continue
+    run_or_fail "$(basename "$(dirname "$schema")")/$(basename "$schema")" \
       uv run python -c "import json,sys; json.load(open('$schema'))"
   done
 else
