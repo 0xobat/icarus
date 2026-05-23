@@ -263,3 +263,238 @@ class SchemaVersion(Base):
     applied_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
+
+
+# =============================================================================
+# v2 (Daedalus) extension — strategy lake architecture
+# =============================================================================
+# Per blueprint §"Database (db/)":
+#   - Research-owned: templates, parameter_search_results,
+#     walk_forward_results, candidates
+#   - Curation-owned: lake_roster, paper_trade_state
+#   - Execution-owned: existing positions/orders/executions remain
+#
+# These tables are ADDITIONS — v4.2 ignores them per the rollback design.
+# The columns on v4.2 tables stay intact for the rollback path.
+
+# State machine values for Candidate.state and LakeRoster.state.
+# Single source of truth; lake-governor enforces transitions in code,
+# not via DB CHECK constraints (state-machine logic stays in Python).
+CANDIDATE_STATES = (
+    "backtest",
+    "paper_trade",
+    "live_capped",
+    "live_mature",
+    "demoted_paper",
+    "archived",
+)
+
+
+class Template(Base):
+    """A loaded strategy template — extractor wrote it; registry validated it.
+
+    `template_id` is the natural key (e.g. "LEND-001"). The `manifest_yaml`
+    is preserved raw alongside the parsed metadata so audits can replay the
+    exact text the LLM produced.
+
+    `judge_verdict` carries the LLM-as-judge plausibility result from Q8:
+    PASS, FLAG_FOR_OPERATOR (default for non-trivial templates), or REJECT.
+    Templates with FLAG_FOR_OPERATOR sit in webapp until the operator acts.
+    """
+
+    __tablename__ = "templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    template_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    semver: Mapped[str] = mapped_column(String(16), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    chain: Mapped[str] = mapped_column(String(32), nullable=False)
+    protocol: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_universe_json: Mapped[str] = mapped_column(Text, nullable=False)
+    manifest_yaml: Mapped[str] = mapped_column(Text, nullable=False)
+    evaluate_py_path: Mapped[str] = mapped_column(String(256), nullable=False)
+    parameter_rationale_md: Mapped[str | None] = mapped_column(Text, nullable=True)
+    judge_verdict: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="FLAG_FOR_OPERATOR"
+    )
+    judge_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (
+        Index("ix_templates_template_id", "template_id"),
+        Index("ix_templates_chain", "chain"),
+        Index("ix_templates_judge_verdict", "judge_verdict"),
+    )
+
+
+class Candidate(Base):
+    """One instantiated parameter combination of a Template.
+
+    Born in `backtest` state when search picks the row as top-K; moves
+    through paper_trade → live_capped → live_mature, with demotion paths
+    to demoted_paper and archived. The state machine logic lives in
+    lake-governor; this row records the current resting state and audit
+    timestamps.
+
+    `template_id` is a soft FK (string, no enforced FK constraint) to
+    match v4.2's existing convention.
+    """
+
+    __tablename__ = "candidates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    candidate_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    template_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    template_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    params_json: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="backtest")
+    entered_state_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (
+        Index("ix_candidates_candidate_id", "candidate_id"),
+        Index("ix_candidates_template_id", "template_id"),
+        Index("ix_candidates_state", "state"),
+        Index("ix_candidates_template_state", "template_id", "state"),
+    )
+
+
+class ParameterSearchResult(Base):
+    """One row of a backtest search surface.
+
+    Written per-param-combination by backtest-worker. `is_top_k` flips to
+    True on the rows that get promoted to paper_trade as Candidate rows.
+    """
+
+    __tablename__ = "parameter_search_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    template_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    template_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    params_json: Mapped[str] = mapped_column(Text, nullable=False)
+    sharpe: Mapped[float] = mapped_column(Numeric(precision=10, scale=6), nullable=False)
+    deflated_sharpe: Mapped[float] = mapped_column(Numeric(precision=10, scale=6), nullable=False)
+    max_dd: Mapped[float] = mapped_column(Numeric(precision=10, scale=6), nullable=False)
+    turnover: Mapped[float] = mapped_column(Numeric(precision=10, scale=6), nullable=False)
+    oos_sharpe: Mapped[float | None] = mapped_column(
+        Numeric(precision=10, scale=6), nullable=True
+    )
+    compute_seconds: Mapped[float] = mapped_column(Numeric(precision=12, scale=3), nullable=False)
+    is_top_k: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (
+        Index("ix_psr_template_id", "template_id"),
+        Index("ix_psr_template_version", "template_id", "template_version"),
+        Index("ix_psr_is_top_k", "is_top_k"),
+    )
+
+
+class WalkForwardResult(Base):
+    """One walk-forward window for one candidate.
+
+    Multiple rows per candidate — one per (train_start, test_start) pair.
+    Lets the OOS gate compute regime-segmented stats and lets the webapp
+    plot the rolling test_sharpe trajectory.
+    """
+
+    __tablename__ = "walk_forward_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    candidate_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    train_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    train_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    test_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    test_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    train_sharpe: Mapped[float] = mapped_column(Numeric(precision=10, scale=6), nullable=False)
+    test_sharpe: Mapped[float] = mapped_column(Numeric(precision=10, scale=6), nullable=False)
+    test_max_dd: Mapped[float] = mapped_column(Numeric(precision=10, scale=6), nullable=False)
+    regime_label: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (
+        Index("ix_wfr_candidate_id", "candidate_id"),
+        Index("ix_wfr_test_start", "test_start"),
+    )
+
+
+class LakeRoster(Base):
+    """Per-candidate live state — the lake's working set.
+
+    One row per candidate (state-machine view). decision-engine reads
+    this each cycle to decide who is live; lake-governor writes
+    transitions in response to decay / breaker events.
+
+    `decay_state_json` carries the Page-Hinkley CUSUM internal state so
+    detection survives lake-governor restarts.
+    """
+
+    __tablename__ = "lake_roster"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    candidate_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    template_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    allocation_usd: Mapped[float] = mapped_column(
+        Numeric(precision=36, scale=18), nullable=False, default=0
+    )
+    allocation_max_pct: Mapped[float] = mapped_column(
+        Numeric(precision=10, scale=6), nullable=False
+    )
+    last_transition_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    decay_state_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    breaker_tripped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    __table_args__ = (
+        Index("ix_lake_roster_candidate_id", "candidate_id"),
+        Index("ix_lake_roster_template_id", "template_id"),
+        Index("ix_lake_roster_state", "state"),
+    )
+
+
+class PaperTradeState(Base):
+    """Shadow-position bookkeeping during a candidate's paper-trade window.
+
+    Updated tick-by-tick by lake-governor's paper-trade harness.
+    `shadow_positions_json` carries the simulated open positions; observed
+    sharpe + max_dd drive the live-promotion gate.
+    """
+
+    __tablename__ = "paper_trade_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    candidate_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    entered_paper_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    shadow_positions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    observed_sharpe: Mapped[float | None] = mapped_column(
+        Numeric(precision=10, scale=6), nullable=True
+    )
+    observed_max_dd: Mapped[float | None] = mapped_column(
+        Numeric(precision=10, scale=6), nullable=True
+    )
+    observation_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (
+        Index("ix_pts_candidate_id", "candidate_id"),
+        Index("ix_pts_entered_paper_at", "entered_paper_at"),
+    )
