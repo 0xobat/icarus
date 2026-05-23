@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dashboard-commands.schema.json",
+  "title": "Dashboard Command",
+  "description": "Control commands published by frontend to dashboard:commands stream",
+  "type": "object",
+  "required": ["version", "command_id", "timestamp", "commandType", "data"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "command_id": {
+      "type": "string",
+      "description": "Unique command identifier (UUID) for acknowledgment tracking"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO 8601 timestamp"
+    },
+    "commandType": {
+      "type": "string",
+      "enum": [
+        "strategy:activate",
+        "strategy:deactivate",
+        "system:enter_hold",
+        "system:exit_hold",
+        "breaker:reset"
+      ]
+    },
+    "data": {
+      "type": "object",
+      "description": "Command-specific payload"
+    }
+  },
+  "additionalProperties": false
+}

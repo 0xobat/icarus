@@ -87,6 +87,10 @@ else
       continue
     fi
     run_or_fail "$svc: typecheck" bash -lc "cd $svc && pnpm run typecheck"
+    # Run tests only where a test script + test files exist.
+    if grep -q '"test"' "$svc/package.json" && [ -d "$svc/tests" ]; then
+      run_or_fail "$svc: tests" bash -lc "cd $svc && pnpm test"
+    fi
   done
 fi
 

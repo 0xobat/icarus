@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-results.schema.json",
+  "title": "Execution Result",
+  "description": "Results published by TS executor to execution:results channel",
+  "type": "object",
+  "required": ["version", "orderId", "correlationId", "timestamp", "status"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "orderId": {
+      "type": "string",
+      "description": "Matches the originating order"
+    },
+    "correlationId": {
+      "type": "string",
+      "description": "Links to originating market event"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["confirmed", "failed", "reverted", "timeout"]
+    },
+    "txHash": {
+      "type": "string"
+    },
+    "blockNumber": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "gasUsed": {
+      "type": "string",
+      "description": "Actual gas used in wei"
+    },
+    "effectiveGasPrice": {
+      "type": "string",
+      "description": "Effective gas price in wei"
+    },
+    "fillPrice": {
+      "type": "string",
+      "description": "Actual execution price (for swaps/trades)"
+    },
+    "amountOut": {
+      "type": "string",
+      "description": "Actual amount received"
+    },
+    "revertReason": {
+      "type": "string",
+      "description": "Decoded revert reason if status is reverted"
+    },
+    "error": {
+      "type": "string",
+      "description": "Error message if status is failed"
+    },
+    "retryCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of retry attempts"
+    }
+  },
+  "additionalProperties": false
+}
