@@ -35,6 +35,14 @@ Thumbs.db
 .pytest_cache/
 coverage/
 .vitest/
+.ruff_cache/
+
+# Next.js
+.next/
+out/
+
+# uv
+.uv/
 
 # Database
 *.db

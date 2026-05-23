@@ -1,0 +1,46 @@
+[project]
+name = "icarus-workspace"
+version = "0.1.0"
+description = "Icarus v2 (Daedalus) — strategy-lake DeFi trading bot, 9-service / 3-cluster monorepo"
+readme = "README.md"
+requires-python = ">=3.13"
+
+[tool.uv.workspace]
+members = [
+    "lib",
+    "decision-engine",
+    "lake-governor",
+    "extractor-worker",
+    "backtest-worker",
+]
+
+[tool.uv.sources]
+icarus = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "RUF", # ruff-specific
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers --tb=short"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+    "mypy>=1.13",
+]

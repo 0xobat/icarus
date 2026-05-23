@@ -1,0 +1,169 @@
+# Icarus v2 (Daedalus) — 9 application services + 2 data services.
+#
+# Three clusters (Research / Curation / Execution) + shared infra (postgres / redis / inference).
+# Cluster boundaries are enforced by the runtime contracts, not by compose; compose just
+# co-hosts the processes. The cluster-isolation test in harness/verify_cluster_isolation.sh
+# (week 11) verifies the actual boundary holds.
+#
+# Local dev: `docker compose up` builds dev targets with watchfiles/tsx hot-reload.
+# Production: target=prod, no volume mounts, no source bind. (Production deploy via Railway
+# is deferred per CLAUDE.md decision.)
+
+x-python-dev: &python-dev
+  build:
+    context: .
+    target: dev
+  env_file:
+    - .env
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  # ─────────── Shared infrastructure ───────────
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-icarus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-icarus_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-icarus}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-icarus} -d ${POSTGRES_DB:-icarus}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  inference:
+    image: ollama/ollama:latest
+    # Advisory only — cycle never blocks on this. See blueprint Q2.
+    # First boot: `docker compose exec inference ollama pull deepseek-r1:14b`
+    environment:
+      OLLAMA_KEEP_ALIVE: "24h"
+      OLLAMA_NUM_PARALLEL: "1"
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+  # ─────────── Research cluster ───────────
+  extractor-worker:
+    <<: *python-dev
+    build:
+      context: .
+      dockerfile: extractor-worker/Dockerfile
+      target: dev
+    volumes:
+      - ./lib/src:/app/lib/src
+      - ./extractor-worker/src:/app/extractor-worker/src
+      - ./templates:/app/templates
+
+  backtest-worker:
+    <<: *python-dev
+    build:
+      context: .
+      dockerfile: backtest-worker/Dockerfile
+      target: dev
+    volumes:
+      - ./lib/src:/app/lib/src
+      - ./backtest-worker/src:/app/backtest-worker/src
+      - ./templates:/app/templates
+
+  # ─────────── Curation cluster ───────────
+  lake-governor:
+    <<: *python-dev
+    build:
+      context: .
+      dockerfile: lake-governor/Dockerfile
+      target: dev
+    volumes:
+      - ./lib/src:/app/lib/src
+      - ./lake-governor/src:/app/lake-governor/src
+
+  webapp:
+    build:
+      context: ./webapp
+      target: dev
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./webapp/src:/app/src
+      - ./webapp/public:/app/public
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─────────── Execution cluster ───────────
+  decision-engine:
+    <<: *python-dev
+    build:
+      context: .
+      dockerfile: decision-engine/Dockerfile
+      target: dev
+    volumes:
+      - ./lib/src:/app/lib/src
+      - ./decision-engine/src:/app/decision-engine/src
+      - ./templates:/app/templates
+
+  # ts-executor — Base chain executor. Skeleton lives at ts-executor/README.md until
+  # the validated copy-back from .archive/ts-executor/ runs (week 1 day 4-5).
+  # Service entry will be added when the Dockerfile is copied back.
+
+  solana-executor:
+    build:
+      context: ./solana-executor
+      target: dev
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./solana-executor/src:/app/src
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  grafana_data:
