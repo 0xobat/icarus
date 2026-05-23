@@ -169,23 +169,26 @@ class TestUnwindOrders:
         # Verify first order is fully schema-compliant
         o = orders[0]
         assert o["version"] == "1.0.0"
-        assert o["orderId"]  # non-empty UUID
-        assert o["correlationId"] == "corr-123"
+        assert o["order_id"]  # non-empty UUID
+        assert o["correlation_id"] == "corr-123"
         assert o["timestamp"]  # ISO 8601 string
         assert o["chain"] == "base"
         assert o["protocol"] == "aave_v3"
         assert o["action"] == "withdraw"
         assert o["strategy"] == "CB:drawdown"
+        # CB-emitted orders must leave template_id/candidate_id None
+        assert o["template_id"] is None
+        assert o["candidate_id"] is None
         assert o["priority"] == "urgent"
-        assert o["params"]["tokenIn"] == "ETH"
+        assert o["params"]["token_in"] == "ETH"
         assert o["params"]["amount"] == "5000"
-        assert o["limits"]["maxGasWei"] == "500000000000000"
-        assert o["limits"]["maxSlippageBps"] == 50
-        assert isinstance(o["limits"]["deadlineUnix"], int)
+        assert o["limits"]["max_gas_wei"] == "500000000000000"
+        assert o["limits"]["max_slippage_bps"] == 50
+        assert isinstance(o["limits"]["deadline_unix"], int)
 
         # Verify second order picks up its protocol
         assert orders[1]["protocol"] == "aerodrome"
-        assert orders[1]["params"]["tokenIn"] == "WBTC"
+        assert orders[1]["params"]["token_in"] == "WBTC"
 
     def test_cb_drawdown_strategy_prefix(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
@@ -221,7 +224,7 @@ class TestUnwindOrders:
             {"id": "p2", "asset": "WBTC"},
         ]
         orders = b.get_unwind_orders(positions)
-        assert orders[0]["orderId"] != orders[1]["orderId"]
+        assert orders[0]["order_id"] != orders[1]["order_id"]
 
 
 # ---------------------------------------------------------------------------

@@ -469,6 +469,8 @@ class TestGenerateWithdrawalOrders:
         assert order["protocol"] == "aave_v3"
         assert order["action"] == "withdraw"
         assert order["strategy"] == "CB:tvl_drop"
+        assert order["template_id"] is None
+        assert order["candidate_id"] is None
 
     def test_orders_have_all_required_schema_fields(self) -> None:
         m = _make_monitor()
@@ -484,8 +486,8 @@ class TestGenerateWithdrawalOrders:
 
         # Required schema fields
         assert order["version"] == "1.0.0"
-        assert "orderId" in order and len(order["orderId"]) > 0
-        assert order["correlationId"] == "corr-456"
+        assert "order_id" in order and len(order["order_id"]) > 0
+        assert order["correlation_id"] == "corr-456"
         assert "timestamp" in order
         assert order["chain"] == "base"
         assert order["protocol"] == "aave_v3"
@@ -495,14 +497,14 @@ class TestGenerateWithdrawalOrders:
 
         # Params
         assert "params" in order
-        assert order["params"]["tokenIn"] == "WETH"
+        assert order["params"]["token_in"] == "WETH"
         assert order["params"]["amount"] == "2000"
 
         # Limits
         assert "limits" in order
-        assert order["limits"]["maxGasWei"] == "500000000000000"
-        assert order["limits"]["maxSlippageBps"] == 50
-        assert isinstance(order["limits"]["deadlineUnix"], int)
+        assert order["limits"]["max_gas_wei"] == "500000000000000"
+        assert order["limits"]["max_slippage_bps"] == 50
+        assert isinstance(order["limits"]["deadline_unix"], int)
 
     def test_no_orders_when_no_critical_drop(self) -> None:
         m = _make_monitor()
@@ -548,7 +550,7 @@ class TestGenerateWithdrawalOrders:
         assert len(orders) == 2
         protocols = {o["protocol"] for o in orders}
         assert protocols == {"aave_v3"}
-        assets = {o["params"]["tokenIn"] for o in orders}
+        assets = {o["params"]["token_in"] for o in orders}
         assert assets == {"ETH", "USDC"}
 
     def test_multiple_protocols_affected(self) -> None:
@@ -578,7 +580,7 @@ class TestGenerateWithdrawalOrders:
             {"protocol": "aave_v3", "asset": "USDC", "current_value": 2000, "chain": "base"},
         ]
         orders = m.generate_withdrawal_orders(positions, "corr-ids")
-        order_ids = [o["orderId"] for o in orders]
+        order_ids = [o["order_id"] for o in orders]
         assert len(set(order_ids)) == len(order_ids)
 
     def test_strategy_field_has_cb_prefix(self) -> None:

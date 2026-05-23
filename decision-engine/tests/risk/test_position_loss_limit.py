@@ -323,7 +323,9 @@ class TestGenerateCloseOrders:
         assert order["priority"] == "urgent"
         assert order["chain"] == "base"
         assert order["protocol"] == "aave_v3"
-        assert order["params"]["tokenIn"] == "ETH"
+        assert order["template_id"] is None
+        assert order["candidate_id"] is None
+        assert order["params"]["token_in"] == "ETH"
         assert order["params"]["amount"] == "1700"
 
     def test_schema_fields_present(self) -> None:
@@ -339,21 +341,21 @@ class TestGenerateCloseOrders:
         order = orders[0]
         # All required schema fields
         assert order["version"] == "1.0.0"
-        assert "orderId" in order
-        assert len(order["orderId"]) > 0
-        assert order["correlationId"] == "cid-schema"
+        assert "order_id" in order
+        assert len(order["order_id"]) > 0
+        assert order["correlation_id"] == "cid-schema"
         assert "timestamp" in order
-        assert order["chain"] in ("ethereum", "base")
+        assert order["chain"] == "base"
         assert order["protocol"] in ("aave_v3", "aerodrome")
         assert order["action"] == "withdraw"
         assert order["strategy"] == "CB:position_loss"
         assert order["priority"] in ("urgent", "normal", "low")
         # Limits
         assert "limits" in order
-        assert "maxGasWei" in order["limits"]
-        assert "maxSlippageBps" in order["limits"]
-        assert "deadlineUnix" in order["limits"]
-        assert isinstance(order["limits"]["deadlineUnix"], int)
+        assert "max_gas_wei" in order["limits"]
+        assert "max_slippage_bps" in order["limits"]
+        assert "deadline_unix" in order["limits"]
+        assert isinstance(order["limits"]["deadline_unix"], int)
 
     def test_records_loss_events_when_orders_generated(self) -> None:
         lim = _make_limiter()

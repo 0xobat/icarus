@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from icarus.envelopes import ExecutionOrder, OrderLimits, OrderParams
 from icarus.logging import get_logger
 
 _logger = get_logger("tvl-monitor", enable_file=False)
@@ -361,9 +362,10 @@ class TVLMonitor:
         for protocol, _chain in targets:
             affected_protocols.add(protocol)
 
-        orders: list[dict[str, Any]] = []
-        now = datetime.now(UTC).isoformat()
+        orders: list[ExecutionOrder] = []
+        now = datetime.now(UTC)
         deadline = int(time.time()) + 300
+        max_gas_wei = Decimal(os.environ.get("MAX_GAS_WEI", "500000000000000"))
 
         for pos in positions:
             pos_protocol = pos.get("protocol", "")
@@ -371,28 +373,32 @@ class TVLMonitor:
                 continue
 
             asset = pos.get("asset", pos.get("tokenIn", "unknown"))
-            amount = str(pos.get("current_value", pos.get("value_usd", "0")))
+            amount = Decimal(str(pos.get("current_value", pos.get("value_usd", "0"))))
 
-            order: dict[str, Any] = {
-                "version": "1.0.0",
-                "orderId": uuid.uuid4().hex,
-                "correlationId": correlation_id,
-                "timestamp": now,
-                "chain": pos.get("chain", "base"),
-                "protocol": pos_protocol,
-                "action": "withdraw",
-                "strategy": "CB:tvl_drop",
-                "priority": "urgent",
-                "params": {
-                    "tokenIn": asset,
-                    "amount": amount,
-                },
-                "limits": {
-                    "maxGasWei": os.environ.get("MAX_GAS_WEI", "500000000000000"),
-                    "maxSlippageBps": 50,
-                    "deadlineUnix": deadline,
-                },
-            }
+            # TODO(W3+): per-position chain awareness when Solana position
+            # tracking lands. v4.2 risk was Base-only, so we hardcode
+            # chain="base" here.
+            order = ExecutionOrder(
+                order_id=uuid.uuid4().hex,
+                correlation_id=correlation_id,
+                timestamp=now,
+                chain="base",
+                protocol=pos_protocol,
+                action="withdraw",
+                strategy="CB:tvl_drop",
+                template_id=None,
+                candidate_id=None,
+                priority="urgent",
+                params=OrderParams(
+                    token_in=asset,
+                    amount=amount,
+                ),
+                limits=OrderLimits(
+                    max_gas_wei=max_gas_wei,
+                    max_slippage_bps=50,
+                    deadline_unix=deadline,
+                ),
+            )
             orders.append(order)
 
             _logger.warning(
@@ -400,12 +406,12 @@ class TVLMonitor:
                 extra={"data": {
                     "protocol": pos_protocol,
                     "asset": asset,
-                    "amount": amount,
-                    "orderId": order["orderId"],
+                    "amount": str(amount),
+                    "order_id": order.order_id,
                 }},
             )
 
-        return orders
+        return [o.model_dump(mode="json") for o in orders]
 
     def _prune_window(self, key: tuple[str, str]) -> None:
         """Remove snapshots older than the rolling window.

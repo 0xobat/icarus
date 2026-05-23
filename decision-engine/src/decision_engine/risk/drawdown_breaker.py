@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from icarus.envelopes import ExecutionOrder, OrderLimits, OrderParams
 from icarus.logging import get_logger
 
 _logger = get_logger("drawdown-breaker", enable_file=False)
@@ -212,29 +213,34 @@ class DrawdownBreaker:
             return []
 
         now_unix = int(time.time())
-        orders: list[dict[str, Any]] = []
+        max_gas_wei = Decimal(os.environ.get("MAX_GAS_WEI", "500000000000000"))
+        orders: list[ExecutionOrder] = []
         for pos in positions:
-            orders.append({
-                "version": "1.0.0",
-                "orderId": str(uuid.uuid4()),
-                "correlationId": correlation_id,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "chain": "base",
-                "protocol": pos.get("protocol", "aave_v3"),
-                "action": "withdraw",
-                "strategy": "CB:drawdown",
-                "priority": "urgent",
-                "params": {
-                    "tokenIn": pos.get("asset", "unknown"),
-                    "amount": str(pos.get("value", pos.get("amount", "0"))),
-                },
-                "limits": {
-                    "maxGasWei": os.environ.get("MAX_GAS_WEI", "500000000000000"),
-                    "maxSlippageBps": 50,
-                    "deadlineUnix": now_unix + 300,
-                },
-            })
-        return orders
+            # TODO(W3+): per-position chain awareness when Solana position tracking
+            # lands. v4.2 risk was Base-only, so we hardcode chain="base" here.
+            order = ExecutionOrder(
+                order_id=str(uuid.uuid4()),
+                correlation_id=correlation_id,
+                timestamp=datetime.now(UTC),
+                chain="base",
+                protocol=pos.get("protocol", "aave_v3"),
+                action="withdraw",
+                strategy="CB:drawdown",
+                template_id=None,
+                candidate_id=None,
+                priority="urgent",
+                params=OrderParams(
+                    token_in=pos.get("asset", "unknown"),
+                    amount=Decimal(str(pos.get("value", pos.get("amount", "0")))),
+                ),
+                limits=OrderLimits(
+                    max_gas_wei=max_gas_wei,
+                    max_slippage_bps=50,
+                    deadline_unix=now_unix + 300,
+                ),
+            )
+            orders.append(order)
+        return [o.model_dump(mode="json") for o in orders]
 
     def manual_restart(self) -> bool:
         """Manually restart after critical halt.

@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+from icarus.envelopes import ExecutionOrder, OrderLimits, OrderParams
 from icarus.logging import get_logger
 
 if TYPE_CHECKING:
@@ -361,7 +362,10 @@ class PositionLossLimit:
         for pos in positions:
             pos_lookup[pos.get("id", "unknown")] = pos
 
-        orders: list[dict[str, Any]] = []
+        max_gas_wei = Decimal(os.environ.get("MAX_GAS_WEI", "500000000000000"))
+        deadline = int(time.time()) + 300
+
+        orders: list[ExecutionOrder] = []
         for check in checks:
             pos = pos_lookup.get(check.position_id, {})
             asset = pos.get("asset", "unknown")
@@ -370,7 +374,7 @@ class PositionLossLimit:
             current_price = price_map.get(asset, Decimal(0))
             protocol = pos.get("protocol", "aave_v3")
             entry_time = pos.get("entry_time", datetime.now(UTC).isoformat())
-            position_value = str(pos.get("current_value", pos.get("amount", "0")))
+            position_value = Decimal(str(pos.get("current_value", pos.get("amount", "0"))))
 
             # Record the loss event and start cooldown
             self.record_loss_event(
@@ -382,27 +386,29 @@ class PositionLossLimit:
                 entry_time=entry_time,
             )
 
-            # Generate schema-compliant order
-            order = {
-                "version": "1.0.0",
-                "orderId": uuid.uuid4().hex,
-                "correlationId": correlation_id,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "chain": "base",
-                "protocol": protocol,
-                "action": "withdraw",
-                "strategy": "CB:position_loss",
-                "priority": "urgent",
-                "params": {
-                    "tokenIn": asset,
-                    "amount": position_value,
-                },
-                "limits": {
-                    "maxGasWei": os.environ.get("MAX_GAS_WEI", "500000000000000"),
-                    "maxSlippageBps": 50,
-                    "deadlineUnix": int(time.time()) + 300,
-                },
-            }
+            # TODO(W3+): per-position chain awareness when Solana position tracking
+            # lands. v4.2 risk was Base-only, so we hardcode chain="base" here.
+            order = ExecutionOrder(
+                order_id=uuid.uuid4().hex,
+                correlation_id=correlation_id,
+                timestamp=datetime.now(UTC),
+                chain="base",
+                protocol=protocol,
+                action="withdraw",
+                strategy="CB:position_loss",
+                template_id=None,
+                candidate_id=None,
+                priority="urgent",
+                params=OrderParams(
+                    token_in=asset,
+                    amount=position_value,
+                ),
+                limits=OrderLimits(
+                    max_gas_wei=max_gas_wei,
+                    max_slippage_bps=50,
+                    deadline_unix=deadline,
+                ),
+            )
             orders.append(order)
 
             _logger.warning(
@@ -411,8 +417,8 @@ class PositionLossLimit:
                     "position_id": check.position_id,
                     "strategy_id": strategy_id,
                     "loss_pct": str(check.loss_pct),
-                    "orderId": order["orderId"],
+                    "order_id": order.order_id,
                 }},
             )
 
-        return orders
+        return [o.model_dump(mode="json") for o in orders]
