@@ -1,0 +1,61 @@
+id: LEND-001
+semver: 0.1.0
+title: Aave V3 stablecoin supply rotation on Base
+
+chain: base
+protocol: aave_v3
+asset_universe: [USDC, USDbC]
+
+sources:
+  - type: code
+    ref: .archive/py-engine/strategies/aave_lending.py
+    description: |
+      Hand-converted from v4.2 LEND-001. The v4.2 strategy used fixed
+      thresholds (apy_threshold=0.005, min_supply_apy=0.01, etc.). v2
+      promotes those constants to a search space so the backtest engine
+      can pick the empirical winner per asset / regime.
+  - type: blog_url
+    ref: https://aave.com/docs/concepts/supply
+    description: Aave V3 supply mechanics reference.
+source_doc_ref: .archive/STRATEGY.md#LEND-001
+
+allocation_max: 0.70
+risk_profile: low
+sizing: risk_parity
+
+params:
+  apy_threshold:
+    kind: continuous
+    low: "0.010"
+    high: "0.100"
+    scale: linear
+    default_steps: 10
+    description: |
+      Supply APY rotation threshold. Enter when best Aave market APY
+      exceeds this; exit when it drops below.
+  min_liquidity_usd:
+    kind: grid
+    values: ["500000", "1000000", "2000000"]
+    description: |
+      Minimum pool TVL to consider eligible. Lower = wider universe but
+      worse slippage; higher = blue-chip only.
+  gas_amortization_days:
+    kind: grid
+    values: ["7", "14", "21"]
+    description: |
+      Days within which estimated gas cost must be recovered from APY
+      delta. Short = aggressive churn; long = sticky positions.
+  asset_variant:
+    kind: categorical
+    choices: [USDC, USDbC]
+    description: Which Base stablecoin to deploy.
+
+top_k: 5
+turnover_lambda: "0.05"
+walk_forward: [60, 15, 3]
+
+expected_metrics:
+  sharpe_min: "0.5"
+  max_dd_max: "0.05"
+  oos_sharpe_floor: "0.3"
+  expected_annual_return_pct: "0.045"

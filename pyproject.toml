@@ -39,6 +39,10 @@ asyncio_mode = "auto"
 # coexist without package-name collisions (lib/tests/, decision-engine/tests/, ...).
 # Cross-test helpers go in conftest.py (fixtures) instead of cross-file imports.
 addopts = "-q --strict-markers --tb=short --import-mode=importlib"
+# templates/ contains smoke_test.py files designed for icarus.dsl's registry
+# (they reference sys.modules["icarus.templates.<id>"], which pytest can't
+# satisfy). Registry runs them itself; pytest must not collect them.
+norecursedirs = ["templates", ".archive", "node_modules", ".venv*"]
 
 [dependency-groups]
 dev = [
