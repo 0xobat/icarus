@@ -35,7 +35,10 @@ select = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "-q --strict-markers --tb=short"
+# --import-mode=importlib lets multiple `tests/` dirs across workspace members
+# coexist without package-name collisions (lib/tests/, decision-engine/tests/, ...).
+# Cross-test helpers go in conftest.py (fixtures) instead of cross-file imports.
+addopts = "-q --strict-markers --tb=short --import-mode=importlib"
 
 [dependency-groups]
 dev = [
