@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution-order.schema.json",
+  "title": "ExecutionOrder (v2)",
+  "description": "Orders published by decision-engine to execution:orders:{base|solana}. v2 extends v4.2 with chain discriminator, template_id, candidate_id, and a wider action enum covering Solana venues.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "order_id", "correlation_id", "timestamp", "chain", "protocol", "action", "strategy", "params", "limits"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0.0" },
+    "order_id": { "type": "string", "minLength": 8 },
+    "correlation_id": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "chain": { "type": "string", "enum": ["base", "solana"] },
+    "protocol": { "type": "string" },
+    "action": {
+      "type": "string",
+      "enum": [
+        "swap",
+        "supply",
+        "withdraw",
+        "mint_lp",
+        "burn_lp",
+        "stake",
+        "unstake",
+        "collect_fees",
+        "flash_loan",
+        "open_perp",
+        "close_perp",
+        "deposit",
+        "borrow",
+        "repay"
+      ]
+    },
+    "strategy": {
+      "type": "string",
+      "description": "`<template_id>:<candidate_id>` for allocator orders, `CB:<breaker>` for circuit-breaker emissions"
+    },
+    "template_id": { "type": ["string", "null"] },
+    "candidate_id": { "type": ["string", "null"] },
+    "priority": {
+      "type": "string",
+      "enum": ["urgent", "normal", "low"],
+      "default": "normal"
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "token_in": { "type": ["string", "null"] },
+        "token_out": { "type": ["string", "null"] },
+        "amount": { "type": ["string", "null"], "description": "Decimal stringified" },
+        "recipient": { "type": ["string", "null"] },
+        "pool_id": { "type": ["string", "null"] },
+        "venue": { "type": ["string", "null"] },
+        "extra": { "type": "object" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_slippage_bps", "deadline_unix"],
+      "properties": {
+        "max_gas_wei": { "type": ["string", "null"] },
+        "max_priority_fee_lamports": { "type": ["string", "null"] },
+        "max_slippage_bps": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "deadline_unix": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
