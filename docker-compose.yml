@@ -145,9 +145,22 @@ services:
       - ./decision-engine/src:/app/decision-engine/src
       - ./templates:/app/templates
 
-  # ts-executor — Base chain executor. Skeleton lives at ts-executor/README.md until
-  # the validated copy-back from .archive/ts-executor/ runs (week 1 day 4-5).
-  # Service entry will be added when the Dockerfile is copied back.
+  ts-executor:
+    # Base chain executor — Node, Safe multisig wallet, Aave/Aerodrome adapters.
+    # Copied back from .archive/ in fbdfda7; migrated to v2 envelopes in 2e435c5.
+    # Subscribes to execution:orders:base; publishes market:events:base + execution:results:base.
+    build:
+      context: ./ts-executor
+      target: dev
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./ts-executor/src:/app/src
+      - ./shared/schemas:/app/shared/schemas:ro
 
   solana-executor:
     build:
