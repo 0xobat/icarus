@@ -17,7 +17,7 @@ describe('event-normalizer', () => {
 
   it('normalizes a new block event', () => {
     const event = normalizeNewBlock(
-      'ethereum',
+      'base',
       12345,
       '0xabc123',
       BigInt('30000000000'), // 30 gwei
@@ -26,40 +26,41 @@ describe('event-normalizer', () => {
     );
 
     expect(event.version).toBe('1.0.0');
-    expect(event.chain).toBe('ethereum');
-    expect(event.eventType).toBe('new_block');
+    expect(event.chain).toBe('base');
+    expect(event.event_type).toBe('new_block');
     expect(event.protocol).toBe('system');
-    expect(event.blockNumber).toBe(12345);
+    expect(event.base_specific?.block_number).toBe(12345);
     expect(event.sequence).toBe(0);
-    expect(event.data).toEqual({
-      blockHash: '0xabc123',
-      baseFeePerGas: '30000000000',
-      gasUsed: '15000000',
-      blockTimestamp: 1700000000,
+    expect(event.correlation_id).toBeTruthy();
+    expect(event.payload).toEqual({
+      block_hash: '0xabc123',
+      base_fee_per_gas: '30000000000',
+      gas_used: '15000000',
+      block_timestamp: 1700000000,
     });
     expect(event.timestamp).toBeDefined();
   });
 
   it('normalizes a contract event', () => {
     const event = normalizeContractEvent(
-      'ethereum',
+      'base',
       'aave_v3',
       'rate_change',
       12345,
       '0xtx123',
-      { reserveAddress: '0xtoken', newRate: '5.2' },
+      { reserve_address: '0xtoken', new_rate: '5.2' },
     );
 
-    expect(event.eventType).toBe('rate_change');
+    expect(event.event_type).toBe('rate_change');
     expect(event.protocol).toBe('aave_v3');
-    expect(event.txHash).toBe('0xtx123');
-    expect(event.data).toEqual({ reserveAddress: '0xtoken', newRate: '5.2' });
+    expect(event.base_specific?.tx_hash).toBe('0xtx123');
+    expect(event.payload).toEqual({ reserve_address: '0xtoken', new_rate: '5.2' });
     expect(event.sequence).toBe(0);
   });
 
   it('normalizes a large transfer event', () => {
     const event = normalizeLargeTransfer(
-      'ethereum',
+      'base',
       12345,
       '0xtx456',
       '0xfrom',
@@ -68,8 +69,8 @@ describe('event-normalizer', () => {
       '1000000000000000000',
     );
 
-    expect(event.eventType).toBe('large_transfer');
-    expect(event.data).toEqual({
+    expect(event.event_type).toBe('large_transfer');
+    expect(event.payload).toEqual({
       from: '0xfrom',
       to: '0xto',
       token: '0xtoken',
@@ -78,9 +79,9 @@ describe('event-normalizer', () => {
   });
 
   it('generates monotonically increasing sequence numbers', () => {
-    const e1 = normalizeNewBlock('ethereum', 1, '0x1');
-    const e2 = normalizeNewBlock('ethereum', 2, '0x2');
-    const e3 = normalizeContractEvent('ethereum', 'aave_v3', 'swap', 3, '0x3', {});
+    const e1 = normalizeNewBlock('base', 1, '0x1');
+    const e2 = normalizeNewBlock('base', 2, '0x2');
+    const e3 = normalizeContractEvent('base', 'aave_v3', 'swap', 3, '0x3', {});
 
     expect(e1.sequence).toBe(0);
     expect(e2.sequence).toBe(1);
@@ -89,9 +90,9 @@ describe('event-normalizer', () => {
 
   it('sets version to 1.0.0 for all events', () => {
     const events = [
-      normalizeNewBlock('ethereum', 1, '0x1'),
-      normalizeContractEvent('ethereum', 'aave_v3', 'swap', 1, '0x1', {}),
-      normalizeLargeTransfer('ethereum', 1, '0x1', '0xa', '0xb', '0xc', '100'),
+      normalizeNewBlock('base', 1, '0x1'),
+      normalizeContractEvent('base', 'aave_v3', 'swap', 1, '0x1', {}),
+      normalizeLargeTransfer('base', 1, '0x1', '0xa', '0xb', '0xc', '100'),
     ];
     for (const e of events) {
       expect(e.version).toBe('1.0.0');
@@ -99,11 +100,11 @@ describe('event-normalizer', () => {
   });
 
   it('omits optional fields when not provided', () => {
-    const event = normalizeNewBlock('ethereum', 1, '0x1');
+    const event = normalizeNewBlock('base', 1, '0x1');
 
-    // baseFeePerGas, gasUsed, timestamp are undefined => not in data
-    expect(event.data).toEqual({ blockHash: '0x1' });
-    expect(event.txHash).toBeUndefined();
+    // base_fee_per_gas, gas_used, block_timestamp are undefined => not in payload
+    expect(event.payload).toEqual({ block_hash: '0x1' });
+    expect(event.base_specific?.tx_hash).toBeNull();
   });
 });
 
@@ -240,8 +241,7 @@ describe('AlchemyWebSocketManager', () => {
       expect(manager).toBeDefined();
     });
 
-    it('defaults chain to ethereum', () => {
-      const logs: Array<{ extra?: Record<string, unknown> }> = [];
+    it('defaults chain to base', () => {
       // Can't easily verify the default without connecting,
       // but we verify the constructor accepts no chain
       const manager = new AlchemyWebSocketManager({ wsUrl: 'wss://test' });
@@ -281,33 +281,35 @@ describe('AlchemyWebSocketManager', () => {
   });
 
   describe('event schema compliance', () => {
-    it('produces events matching market-events schema', () => {
+    it('produces events matching market-event schema', () => {
       // Verify normalized events have all required schema fields
-      const event = normalizeNewBlock('ethereum', 100, '0xhash', BigInt(30e9));
+      const event = normalizeNewBlock('base', 100, '0xhash', BigInt(30e9));
 
       // Required fields per schema
       expect(event.version).toBe('1.0.0');
       expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(typeof event.sequence).toBe('number');
       expect(event.sequence).toBeGreaterThanOrEqual(0);
-      expect(['ethereum', 'arbitrum', 'base', 'solana']).toContain(event.chain);
-      expect(['swap', 'liquidity_change', 'rate_change', 'large_transfer', 'new_block', 'price_update']).toContain(event.eventType);
+      expect(['base', 'solana']).toContain(event.chain);
+      expect(['swap', 'liquidity_change', 'rate_change', 'large_transfer', 'new_block', 'price_update', 'oracle_update', 'new_slot']).toContain(event.event_type);
       expect(event.protocol).toBeTruthy();
+      expect(event.correlation_id).toBeTruthy();
+      expect(event.base_specific?.block_number).toBe(100);
     });
 
     it('produces events for all supported event types', () => {
       resetSequence();
 
       const events = [
-        normalizeNewBlock('ethereum', 1, '0x1'),
-        normalizeContractEvent('ethereum', 'aave_v3', 'swap', 1, '0x1', {}),
-        normalizeContractEvent('ethereum', 'aave_v3', 'rate_change', 1, '0x1', {}),
-        normalizeContractEvent('ethereum', 'uniswap_v3', 'liquidity_change', 1, '0x1', {}),
-        normalizeLargeTransfer('ethereum', 1, '0x1', '0xa', '0xb', '0xc', '100'),
-        normalizeContractEvent('ethereum', 'system', 'price_update', 1, '0x1', {}),
+        normalizeNewBlock('base', 1, '0x1'),
+        normalizeContractEvent('base', 'aave_v3', 'swap', 1, '0x1', {}),
+        normalizeContractEvent('base', 'aave_v3', 'rate_change', 1, '0x1', {}),
+        normalizeContractEvent('base', 'uniswap_v3', 'liquidity_change', 1, '0x1', {}),
+        normalizeLargeTransfer('base', 1, '0x1', '0xa', '0xb', '0xc', '100'),
+        normalizeContractEvent('base', 'system', 'price_update', 1, '0x1', {}),
       ];
 
-      const types = new Set(events.map((e) => e.eventType));
+      const types = new Set(events.map((e) => e.event_type));
       expect(types).toEqual(new Set([
         'new_block', 'swap', 'rate_change', 'liquidity_change', 'large_transfer', 'price_update',
       ]));

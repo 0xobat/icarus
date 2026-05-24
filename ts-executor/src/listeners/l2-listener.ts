@@ -333,6 +333,7 @@ class SingleChainListener {
               Number(log.blockNumber),
               log.transactionHash ?? '',
               eventData,
+              log.logIndex !== null && log.logIndex !== undefined ? Number(log.logIndex) : undefined,
             );
             this.onEvent(event);
           }
@@ -367,11 +368,11 @@ class SingleChainListener {
     return {
       address: log.address,
       topics: log.topics,
-      logIndex: Number(log.logIndex),
+      log_index: Number(log.logIndex),
       protocol,
       chain: this.config.chain,
-      l2BlockTimeMs: this.config.blockTimeMs,
-      finalityBlocks: this.config.finalityBlocks,
+      l2_block_time_ms: this.config.blockTimeMs,
+      finality_blocks: this.config.finalityBlocks,
     };
   }
 

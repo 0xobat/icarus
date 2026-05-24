@@ -9,14 +9,17 @@ import { type TransactionReceipt } from 'viem';
 function createMockOrder(overrides: Partial<ExecutionOrder> = {}): ExecutionOrder {
   return {
     version: '1.0.0',
-    orderId: 'order-123',
-    correlationId: 'corr-456',
+    order_id: 'order-123',
+    correlation_id: 'corr-456',
     timestamp: new Date().toISOString(),
-    chain: 'ethereum',
+    chain: 'base',
     protocol: 'aave_v3',
     action: 'supply',
-    params: { tokenIn: '0xtoken', amount: '1000000' },
-    limits: { maxGasWei: '1000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 3600 },
+    strategy: 'LEND-001:cand-1',
+    template_id: 'LEND-001',
+    candidate_id: 'cand-1',
+    params: { token_in: '0xtoken', amount: '1000000' },
+    limits: { max_gas_wei: '1000000000000', max_slippage_bps: 50, deadline_unix: Math.floor(Date.now() / 1000) + 3600 },
     ...overrides,
   };
 }
@@ -88,14 +91,17 @@ describe('EventReporter', () => {
 
       expect(report.published).toBe(true);
       expect(report.result.status).toBe('confirmed');
-      expect(report.result.orderId).toBe('order-123');
-      expect(report.result.txHash).toBe('0xtxhash123');
-      expect(report.result.blockNumber).toBe(100);
-      expect(report.result.gasUsed).toBe('150000');
-      expect(report.result.effectiveGasPrice).toBe('30000000000');
+      expect(report.result.order_id).toBe('order-123');
+      expect(report.result.chain).toBe('base');
+      expect(report.result.template_id).toBe('LEND-001');
+      expect(report.result.candidate_id).toBe('cand-1');
+      expect(report.result.tx_hash).toBe('0xtxhash123');
+      expect(report.result.block_number).toBe(100);
+      expect(report.result.gas_used_wei).toBe('150000');
+      expect(report.result.effective_gas_price_wei).toBe('30000000000');
       expect(publishFn).toHaveBeenCalledWith(
         CHANNELS.EXECUTION_RESULTS,
-        expect.objectContaining({ status: 'confirmed' }),
+        expect.objectContaining({ status: 'confirmed', chain: 'base' }),
       );
     });
 
@@ -107,11 +113,11 @@ describe('EventReporter', () => {
       const report = await reporter.reportConfirmed(
         createMockOrder(),
         createMockReceipt(),
-        { fillPrice: '1850.50', amountOut: '1000000000' },
+        { fill_price: '1850.50', amount_out: '1000000000' },
       );
 
-      expect(report.result.fillPrice).toBe('1850.50');
-      expect(report.result.amountOut).toBe('1000000000');
+      expect(report.result.fill_price).toBe('1850.50');
+      expect(report.result.amount_out).toBe('1000000000');
     });
 
     it('includes retry count when provided', async () => {
@@ -122,10 +128,10 @@ describe('EventReporter', () => {
       const report = await reporter.reportConfirmed(
         createMockOrder(),
         createMockReceipt(),
-        { retryCount: 2 },
+        { retry_count: 2 },
       );
 
-      expect(report.result.retryCount).toBe(2);
+      expect(report.result.retry_count).toBe(2);
     });
   });
 
@@ -145,7 +151,7 @@ describe('EventReporter', () => {
       expect(report.published).toBe(true);
       expect(report.result.status).toBe('failed');
       expect(report.result.error).toBe('Gas price too high');
-      expect(report.result.retryCount).toBe(1);
+      expect(report.result.retry_count).toBe(1);
       expect(reporter.stats.failed).toBe(1);
     });
   });
@@ -164,8 +170,8 @@ describe('EventReporter', () => {
 
       expect(report.published).toBe(true);
       expect(report.result.status).toBe('reverted');
-      expect(report.result.revertReason).toBeDefined();
-      expect(report.result.revertReason).toContain('Insufficient balance');
+      expect(report.result.revert_reason).toBeDefined();
+      expect(report.result.revert_reason).toContain('Insufficient balance');
       expect(reporter.stats.reverted).toBe(1);
     });
 
@@ -181,7 +187,7 @@ describe('EventReporter', () => {
         createMockReceipt({ status: 'reverted' } as any),
       );
 
-      expect(report.result.revertReason).toBe('Unable to fetch revert reason');
+      expect(report.result.revert_reason).toBe('Unable to fetch revert reason');
     });
   });
 
@@ -199,18 +205,18 @@ describe('EventReporter', () => {
 
       expect(report.published).toBe(true);
       expect(report.result.status).toBe('timeout');
-      expect(report.result.txHash).toBe('0xtxhash');
-      expect(report.result.retryCount).toBe(3);
+      expect(report.result.tx_hash).toBe('0xtxhash');
+      expect(report.result.retry_count).toBe(3);
       expect(reporter.stats.timeouts).toBe(1);
     });
 
-    it('works without txHash', async () => {
+    it('works without tx_hash', async () => {
       const redis = createMockRedis();
       const reporter = new EventReporter({ publicClient: createMockPublicClient() });
       reporter.attach(redis);
 
       const report = await reporter.reportTimeout(createMockOrder());
-      expect(report.result.txHash).toBeUndefined();
+      expect(report.result.tx_hash).toBeUndefined();
     });
   });
 
@@ -273,9 +279,9 @@ describe('EventReporter', () => {
       reporter.attach(redis);
 
       await reporter.reportConfirmed(createMockOrder(), createMockReceipt());
-      await reporter.reportFailed(createMockOrder({ orderId: 'o2' }), 'error');
-      await reporter.reportReverted(createMockOrder({ orderId: 'o3' }), createMockReceipt({ status: 'reverted' } as any));
-      await reporter.reportTimeout(createMockOrder({ orderId: 'o4' }));
+      await reporter.reportFailed(createMockOrder({ order_id: 'o2' }), 'error');
+      await reporter.reportReverted(createMockOrder({ order_id: 'o3' }), createMockReceipt({ status: 'reverted' } as any));
+      await reporter.reportTimeout(createMockOrder({ order_id: 'o4' }));
 
       expect(reporter.stats.reported).toBe(4);
       expect(reporter.stats.confirmed).toBe(1);
@@ -299,7 +305,7 @@ describe('EventReporter', () => {
 
       expect(logs.some((l) => l.event === 'reporter_published')).toBe(true);
       const pubLog = logs.find((l) => l.event === 'reporter_published');
-      expect(pubLog?.extra?.orderId).toBe('order-123');
+      expect(pubLog?.extra?.order_id).toBe('order-123');
       expect(pubLog?.extra?.status).toBe('confirmed');
     });
   });
@@ -313,12 +319,13 @@ describe('EventReporter', () => {
       const report = await reporter.reportConfirmed(createMockOrder(), createMockReceipt());
       const result = report.result;
 
-      // Required fields per execution-results.schema.json
+      // Required fields per execution-result.schema.json (v2)
       expect(result.version).toBe('1.0.0');
-      expect(result.orderId).toBeDefined();
-      expect(result.correlationId).toBeDefined();
+      expect(result.order_id).toBeDefined();
+      expect(result.correlation_id).toBeDefined();
+      expect(result.chain).toBe('base');
       expect(result.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-      expect(['confirmed', 'failed', 'reverted', 'timeout']).toContain(result.status);
+      expect(['confirmed', 'failed', 'reverted', 'timeout', 'rejected_by_guard']).toContain(result.status);
     });
   });
 });

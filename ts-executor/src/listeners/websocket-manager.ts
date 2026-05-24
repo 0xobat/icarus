@@ -99,7 +99,8 @@ export class AlchemyWebSocketManager {
 
   constructor(opts: WebSocketManagerOptions = {}) {
     this.wsUrl = opts.wsUrl ?? process.env.ALCHEMY_SEPOLIA_WS_URL ?? '';
-    this.chain = opts.chain ?? 'ethereum';
+    // Base executor — all emitted events are tagged chain='base' per v2 envelope schema.
+    this.chain = opts.chain ?? 'base';
     this.onEvent = opts.onEvent ?? (() => {});
     this.log = opts.onLog ?? (() => {});
     this.healthTimeoutMs = opts.healthTimeoutMs ?? 60_000;
@@ -288,8 +289,9 @@ export class AlchemyWebSocketManager {
             {
               address: log.address,
               topics: log.topics,
-              logIndex: Number(log.logIndex),
+              log_index: Number(log.logIndex),
             },
+            log.logIndex !== null && log.logIndex !== undefined ? Number(log.logIndex) : undefined,
           );
           this.emitEvent(event);
         }
@@ -329,7 +331,7 @@ export class AlchemyWebSocketManager {
       } else {
         this.log('ws_backpressure_drop', 'Dropping event due to backpressure queue full', {
           sequence: event.sequence,
-          eventType: event.eventType,
+          event_type: event.event_type,
         });
       }
       return;

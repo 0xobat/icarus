@@ -9,19 +9,23 @@ import Redis from 'ioredis';
 import { validate } from '../validation/schema-validator.js';
 import type { SchemaName } from '../validation/schema-validator.js';
 
+// v2 channels are chain-partitioned. The Base executor only consumes/produces
+// the *:base suffixed channels. Solana has its own *:solana channels in
+// solana-executor/. Both halves of the bus carry the same `chain` field
+// inside the envelope for redundancy + audit.
 export const CHANNELS = {
-  MARKET_EVENTS: 'market:events',
-  EXECUTION_ORDERS: 'execution:orders',
-  EXECUTION_RESULTS: 'execution:results',
+  MARKET_EVENTS: 'market:events:base',
+  EXECUTION_ORDERS: 'execution:orders:base',
+  EXECUTION_RESULTS: 'execution:results:base',
 } as const;
 
 export type Channel = (typeof CHANNELS)[keyof typeof CHANNELS];
 
 /** Map channels to their schema names for validation. */
 const CHANNEL_SCHEMA: Record<Channel, SchemaName> = {
-  [CHANNELS.MARKET_EVENTS]: 'market-events',
-  [CHANNELS.EXECUTION_ORDERS]: 'execution-orders',
-  [CHANNELS.EXECUTION_RESULTS]: 'execution-results',
+  [CHANNELS.MARKET_EVENTS]: 'market-event',
+  [CHANNELS.EXECUTION_ORDERS]: 'execution-order',
+  [CHANNELS.EXECUTION_RESULTS]: 'execution-result',
 };
 
 export interface RedisClientOptions {

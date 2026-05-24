@@ -39,43 +39,55 @@ export interface SafeWalletLike {
 
 export interface ExecutionOrder {
   version: string;
-  orderId: string;
-  correlationId: string;
+  order_id: string;
+  correlation_id: string;
   timestamp: string;
-  chain: string;
+  chain: 'base' | 'solana';
   protocol: string;
   action: string;
-  strategy?: string;
+  strategy: string;
+  template_id?: string | null;
+  candidate_id?: string | null;
   priority?: string;
   params: {
-    tokenIn: string;
-    tokenOut?: string;
-    amount: string;
-    recipient?: string;
+    token_in?: string | null;
+    token_out?: string | null;
+    amount?: string | null;
+    recipient?: string | null;
+    pool_id?: string | null;
+    venue?: string | null;
+    extra?: Record<string, unknown>;
     [key: string]: unknown;
   };
   limits: {
-    maxGasWei: string;
-    maxSlippageBps: number;
-    deadlineUnix: number;
+    max_gas_wei?: string | null;
+    max_priority_fee_lamports?: string | null;
+    max_slippage_bps: number;
+    deadline_unix: number;
   };
 }
 
 export interface ExecutionResult {
   version: '1.0.0';
-  orderId: string;
-  correlationId: string;
+  order_id: string;
+  correlation_id: string;
   timestamp: string;
-  status: 'confirmed' | 'failed' | 'reverted' | 'timeout';
-  txHash?: string;
-  blockNumber?: number;
-  gasUsed?: string;
-  effectiveGasPrice?: string;
-  fillPrice?: string;
-  amountOut?: string;
-  revertReason?: string;
+  chain: 'base' | 'solana';
+  status: 'confirmed' | 'failed' | 'reverted' | 'timeout' | 'rejected_by_guard';
+  template_id?: string | null;
+  candidate_id?: string | null;
+  tx_hash?: string;
+  signature?: string;
+  block_number?: number;
+  slot?: number;
+  gas_used_wei?: string;
+  effective_gas_price_wei?: string;
+  priority_fee_lamports?: string;
+  fill_price?: string;
+  amount_out?: string;
+  revert_reason?: string;
   error?: string;
-  retryCount?: number;
+  retry_count?: number;
 }
 
 /** Common interface for protocol-specific transaction adapters. */
@@ -179,7 +191,7 @@ export class TransactionBuilder {
   /** Enqueue an order for serial processing. Prevents concurrent execution and spending limit races. */
   private async _enqueueOrder(data: ExecutionOrder): Promise<void> {
     if (this._stopping) {
-      this.log('order_rejected', 'Order rejected — shutting down', { orderId: data.orderId });
+      this.log('order_rejected', 'Order rejected — shutting down', { order_id: data.order_id });
       return;
     }
     this._orderQueue.push({ data });
@@ -219,11 +231,11 @@ export class TransactionBuilder {
   /** Process a single execution order. */
   async handleOrder(order: ExecutionOrder): Promise<ExecutionResult> {
     this._processing = true;
-    const { orderId, correlationId } = order;
+    const { order_id, correlation_id } = order;
 
     this.log('exec_order_received', 'Processing execution order', {
-      orderId,
-      correlationId,
+      order_id,
+      correlation_id,
       action: order.action,
       protocol: order.protocol,
     });
@@ -239,7 +251,7 @@ export class TransactionBuilder {
 
       // 2. Allowlist + spending limit check via Safe wallet
       const target = await this.resolveTarget(order);
-      const amount = BigInt(order.params.amount);
+      const amount = BigInt(order.params.amount ?? '0');
       const validation = await this.safeWallet.validateOrder(target, amount);
       if (!validation.allowed) {
         const result = this.buildResult(order, 'failed', {
@@ -255,7 +267,7 @@ export class TransactionBuilder {
 
       // 4. Record spend on success
       if (result.status === 'confirmed') {
-        await this.safeWallet.recordSpend(BigInt(order.params.amount));
+        await this.safeWallet.recordSpend(BigInt(order.params.amount ?? '0'));
       }
 
       return result;
@@ -266,7 +278,7 @@ export class TransactionBuilder {
 
   /** Pre-flight validation: deadline and gas ceiling checks. */
   async preflight(order: ExecutionOrder): Promise<string | null> {
-    const { limits, orderId, params } = order;
+    const { limits, order_id, params } = order;
 
     // Check recipient — must be a valid Ethereum address if provided
     // Actions that send funds (supply, mint_lp, swap) require an explicit recipient
@@ -275,7 +287,7 @@ export class TransactionBuilder {
       const recipient = params.recipient;
       if (!recipient || typeof recipient !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(recipient)) {
         this.log('exec_invalid_recipient', 'Order missing or invalid recipient address', {
-          orderId,
+          order_id,
           action: order.action,
           recipient: recipient ?? 'undefined',
         });
@@ -285,13 +297,13 @@ export class TransactionBuilder {
 
     // Check deadline
     const nowUnix = Math.floor(Date.now() / 1000);
-    if (limits.deadlineUnix <= nowUnix) {
+    if (limits.deadline_unix <= nowUnix) {
       this.log('exec_deadline_expired', 'Order deadline has passed', {
-        orderId,
-        deadline: limits.deadlineUnix,
+        order_id,
+        deadline: limits.deadline_unix,
         now: nowUnix,
       });
-      return `Order deadline expired: deadline=${limits.deadlineUnix}, now=${nowUnix}`;
+      return `Order deadline expired: deadline=${limits.deadline_unix}, now=${nowUnix}`;
     }
 
     // Check gas ceiling against current gas price
@@ -300,20 +312,22 @@ export class TransactionBuilder {
       // Estimate gas for a standard ERC-20 interaction (~100k gas units)
       const estimatedGasUnits = BigInt(150_000);
       const estimatedCostWei = gasPrice * estimatedGasUnits;
-      const maxGasWei = BigInt(limits.maxGasWei);
-
-      if (estimatedCostWei > maxGasWei) {
-        this.log('exec_gas_exceeded', 'Gas cost exceeds ceiling', {
-          orderId,
-          estimatedCostWei: estimatedCostWei.toString(),
-          maxGasWei: limits.maxGasWei,
-          gasPriceGwei: Number(gasPrice) / 1e9,
-        });
-        return `Gas cost ${estimatedCostWei} exceeds ceiling ${limits.maxGasWei}`;
+      // max_gas_wei is optional on v2; default to unlimited (skip ceiling check) if absent.
+      if (limits.max_gas_wei !== null && limits.max_gas_wei !== undefined) {
+        const maxGasWei = BigInt(limits.max_gas_wei);
+        if (estimatedCostWei > maxGasWei) {
+          this.log('exec_gas_exceeded', 'Gas cost exceeds ceiling', {
+            order_id,
+            estimated_cost_wei: estimatedCostWei.toString(),
+            max_gas_wei: limits.max_gas_wei,
+            gas_price_gwei: Number(gasPrice) / 1e9,
+          });
+          return `Gas cost ${estimatedCostWei} exceeds ceiling ${limits.max_gas_wei}`;
+        }
       }
     } catch (err) {
       this.log('preflight_reject', 'Cannot verify gas price — rejecting order for safety', {
-        orderId,
+        order_id,
         error: err instanceof Error ? err.message : String(err),
       });
       return `Gas price unavailable — cannot verify gas ceiling`;
@@ -333,15 +347,15 @@ export class TransactionBuilder {
         // land on-chain. Retrying would submit a second TX, causing a double-spend.
         if (lastTxHash) {
           this.log('exec_no_retry_tx_pending', 'TX hash obtained on previous attempt — not retrying to prevent double-spend', {
-            orderId: order.orderId,
-            txHash: lastTxHash,
+            order_id: order.order_id,
+            tx_hash: lastTxHash,
             attempt,
           });
           break;
         }
         const delay = this.initialRetryDelayMs * Math.pow(2, attempt - 1);
         this.log('exec_retry', 'Retrying transaction', {
-          orderId: order.orderId,
+          order_id: order.order_id,
           attempt,
           delayMs: delay,
         });
@@ -362,10 +376,10 @@ export class TransactionBuilder {
           lastTxHash = err.txHash;
         }
         this.log('exec_attempt_failed', 'Transaction attempt failed', {
-          orderId: order.orderId,
+          order_id: order.order_id,
           attempt,
           error: lastError,
-          txHash: lastTxHash,
+          tx_hash: lastTxHash,
         });
 
         // Don't retry on non-retryable errors
@@ -377,8 +391,8 @@ export class TransactionBuilder {
 
     return this.buildResult(order, lastTxHash ? 'timeout' : 'failed', {
       error: lastError,
-      txHash: lastTxHash,
-      retryCount: this.maxRetries,
+      tx_hash: lastTxHash,
+      retry_count: this.maxRetries,
     });
   }
 
@@ -404,8 +418,8 @@ export class TransactionBuilder {
     });
 
     this.log('exec_tx_sent', 'Transaction submitted via Safe wallet', {
-      orderId: order.orderId,
-      txHash: hash,
+      order_id: order.order_id,
+      tx_hash: hash,
       attempt,
     });
 
@@ -421,21 +435,21 @@ export class TransactionBuilder {
   ): Promise<ExecutionResult> {
     if (receipt.status === 'success') {
       return this.buildResult(order, 'confirmed', {
-        txHash: hash,
-        blockNumber: Number(receipt.blockNumber),
-        gasUsed: receipt.gasUsed.toString(),
-        effectiveGasPrice: receipt.effectiveGasPrice.toString(),
-        retryCount: attempt,
+        tx_hash: hash,
+        block_number: Number(receipt.blockNumber),
+        gas_used_wei: receipt.gasUsed.toString(),
+        effective_gas_price_wei: receipt.effectiveGasPrice.toString(),
+        retry_count: attempt,
       });
     } else {
       const revertReason = await this.getRevertReason(hash);
       return this.buildResult(order, 'reverted', {
-        txHash: hash,
-        blockNumber: Number(receipt.blockNumber),
-        gasUsed: receipt.gasUsed.toString(),
-        effectiveGasPrice: receipt.effectiveGasPrice.toString(),
-        revertReason,
-        retryCount: attempt,
+        tx_hash: hash,
+        block_number: Number(receipt.blockNumber),
+        gas_used_wei: receipt.gasUsed.toString(),
+        effective_gas_price_wei: receipt.effectiveGasPrice.toString(),
+        revert_reason: revertReason,
+        retry_count: attempt,
       });
     }
   }
@@ -447,7 +461,7 @@ export class TransactionBuilder {
       const txData = await adapter.buildTransaction(order.action, order.params, order.limits);
       return txData.to;
     }
-    return order.params.tokenIn as Address;
+    return order.params.token_in as Address;
   }
 
   /** Build the transaction calldata from an order via adapter or fallback. */
@@ -462,7 +476,7 @@ export class TransactionBuilder {
     const adapter = this.adapters.get(protocol);
     if (adapter) {
       this.log('exec_adapter_routed', 'Routing order through protocol adapter', {
-        orderId: order.orderId,
+        order_id: order.order_id,
         protocol,
         action,
       });
@@ -546,10 +560,14 @@ export class TransactionBuilder {
   ): ExecutionResult {
     return {
       version: '1.0.0',
-      orderId: order.orderId,
-      correlationId: order.correlationId,
+      order_id: order.order_id,
+      correlation_id: order.correlation_id,
       timestamp: new Date().toISOString(),
+      chain: order.chain,
       status,
+      // Echo template_id / candidate_id from the originating order (may be null/undefined).
+      ...(order.template_id !== undefined && { template_id: order.template_id }),
+      ...(order.candidate_id !== undefined && { candidate_id: order.candidate_id }),
       ...extra,
     };
   }
@@ -560,29 +578,29 @@ export class TransactionBuilder {
       try {
         if (result.status === 'confirmed') {
           await this.reporter.reportConfirmed(order, {
-            transactionHash: result.txHash as `0x${string}`,
-            blockNumber: BigInt(result.blockNumber ?? 0),
-            gasUsed: BigInt(result.gasUsed ?? '0'),
-            effectiveGasPrice: BigInt(result.effectiveGasPrice ?? '0'),
+            transactionHash: result.tx_hash as `0x${string}`,
+            blockNumber: BigInt(result.block_number ?? 0),
+            gasUsed: BigInt(result.gas_used_wei ?? '0'),
+            effectiveGasPrice: BigInt(result.effective_gas_price_wei ?? '0'),
             status: 'success',
           } as unknown as import('viem').TransactionReceipt, {
-            retryCount: result.retryCount,
+            retry_count: result.retry_count,
           });
         } else if (result.status === 'reverted') {
           await this.reporter.reportReverted(order, {
-            transactionHash: result.txHash as `0x${string}`,
-            blockNumber: BigInt(result.blockNumber ?? 0),
-            gasUsed: BigInt(result.gasUsed ?? '0'),
-            effectiveGasPrice: BigInt(result.effectiveGasPrice ?? '0'),
+            transactionHash: result.tx_hash as `0x${string}`,
+            blockNumber: BigInt(result.block_number ?? 0),
+            gasUsed: BigInt(result.gas_used_wei ?? '0'),
+            effectiveGasPrice: BigInt(result.effective_gas_price_wei ?? '0'),
             status: 'reverted',
-          } as unknown as import('viem').TransactionReceipt, result.retryCount);
+          } as unknown as import('viem').TransactionReceipt, result.retry_count);
         } else {
-          await this.reporter.reportFailed(order, result.error ?? 'Unknown error', result.retryCount);
+          await this.reporter.reportFailed(order, result.error ?? 'Unknown error', result.retry_count);
         }
         return;
       } catch (err) {
         this.log('exec_reporter_error', 'Reporter failed, falling back to direct publish', {
-          orderId: result.orderId,
+          order_id: result.order_id,
           error: err instanceof Error ? err.message : String(err),
         });
       }
@@ -594,7 +612,7 @@ export class TransactionBuilder {
   private async publishResult(result: ExecutionResult): Promise<void> {
     if (!this.redis) {
       this.log('exec_no_redis', 'Cannot publish result: Redis not connected', {
-        orderId: result.orderId,
+        order_id: result.order_id,
       });
       return;
     }
@@ -605,14 +623,14 @@ export class TransactionBuilder {
         result as unknown as Record<string, unknown>,
       );
       this.log('exec_result_published', 'Execution result published', {
-        orderId: result.orderId,
-        correlationId: result.correlationId,
+        order_id: result.order_id,
+        correlation_id: result.correlation_id,
         status: result.status,
-        txHash: result.txHash,
+        tx_hash: result.tx_hash,
       });
     } catch (err) {
       this.log('exec_publish_error', 'Failed to publish execution result', {
-        orderId: result.orderId,
+        order_id: result.order_id,
         error: err instanceof Error ? err.message : String(err),
       });
     }

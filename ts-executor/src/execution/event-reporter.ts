@@ -1,11 +1,12 @@
 /**
  * EXEC-010: Event reporter.
  *
- * Publishes TX results to execution:results (schema-validated via RedisManager):
+ * Publishes TX results to execution:results:base (schema-validated via RedisManager):
  * - Every TX gets a result: success or failure
- * - Includes: TX hash, status, fill price, gas used, block number, timestamp
+ * - Includes: tx_hash, status, fill_price, gas_used_wei, block_number, timestamp
+ * - Echoes chain, template_id, candidate_id from the originating order
  * - Decoded revert reasons for failures
- * - Conforms to execution-results.schema.json
+ * - Conforms to execution-result.schema.json (v2)
  */
 
 import {
@@ -39,7 +40,7 @@ export interface ReportResult {
 
 // ── Event Reporter ──────────────────────────────────
 
-/** Publishes transaction results to the execution:results Redis channel. */
+/** Publishes transaction results to the execution:results:base Redis channel. */
 export class EventReporter {
   private redis: RedisManager | null = null;
   private readonly publicClient: PublicClient;
@@ -83,27 +84,37 @@ export class EventReporter {
     };
   }
 
+  /** Echo template_id / candidate_id from the originating order onto a result. */
+  private echoOrderIds(order: ExecutionOrder): Pick<ExecutionResult, 'template_id' | 'candidate_id'> {
+    const out: Pick<ExecutionResult, 'template_id' | 'candidate_id'> = {};
+    if (order.template_id !== undefined) out.template_id = order.template_id;
+    if (order.candidate_id !== undefined) out.candidate_id = order.candidate_id;
+    return out;
+  }
+
   /**
    * Report a successful TX confirmation.
    */
   async reportConfirmed(
     order: ExecutionOrder,
     receipt: TransactionReceipt,
-    extra?: { fillPrice?: string; amountOut?: string; retryCount?: number },
+    extra?: { fill_price?: string; amount_out?: string; retry_count?: number },
   ): Promise<ReportResult> {
     const result: ExecutionResult = {
       version: '1.0.0',
-      orderId: order.orderId,
-      correlationId: order.correlationId,
+      order_id: order.order_id,
+      correlation_id: order.correlation_id,
       timestamp: new Date().toISOString(),
+      chain: order.chain,
       status: 'confirmed',
-      txHash: receipt.transactionHash,
-      blockNumber: Number(receipt.blockNumber),
-      gasUsed: receipt.gasUsed.toString(),
-      effectiveGasPrice: receipt.effectiveGasPrice.toString(),
-      ...(extra?.fillPrice && { fillPrice: extra.fillPrice }),
-      ...(extra?.amountOut && { amountOut: extra.amountOut }),
-      ...(extra?.retryCount !== undefined && { retryCount: extra.retryCount }),
+      ...this.echoOrderIds(order),
+      tx_hash: receipt.transactionHash,
+      block_number: Number(receipt.blockNumber),
+      gas_used_wei: receipt.gasUsed.toString(),
+      effective_gas_price_wei: receipt.effectiveGasPrice.toString(),
+      ...(extra?.fill_price && { fill_price: extra.fill_price }),
+      ...(extra?.amount_out && { amount_out: extra.amount_out }),
+      ...(extra?.retry_count !== undefined && { retry_count: extra.retry_count }),
     };
 
     this._confirmed++;
@@ -120,12 +131,14 @@ export class EventReporter {
   ): Promise<ReportResult> {
     const result: ExecutionResult = {
       version: '1.0.0',
-      orderId: order.orderId,
-      correlationId: order.correlationId,
+      order_id: order.order_id,
+      correlation_id: order.correlation_id,
       timestamp: new Date().toISOString(),
+      chain: order.chain,
       status: 'failed',
+      ...this.echoOrderIds(order),
       error,
-      ...(retryCount !== undefined && { retryCount }),
+      ...(retryCount !== undefined && { retry_count: retryCount }),
     };
 
     this._failed++;
@@ -144,16 +157,18 @@ export class EventReporter {
 
     const result: ExecutionResult = {
       version: '1.0.0',
-      orderId: order.orderId,
-      correlationId: order.correlationId,
+      order_id: order.order_id,
+      correlation_id: order.correlation_id,
       timestamp: new Date().toISOString(),
+      chain: order.chain,
       status: 'reverted',
-      txHash: receipt.transactionHash,
-      blockNumber: Number(receipt.blockNumber),
-      gasUsed: receipt.gasUsed.toString(),
-      effectiveGasPrice: receipt.effectiveGasPrice.toString(),
-      revertReason,
-      ...(retryCount !== undefined && { retryCount }),
+      ...this.echoOrderIds(order),
+      tx_hash: receipt.transactionHash,
+      block_number: Number(receipt.blockNumber),
+      gas_used_wei: receipt.gasUsed.toString(),
+      effective_gas_price_wei: receipt.effectiveGasPrice.toString(),
+      revert_reason: revertReason,
+      ...(retryCount !== undefined && { retry_count: retryCount }),
     };
 
     this._reverted++;
@@ -170,12 +185,14 @@ export class EventReporter {
   ): Promise<ReportResult> {
     const result: ExecutionResult = {
       version: '1.0.0',
-      orderId: order.orderId,
-      correlationId: order.correlationId,
+      order_id: order.order_id,
+      correlation_id: order.correlation_id,
       timestamp: new Date().toISOString(),
+      chain: order.chain,
       status: 'timeout',
-      ...(txHash && { txHash }),
-      ...(retryCount !== undefined && { retryCount }),
+      ...this.echoOrderIds(order),
+      ...(txHash && { tx_hash: txHash }),
+      ...(retryCount !== undefined && { retry_count: retryCount }),
     };
 
     this._timeouts++;
@@ -188,25 +205,25 @@ export class EventReporter {
   async reportFromReceipt(
     order: ExecutionOrder,
     receipt: TransactionReceipt,
-    extra?: { fillPrice?: string; amountOut?: string; retryCount?: number },
+    extra?: { fill_price?: string; amount_out?: string; retry_count?: number },
   ): Promise<ReportResult> {
     if (receipt.status === 'success') {
       return this.reportConfirmed(order, receipt, extra);
     } else {
-      return this.reportReverted(order, receipt, extra?.retryCount);
+      return this.reportReverted(order, receipt, extra?.retry_count);
     }
   }
 
   // ── Internal ──────────────────────────────────────
 
-  /** Publish a result to execution:results. */
+  /** Publish a result to execution:results:base. */
   private async publishResult(result: ExecutionResult): Promise<ReportResult> {
     this._reported++;
 
     if (!this.redis) {
       this._errors++;
       this.log('reporter_no_redis', 'Cannot publish result: Redis not attached', {
-        orderId: result.orderId,
+        order_id: result.order_id,
         status: result.status,
       });
       return { published: false, result };
@@ -219,18 +236,18 @@ export class EventReporter {
       );
 
       this.log('reporter_published', 'Execution result published', {
-        orderId: result.orderId,
-        correlationId: result.correlationId,
+        order_id: result.order_id,
+        correlation_id: result.correlation_id,
         status: result.status,
-        txHash: result.txHash,
-        blockNumber: result.blockNumber,
+        tx_hash: result.tx_hash,
+        block_number: result.block_number,
       });
 
       return { published: true, result };
     } catch (err) {
       this._errors++;
       this.log('reporter_error', 'Failed to publish execution result', {
-        orderId: result.orderId,
+        order_id: result.order_id,
         error: err instanceof Error ? err.message : String(err),
       });
       return { published: false, result };

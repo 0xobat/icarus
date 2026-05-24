@@ -161,10 +161,10 @@ describe('L2ListenerManager', () => {
       }
 
       expect(events.length).toBeGreaterThanOrEqual(1);
-      const blockEvent = events.find((e) => e.eventType === 'new_block');
+      const blockEvent = events.find((e) => e.event_type === 'new_block');
       expect(blockEvent).toBeDefined();
       expect(blockEvent?.chain).toBe('base');
-      expect(blockEvent?.blockNumber).toBe(12345);
+      expect(blockEvent?.base_specific?.block_number).toBe(12345);
     });
 
     it('publishes contract events with chain identifier', async () => {
@@ -193,7 +193,7 @@ describe('L2ListenerManager', () => {
         }]);
       }
 
-      const contractEvent = events.find((e) => e.eventType === 'liquidity_change');
+      const contractEvent = events.find((e) => e.event_type === 'liquidity_change');
       expect(contractEvent).toBeDefined();
       expect(contractEvent?.chain).toBe('base');
       expect(contractEvent?.protocol).toBe('aerodrome');
@@ -227,9 +227,9 @@ describe('L2ListenerManager', () => {
 
       const aeroEvent = events.find((e) => e.protocol === 'aerodrome');
       expect(aeroEvent).toBeDefined();
-      expect(aeroEvent?.data?.chain).toBe('base');
-      expect(aeroEvent?.data?.l2BlockTimeMs).toBe(2000);
-      expect(aeroEvent?.data?.finalityBlocks).toBe(12);
+      expect(aeroEvent?.payload?.chain).toBe('base');
+      expect(aeroEvent?.payload?.l2_block_time_ms).toBe(2000);
+      expect(aeroEvent?.payload?.finality_blocks).toBe(12);
     });
   });
 

@@ -57,11 +57,12 @@ describe('RedisManager (Streams)', async () => {
     const event = {
       version: '1.0.0',
       timestamp: new Date().toISOString(),
+      chain: 'base',
       sequence: 42,
-      chain: 'ethereum',
-      eventType: 'new_block',
+      event_type: 'new_block',
       protocol: 'system',
-      blockNumber: 12345,
+      correlation_id: 'corr-test-001',
+      base_specific: { block_number: 12345 },
     };
 
     await manager.publish(CHANNELS.MARKET_EVENTS, event);

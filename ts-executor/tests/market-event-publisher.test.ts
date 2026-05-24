@@ -28,7 +28,7 @@ describe('MarketEventPublisher', () => {
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      const event = normalizeNewBlock('ethereum', 100, '0xhash1');
+      const event = normalizeNewBlock('base', 100, '0xhash1');
       const result = await publisher.handleEvent(event);
 
       expect(result).toBe(true);
@@ -36,16 +36,16 @@ describe('MarketEventPublisher', () => {
         CHANNELS.MARKET_EVENTS,
         expect.objectContaining({
           version: '1.0.0',
-          chain: 'ethereum',
-          eventType: 'new_block',
-          blockNumber: 100,
+          chain: 'base',
+          event_type: 'new_block',
+          base_specific: expect.objectContaining({ block_number: 100 }),
         }),
       );
     });
 
     it('returns false when Redis is not attached', async () => {
       const publisher = new MarketEventPublisher();
-      const event = normalizeNewBlock('ethereum', 100, '0xhash1');
+      const event = normalizeNewBlock('base', 100, '0xhash1');
       const result = await publisher.handleEvent(event);
 
       expect(result).toBe(false);
@@ -58,7 +58,7 @@ describe('MarketEventPublisher', () => {
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      const event = normalizeNewBlock('ethereum', 100, '0xhash1');
+      const event = normalizeNewBlock('base', 100, '0xhash1');
       const result = await publisher.handleEvent(event);
 
       expect(result).toBe(false);
@@ -67,14 +67,14 @@ describe('MarketEventPublisher', () => {
   });
 
   describe('deduplication', () => {
-    it('deduplicates block events by blockNumber', async () => {
+    it('deduplicates block events by block_number', async () => {
       const publishFn = vi.fn().mockResolvedValue(undefined);
       const redis = createMockRedis({ publishFn });
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      const event1 = normalizeNewBlock('ethereum', 100, '0xhash1');
-      const event2 = normalizeNewBlock('ethereum', 100, '0xhash1');
+      const event1 = normalizeNewBlock('base', 100, '0xhash1');
+      const event2 = normalizeNewBlock('base', 100, '0xhash1');
 
       await publisher.handleEvent(event1);
       await publisher.handleEvent(event2);
@@ -84,14 +84,14 @@ describe('MarketEventPublisher', () => {
       expect(publisher.stats.deduplicated).toBe(1);
     });
 
-    it('deduplicates TX events by txHash+eventType', async () => {
+    it('deduplicates TX events by tx_hash+event_type', async () => {
       const publishFn = vi.fn().mockResolvedValue(undefined);
       const redis = createMockRedis({ publishFn });
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      const event1 = normalizeContractEvent('ethereum', 'aave_v3', 'rate_change', 100, '0xtx1', {});
-      const event2 = normalizeContractEvent('ethereum', 'aave_v3', 'rate_change', 100, '0xtx1', {});
+      const event1 = normalizeContractEvent('base', 'aave_v3', 'rate_change', 100, '0xtx1', {});
+      const event2 = normalizeContractEvent('base', 'aave_v3', 'rate_change', 100, '0xtx1', {});
 
       await publisher.handleEvent(event1);
       await publisher.handleEvent(event2);
@@ -106,8 +106,8 @@ describe('MarketEventPublisher', () => {
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      const event1 = normalizeContractEvent('ethereum', 'aave_v3', 'rate_change', 100, '0xtx1', {});
-      const event2 = normalizeContractEvent('ethereum', 'uniswap_v3', 'swap', 100, '0xtx1', {});
+      const event1 = normalizeContractEvent('base', 'aave_v3', 'rate_change', 100, '0xtx1', {});
+      const event2 = normalizeContractEvent('base', 'uniswap_v3', 'swap', 100, '0xtx1', {});
 
       await publisher.handleEvent(event1);
       await publisher.handleEvent(event2);
@@ -122,8 +122,8 @@ describe('MarketEventPublisher', () => {
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      const event1 = normalizeNewBlock('ethereum', 100, '0xhash1');
-      const event2 = normalizeNewBlock('ethereum', 101, '0xhash2');
+      const event1 = normalizeNewBlock('base', 100, '0xhash1');
+      const event2 = normalizeNewBlock('base', 101, '0xhash2');
 
       await publisher.handleEvent(event1);
       await publisher.handleEvent(event2);
@@ -138,11 +138,11 @@ describe('MarketEventPublisher', () => {
       publisher.attach(redis);
 
       for (let i = 0; i < 4; i++) {
-        await publisher.handleEvent(normalizeNewBlock('ethereum', i, `0xhash${i}`));
+        await publisher.handleEvent(normalizeNewBlock('base', i, `0xhash${i}`));
       }
       expect(publisher.dedupCacheSize).toBe(4);
 
-      await publisher.handleEvent(normalizeNewBlock('ethereum', 100, '0xhash100'));
+      await publisher.handleEvent(normalizeNewBlock('base', 100, '0xhash100'));
       expect(publisher.dedupCacheSize).toBeLessThanOrEqual(4);
     });
   });
@@ -154,8 +154,8 @@ describe('MarketEventPublisher', () => {
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      await publisher.handleEvent(normalizeNewBlock('ethereum', 1, '0x1'));
-      await publisher.handleEvent(normalizeNewBlock('ethereum', 2, '0x2'));
+      await publisher.handleEvent(normalizeNewBlock('base', 1, '0x1'));
+      await publisher.handleEvent(normalizeNewBlock('base', 2, '0x2'));
 
       const stats = publisher.stats;
       expect(stats.published).toBe(2);
@@ -169,7 +169,7 @@ describe('MarketEventPublisher', () => {
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      await publisher.handleEvent(normalizeNewBlock('ethereum', 1, '0x1'));
+      await publisher.handleEvent(normalizeNewBlock('base', 1, '0x1'));
       publisher.resetStats();
 
       const stats = publisher.stats;
@@ -186,8 +186,8 @@ describe('MarketEventPublisher', () => {
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      await publisher.handleEvent(normalizeNewBlock('ethereum', 1, '0x1'));
-      await publisher.handleEvent(normalizeNewBlock('ethereum', 2, '0x2'));
+      await publisher.handleEvent(normalizeNewBlock('base', 1, '0x1'));
+      await publisher.handleEvent(normalizeNewBlock('base', 2, '0x2'));
 
       const stats = publisher.stats;
       expect(stats.minLatencyMs).toBeGreaterThanOrEqual(0);
@@ -204,12 +204,12 @@ describe('MarketEventPublisher', () => {
       });
       publisher.attach(redis);
 
-      await publisher.handleEvent(normalizeNewBlock('ethereum', 1, '0x1'));
+      await publisher.handleEvent(normalizeNewBlock('base', 1, '0x1'));
 
       expect(logs.some((l) => l.event === 'publisher_published')).toBe(true);
       const pubLog = logs.find((l) => l.event === 'publisher_published');
       expect(pubLog?.extra?.latencyMs).toBeDefined();
-      expect(pubLog?.extra?.eventType).toBe('new_block');
+      expect(pubLog?.extra?.event_type).toBe('new_block');
     });
 
     it('logs on deduplication', async () => {
@@ -220,7 +220,7 @@ describe('MarketEventPublisher', () => {
       });
       publisher.attach(redis);
 
-      const event = normalizeNewBlock('ethereum', 1, '0x1');
+      const event = normalizeNewBlock('base', 1, '0x1');
       await publisher.handleEvent(event);
       await publisher.handleEvent({ ...event, sequence: 999 });
 
@@ -236,7 +236,7 @@ describe('MarketEventPublisher', () => {
       });
       publisher.attach(redis);
 
-      await publisher.handleEvent(normalizeNewBlock('ethereum', 1, '0x1'));
+      await publisher.handleEvent(normalizeNewBlock('base', 1, '0x1'));
 
       expect(logs.some((l) => l.event === 'publisher_error')).toBe(true);
     });
@@ -248,7 +248,7 @@ describe('MarketEventPublisher', () => {
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      await publisher.handleEvent(normalizeNewBlock('ethereum', 1, '0x1'));
+      await publisher.handleEvent(normalizeNewBlock('base', 1, '0x1'));
       expect(publisher.dedupCacheSize).toBe(1);
 
       publisher.clearDedupCache();
@@ -264,7 +264,7 @@ describe('MarketEventPublisher', () => {
       publisher.attach(redis);
 
       const onEvent = (event: MarketEvent) => publisher.handleEvent(event);
-      const event = normalizeContractEvent('ethereum', 'aave_v3', 'rate_change', 100, '0xtx1', { rate: '5.0' });
+      const event = normalizeContractEvent('base', 'aave_v3', 'rate_change', 100, '0xtx1', { rate: '5.0' });
       await onEvent(event);
 
       expect(publishFn).toHaveBeenCalledTimes(1);
@@ -276,14 +276,14 @@ describe('MarketEventPublisher', () => {
       const publisher = new MarketEventPublisher();
       publisher.attach(redis);
 
-      const event = normalizeLargeTransfer('ethereum', 100, '0xtx1', '0xfrom', '0xto', '0xtoken', '1000000');
+      const event = normalizeLargeTransfer('base', 100, '0xtx1', '0xfrom', '0xto', '0xtoken', '1000000');
       await publisher.handleEvent(event);
 
       expect(publishFn).toHaveBeenCalledWith(
         CHANNELS.MARKET_EVENTS,
         expect.objectContaining({
-          eventType: 'large_transfer',
-          txHash: '0xtx1',
+          event_type: 'large_transfer',
+          base_specific: expect.objectContaining({ tx_hash: '0xtx1' }),
         }),
       );
     });

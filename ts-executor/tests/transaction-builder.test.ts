@@ -44,21 +44,24 @@ function createMockSafeWallet(overrides?: Partial<SafeWalletLike>): SafeWalletLi
 function makeOrder(overrides: Partial<ExecutionOrder> = {}): ExecutionOrder {
   return {
     version: '1.0.0',
-    orderId: 'order-001',
-    correlationId: 'corr-001',
+    order_id: 'order-001',
+    correlation_id: 'corr-001',
     timestamp: new Date().toISOString(),
-    chain: 'ethereum',
+    chain: 'base',
     protocol: 'aave_v3',
     action: 'supply',
+    strategy: 'LEND-001:cand-1',
+    template_id: 'LEND-001',
+    candidate_id: 'cand-1',
     params: {
-      tokenIn: '0x1234567890abcdef1234567890abcdef12345678',
+      token_in: '0x1234567890abcdef1234567890abcdef12345678',
       amount: '1000000000000000000',
       recipient: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
     },
     limits: {
-      maxGasWei: '50000000000000000', // 0.05 ETH
-      maxSlippageBps: 50,
-      deadlineUnix: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+      max_gas_wei: '50000000000000000', // 0.05 ETH
+      max_slippage_bps: 50,
+      deadline_unix: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
     },
     ...overrides,
   };
@@ -135,9 +138,9 @@ describe('TransactionBuilder', () => {
       const builder = createBuilder();
       const order = makeOrder({
         limits: {
-          maxGasWei: '50000000000000000',
-          maxSlippageBps: 50,
-          deadlineUnix: Math.floor(Date.now() / 1000) - 60, // 60s ago
+          max_gas_wei: '50000000000000000',
+          max_slippage_bps: 50,
+          deadline_unix: Math.floor(Date.now() / 1000) - 60, // 60s ago
         },
       });
 
@@ -161,9 +164,9 @@ describe('TransactionBuilder', () => {
       const builder = createBuilder({ publicClient: expensiveClient });
       const order = makeOrder({
         limits: {
-          maxGasWei: '1000000000000', // Very low gas ceiling (0.000001 ETH)
-          maxSlippageBps: 50,
-          deadlineUnix: Math.floor(Date.now() / 1000) + 3600,
+          max_gas_wei: '1000000000000', // Very low gas ceiling (0.000001 ETH)
+          max_slippage_bps: 50,
+          deadline_unix: Math.floor(Date.now() / 1000) + 3600,
         },
       });
 
@@ -213,11 +216,14 @@ describe('TransactionBuilder', () => {
       const result = await builder.handleOrder(order);
 
       expect(result.status).toBe('confirmed');
-      expect(result.orderId).toBe('order-001');
-      expect(result.correlationId).toBe('corr-001');
-      expect(result.txHash).toBeDefined();
-      expect(result.blockNumber).toBe(12345);
-      expect(result.gasUsed).toBe('100000');
+      expect(result.order_id).toBe('order-001');
+      expect(result.correlation_id).toBe('corr-001');
+      expect(result.chain).toBe('base');
+      expect(result.template_id).toBe('LEND-001');
+      expect(result.candidate_id).toBe('cand-1');
+      expect(result.tx_hash).toBeDefined();
+      expect(result.block_number).toBe(12345);
+      expect(result.gas_used_wei).toBe('100000');
       expect(result.version).toBe('1.0.0');
 
       // Verify Safe wallet was called
@@ -244,7 +250,7 @@ describe('TransactionBuilder', () => {
       const result = await builder.handleOrder(order);
 
       expect(result.status).toBe('reverted');
-      expect(result.gasUsed).toBe('50000');
+      expect(result.gas_used_wei).toBe('50000');
     });
 
     it('publishes failed result for expired deadline', async () => {
@@ -253,9 +259,9 @@ describe('TransactionBuilder', () => {
       const builder = createBuilder();
       const order = makeOrder({
         limits: {
-          maxGasWei: '50000000000000000',
-          maxSlippageBps: 50,
-          deadlineUnix: Math.floor(Date.now() / 1000) - 60,
+          max_gas_wei: '50000000000000000',
+          max_slippage_bps: 50,
+          deadline_unix: Math.floor(Date.now() / 1000) - 60,
         },
       });
 
@@ -279,7 +285,7 @@ describe('TransactionBuilder', () => {
       // With adapter registered, resolveTarget uses adapter's target address
       expect(safeWallet.validateOrder).toHaveBeenCalledWith(
         '0x1234567890abcdef1234567890abcdef12345678',
-        BigInt(order.params.amount),
+        BigInt(order.params.amount ?? '0'),
       );
     });
 
@@ -311,7 +317,7 @@ describe('TransactionBuilder', () => {
 
       expect(result.status).toBe('confirmed');
       expect(safeWallet.recordSpend).toHaveBeenCalledTimes(1);
-      expect(safeWallet.recordSpend).toHaveBeenCalledWith(BigInt(order.params.amount));
+      expect(safeWallet.recordSpend).toHaveBeenCalledWith(BigInt(order.params.amount ?? '0'));
     });
 
     it('does not call recordSpend on failed execution', async () => {
@@ -372,10 +378,10 @@ describe('TransactionBuilder', () => {
       const order = makeOrder({ protocol: 'aave_v3', action: 'supply' });
       await builder.handleOrder(order);
 
-      // validateOrder should be called with the adapter's target, not tokenIn
+      // validateOrder should be called with the adapter's target, not token_in
       expect(safeWallet.validateOrder).toHaveBeenCalledWith(
         '0xAavePoolAddress1234567890abcdef12345678',
-        BigInt(order.params.amount),
+        BigInt(order.params.amount ?? '0'),
       );
     });
   });
@@ -412,7 +418,7 @@ describe('TransactionBuilder', () => {
       const result = await builder.handleOrder(order);
 
       expect(result.status).toBe('confirmed');
-      expect(result.retryCount).toBe(1);
+      expect(result.retry_count).toBe(1);
       expect(safeWallet.executeTransaction).toHaveBeenCalledTimes(2);
     });
 
@@ -434,7 +440,7 @@ describe('TransactionBuilder', () => {
 
       expect(result.status).toBe('failed');
       expect(result.error).toBe('network error');
-      expect(result.retryCount).toBe(2);
+      expect(result.retry_count).toBe(2);
       // 1 initial + 2 retries = 3 calls
       expect(safeWallet.executeTransaction).toHaveBeenCalledTimes(3);
     });
@@ -467,17 +473,20 @@ describe('TransactionBuilder', () => {
       const builder = createBuilder();
       const order = makeOrder();
       const result = builder.buildResult(order, 'confirmed', {
-        txHash: '0xabc',
-        blockNumber: 100,
+        tx_hash: '0xabc',
+        block_number: 100,
       });
 
       expect(result.version).toBe('1.0.0');
-      expect(result.orderId).toBe('order-001');
-      expect(result.correlationId).toBe('corr-001');
+      expect(result.order_id).toBe('order-001');
+      expect(result.correlation_id).toBe('corr-001');
+      expect(result.chain).toBe('base');
       expect(result.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(result.status).toBe('confirmed');
-      expect(result.txHash).toBe('0xabc');
-      expect(result.blockNumber).toBe(100);
+      expect(result.tx_hash).toBe('0xabc');
+      expect(result.block_number).toBe(100);
+      expect(result.template_id).toBe('LEND-001');
+      expect(result.candidate_id).toBe('cand-1');
     });
 
     it('builds failed result with error', () => {
@@ -485,12 +494,12 @@ describe('TransactionBuilder', () => {
       const order = makeOrder();
       const result = builder.buildResult(order, 'failed', {
         error: 'Something went wrong',
-        retryCount: 3,
+        retry_count: 3,
       });
 
       expect(result.status).toBe('failed');
       expect(result.error).toBe('Something went wrong');
-      expect(result.retryCount).toBe(3);
+      expect(result.retry_count).toBe(3);
     });
   });
 
@@ -508,8 +517,8 @@ describe('TransactionBuilder', () => {
 
       const received = logs.find((l) => l.event === 'exec_order_received');
       expect(received).toBeDefined();
-      expect(received!.extra?.orderId).toBe('order-001');
-      expect(received!.extra?.correlationId).toBe('corr-001');
+      expect(received!.extra?.order_id).toBe('order-001');
+      expect(received!.extra?.correlation_id).toBe('corr-001');
     });
 
     it('logs tx sent event on submission', async () => {
@@ -525,7 +534,7 @@ describe('TransactionBuilder', () => {
 
       const sent = logs.find((l) => l.event === 'exec_tx_sent');
       expect(sent).toBeDefined();
-      expect(sent!.extra?.txHash).toBeDefined();
+      expect(sent!.extra?.tx_hash).toBeDefined();
     });
   });
 
@@ -607,9 +616,9 @@ describe('TransactionBuilder', () => {
         protocol: 'aerodrome',
         action: 'swap',
         limits: {
-          maxGasWei: '10000000000000000',
-          maxSlippageBps: 100,
-          deadlineUnix: Math.floor(Date.now() / 1000) + 3600,
+          max_gas_wei: '10000000000000000',
+          max_slippage_bps: 100,
+          deadline_unix: Math.floor(Date.now() / 1000) + 3600,
         },
       });
       await builder.handleOrder(order);
@@ -648,7 +657,7 @@ describe('TransactionBuilder', () => {
       expect(reporter.reportConfirmed).toHaveBeenCalledWith(
         order,
         expect.objectContaining({ status: 'success' }),
-        expect.objectContaining({ retryCount: 0 }),
+        expect.objectContaining({ retry_count: 0 }),
       );
     });
 
@@ -660,9 +669,9 @@ describe('TransactionBuilder', () => {
 
       const order = makeOrder({
         limits: {
-          maxGasWei: '50000000000000000',
-          maxSlippageBps: 50,
-          deadlineUnix: Math.floor(Date.now() / 1000) - 60,
+          max_gas_wei: '50000000000000000',
+          max_slippage_bps: 50,
+          deadline_unix: Math.floor(Date.now() / 1000) - 60,
         },
       });
       const result = await builder.handleOrder(order);

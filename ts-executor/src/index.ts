@@ -74,8 +74,8 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
 
   map.set("aave_v3", {
     async buildTransaction(action, params) {
-      const asset = params.tokenIn as Address;
-      const amount = BigInt(params.amount);
+      const asset = params.token_in as Address;
+      const amount = BigInt(params.amount ?? '0');
       const safeAddr = process.env.SAFE_ADDRESS as Address | undefined;
       const recipient = (params.recipient ?? safeAddr) as Address | undefined;
       if (!recipient) {
@@ -100,27 +100,29 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
 
   map.set("aerodrome", {
     async buildTransaction(action, params) {
-      const p = params as Record<string, string | undefined>;
-      const amount = BigInt(p.amount!);
-      const recipient = (p.recipient ?? p.tokenIn) as Address;
+      // Aerodrome-specific knobs (gauge, amountB, slippage floors, stable flag)
+      // ride along inside params.extra to keep the envelope's `params` block
+      // canonical (token_in/token_out/amount/recipient/pool_id/venue/extra).
+      const extra = (params.extra ?? {}) as Record<string, string | undefined>;
+      const amount = BigInt(params.amount ?? '0');
+      const recipient = (params.recipient ?? params.token_in) as Address;
       const deadline = BigInt(
-        p.deadline ?? String(Math.floor(Date.now() / 1000) + 1800),
+        extra.deadline ?? String(Math.floor(Date.now() / 1000) + 1800),
       );
       // Default to stable=true (safe for stablecoin-only strategy per STRATEGY.md).
-      // Explicit check: if p.stable is undefined, default true; otherwise parse string.
-      const stable = p.stable !== undefined ? p.stable !== "false" : true;
+      const stable = extra.stable !== undefined ? extra.stable !== "false" : true;
       switch (action) {
         case "mint_lp":
           return {
             to: aerodrome.ROUTER_ADDRESS,
             data: aerodrome.encodeAddLiquidity({
-              tokenA: p.tokenIn as Address,
-              tokenB: p.tokenOut as Address,
+              tokenA: params.token_in as Address,
+              tokenB: params.token_out as Address,
               stable,
               amountADesired: amount,
-              amountBDesired: BigInt(p.amountB ?? amount.toString()),
-              amountAMin: BigInt(p.amountAMin ?? "0"),
-              amountBMin: BigInt(p.amountBMin ?? "0"),
+              amountBDesired: BigInt(extra.amount_b ?? amount.toString()),
+              amountAMin: BigInt(extra.amount_a_min ?? "0"),
+              amountBMin: BigInt(extra.amount_b_min ?? "0"),
               to: recipient,
               deadline,
             }),
@@ -129,12 +131,12 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
           return {
             to: aerodrome.ROUTER_ADDRESS,
             data: aerodrome.encodeRemoveLiquidity({
-              tokenA: p.tokenIn as Address,
-              tokenB: p.tokenOut as Address,
+              tokenA: params.token_in as Address,
+              tokenB: params.token_out as Address,
               stable,
               liquidity: amount,
-              amountAMin: BigInt(p.amountAMin ?? "0"),
-              amountBMin: BigInt(p.amountBMin ?? "0"),
+              amountAMin: BigInt(extra.amount_a_min ?? "0"),
+              amountBMin: BigInt(extra.amount_b_min ?? "0"),
               to: recipient,
               deadline,
             }),
@@ -142,24 +144,24 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
         case "stake":
         case "unstake":
         case "collect_fees":
-          if (!p.gauge || !p.gauge.startsWith("0x")) {
+          if (!extra.gauge || !extra.gauge.startsWith("0x")) {
             throw new Error(`Aerodrome ${action} requires a valid gauge address`);
           }
           if (action === "stake") {
             return {
-              to: p.gauge as Address,
+              to: extra.gauge as Address,
               data: aerodrome.encodeGaugeDeposit(amount),
             };
           }
           if (action === "unstake") {
             return {
-              to: p.gauge as Address,
+              to: extra.gauge as Address,
               data: aerodrome.encodeGaugeWithdraw(amount),
             };
           }
           // action === "collect_fees"
           return {
-            to: p.gauge as Address,
+            to: extra.gauge as Address,
             data: aerodrome.encodeGetReward(recipient),
           };
         case "swap":
@@ -167,10 +169,10 @@ function buildAdapterMap(): Map<string, ProtocolAdapter> {
             to: aerodrome.ROUTER_ADDRESS,
             data: aerodrome.encodeSwap(
               amount,
-              BigInt(p.amountOutMin ?? "0"),
+              BigInt(extra.amount_out_min ?? "0"),
               [{
-                from: p.tokenIn as Address,
-                to: p.tokenOut as Address,
+                from: params.token_in as Address,
+                to: params.token_out as Address,
                 stable,
                 factory: aerodrome.POOL_FACTORY,
               }],

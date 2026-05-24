@@ -26,10 +26,10 @@ afterAll(() => {
 });
 
 describe('ts-executor', () => {
-  it('defines all required Redis channels', () => {
-    expect(CHANNELS.MARKET_EVENTS).toBe('market:events');
-    expect(CHANNELS.EXECUTION_ORDERS).toBe('execution:orders');
-    expect(CHANNELS.EXECUTION_RESULTS).toBe('execution:results');
+  it('defines all required chain-partitioned Redis channels', () => {
+    expect(CHANNELS.MARKET_EVENTS).toBe('market:events:base');
+    expect(CHANNELS.EXECUTION_ORDERS).toBe('execution:orders:base');
+    expect(CHANNELS.EXECUTION_RESULTS).toBe('execution:results:base');
   });
 });
 
@@ -75,8 +75,8 @@ describe('buildAdapterMap', () => {
 
     const result = await adapter.buildTransaction(
       'supply',
-      { tokenIn: '0x0000000000000000000000000000000000000001', amount: '1000000' },
-      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+      { token_in: '0x0000000000000000000000000000000000000001', amount: '1000000' },
+      { max_gas_wei: '500000000000000', max_slippage_bps: 50, deadline_unix: Math.floor(Date.now() / 1000) + 300 },
     );
 
     expect(result.to).toMatch(/^0x[0-9a-fA-F]{40}$/);
@@ -91,8 +91,8 @@ describe('buildAdapterMap', () => {
 
     const result = await adapter.buildTransaction(
       'withdraw',
-      { tokenIn: '0x0000000000000000000000000000000000000001', amount: '1000000', recipient: '0x0000000000000000000000000000000000000002' },
-      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+      { token_in: '0x0000000000000000000000000000000000000001', amount: '1000000', recipient: '0x0000000000000000000000000000000000000002' },
+      { max_gas_wei: '500000000000000', max_slippage_bps: 50, deadline_unix: Math.floor(Date.now() / 1000) + 300 },
     );
 
     expect(result.to).toMatch(/^0x[0-9a-fA-F]{40}$/);
@@ -106,8 +106,8 @@ describe('buildAdapterMap', () => {
 
     await expect(adapter.buildTransaction(
       'borrow',
-      { tokenIn: '0x0000000000000000000000000000000000000001', amount: '1000000' },
-      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+      { token_in: '0x0000000000000000000000000000000000000001', amount: '1000000' },
+      { max_gas_wei: '500000000000000', max_slippage_bps: 50, deadline_unix: Math.floor(Date.now() / 1000) + 300 },
     )).rejects.toThrow('Unsupported aave_v3 action: borrow');
   });
 
@@ -119,14 +119,13 @@ describe('buildAdapterMap', () => {
     const result = await adapter.buildTransaction(
       'mint_lp',
       {
-        tokenIn: '0x4200000000000000000000000000000000000006',
-        tokenOut: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        token_in: '0x4200000000000000000000000000000000000006',
+        token_out: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
         amount: '1000000000000000000',
-        amountB: '2500000000',
-        stable: 'false',
         recipient: '0x0000000000000000000000000000000000000002',
+        extra: { amount_b: '2500000000', stable: 'false' },
       },
-      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+      { max_gas_wei: '500000000000000', max_slippage_bps: 50, deadline_unix: Math.floor(Date.now() / 1000) + 300 },
     );
 
     expect(result.to).toMatch(/^0x[0-9a-fA-F]{40}$/);
@@ -141,12 +140,12 @@ describe('buildAdapterMap', () => {
     const result = await adapter.buildTransaction(
       'collect_fees',
       {
-        tokenIn: '0x0000000000000000000000000000000000000001',
+        token_in: '0x0000000000000000000000000000000000000001',
         amount: '0',
-        gauge: '0x0000000000000000000000000000000000000099',
         recipient: '0x0000000000000000000000000000000000000002',
+        extra: { gauge: '0x0000000000000000000000000000000000000099' },
       },
-      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+      { max_gas_wei: '500000000000000', max_slippage_bps: 50, deadline_unix: Math.floor(Date.now() / 1000) + 300 },
     );
 
     expect(result.to).toBe('0x0000000000000000000000000000000000000099');
@@ -161,14 +160,13 @@ describe('buildAdapterMap', () => {
     const result = await adapter.buildTransaction(
       'swap',
       {
-        tokenIn: '0x4200000000000000000000000000000000000006',
-        tokenOut: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        token_in: '0x4200000000000000000000000000000000000006',
+        token_out: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
         amount: '1000000000000000000',
-        amountOutMin: '2400000000',
-        stable: 'false',
         recipient: '0x0000000000000000000000000000000000000002',
+        extra: { amount_out_min: '2400000000', stable: 'false' },
       },
-      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+      { max_gas_wei: '500000000000000', max_slippage_bps: 50, deadline_unix: Math.floor(Date.now() / 1000) + 300 },
     );
 
     expect(result.to).toMatch(/^0x[0-9a-fA-F]{40}$/);
@@ -182,8 +180,8 @@ describe('buildAdapterMap', () => {
 
     await expect(adapter.buildTransaction(
       'borrow',
-      { tokenIn: '0x0000000000000000000000000000000000000001', amount: '1000', recipient: '0x0000000000000000000000000000000000000002' },
-      { maxGasWei: '500000000000000', maxSlippageBps: 50, deadlineUnix: Math.floor(Date.now() / 1000) + 300 },
+      { token_in: '0x0000000000000000000000000000000000000001', amount: '1000', recipient: '0x0000000000000000000000000000000000000002' },
+      { max_gas_wei: '500000000000000', max_slippage_bps: 50, deadline_unix: Math.floor(Date.now() / 1000) + 300 },
     )).rejects.toThrow('Unsupported aerodrome action: borrow');
   });
 });

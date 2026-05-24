@@ -88,7 +88,7 @@ export class MarketEventPublisher {
     if (this.dedupCache.has(dedupKey)) {
       this._deduplicated++;
       this.log('publisher_dedup', 'Duplicate event filtered', {
-        eventType: event.eventType,
+        event_type: event.event_type,
         dedupKey,
         sequence: event.sequence,
       });
@@ -119,7 +119,7 @@ export class MarketEventPublisher {
       this._published++;
 
       this.log('publisher_published', 'Market event published', {
-        eventType: event.eventType,
+        event_type: event.event_type,
         sequence: event.sequence,
         latencyMs,
         chain: event.chain,
@@ -131,7 +131,7 @@ export class MarketEventPublisher {
       this._errors++;
       this.log('publisher_error', 'Failed to publish market event', {
         sequence: event.sequence,
-        eventType: event.eventType,
+        event_type: event.event_type,
         error: err instanceof Error ? err.message : String(err),
       });
       return false;
@@ -140,17 +140,19 @@ export class MarketEventPublisher {
 
   /**
    * Build a dedup key for an event.
-   * - TX events: txHash + eventType
-   * - Block events: blockNumber (as string)
+   * - TX events: tx_hash + event_type
+   * - Block events: base_specific.block_number (as string)
    */
   private buildDedupKey(event: MarketEvent): string {
-    if (event.eventType === 'new_block' && event.blockNumber !== undefined) {
-      return `block:${event.blockNumber}`;
+    const blockNumber = event.base_specific?.block_number;
+    const txHash = event.base_specific?.tx_hash;
+    if (event.event_type === 'new_block' && blockNumber !== undefined) {
+      return `block:${blockNumber}`;
     }
-    if (event.txHash) {
-      return `tx:${event.txHash}:${event.eventType}`;
+    if (txHash) {
+      return `tx:${txHash}:${event.event_type}`;
     }
-    // Fallback: use sequence (won't dedup, but events without txHash/blockNumber are rare)
+    // Fallback: use sequence (won't dedup, but events without tx_hash/block_number are rare)
     return `seq:${event.sequence}`;
   }
 

@@ -2,116 +2,144 @@ import { describe, it, expect } from 'vitest';
 import { validate, validateOrThrow } from '../src/validation/schema-validator.js';
 
 describe('schema-validator', () => {
-  describe('market-events', () => {
+  describe('market-event', () => {
     const validEvent = {
       version: '1.0.0',
       timestamp: '2026-02-16T12:00:00Z',
+      chain: 'base',
       sequence: 1,
-      chain: 'ethereum',
-      eventType: 'price_update',
+      event_type: 'price_update',
       protocol: 'aave_v3',
+      correlation_id: 'corr-001',
+      base_specific: { block_number: 100 },
     };
 
     it('accepts a valid market event', () => {
-      const result = validate('market-events', validEvent);
+      const result = validate('market-event', validEvent);
       expect(result.valid).toBe(true);
       expect(result.errors).toBeNull();
     });
 
     it('rejects missing required fields', () => {
-      const result = validate('market-events', { version: '1.0.0' });
+      const result = validate('market-event', { version: '1.0.0' });
       expect(result.valid).toBe(false);
       expect(result.errors).not.toBeNull();
     });
 
     it('rejects invalid chain', () => {
-      const result = validate('market-events', { ...validEvent, chain: 'polygon' });
+      const result = validate('market-event', { ...validEvent, chain: 'polygon' });
       expect(result.valid).toBe(false);
     });
 
-    it('rejects invalid eventType', () => {
-      const result = validate('market-events', { ...validEvent, eventType: 'unknown' });
+    it('rejects invalid event_type', () => {
+      const result = validate('market-event', { ...validEvent, event_type: 'unknown' });
       expect(result.valid).toBe(false);
     });
 
     it('rejects wrong version', () => {
-      const result = validate('market-events', { ...validEvent, version: '2.0.0' });
+      const result = validate('market-event', { ...validEvent, version: '2.0.0' });
       expect(result.valid).toBe(false);
     });
 
     it('rejects additional properties', () => {
-      const result = validate('market-events', { ...validEvent, extra: 'field' });
+      const result = validate('market-event', { ...validEvent, extra: 'field' });
+      expect(result.valid).toBe(false);
+    });
+
+    it('requires base_specific when chain is base', () => {
+      const { base_specific: _, ...rest } = validEvent;
+      const result = validate('market-event', rest);
       expect(result.valid).toBe(false);
     });
   });
 
-  describe('execution-orders', () => {
+  describe('execution-order', () => {
     const validOrder = {
       version: '1.0.0',
-      orderId: 'order-123',
-      correlationId: 'corr-456',
+      order_id: 'order-123',
+      correlation_id: 'corr-456',
       timestamp: '2026-02-16T12:00:00Z',
-      chain: 'ethereum',
+      chain: 'base',
       protocol: 'aave_v3',
       action: 'supply',
-      params: { tokenIn: '0xabc', amount: '1000000000000000000' },
+      strategy: 'LEND-001:cand-1',
+      params: { token_in: '0xabc', amount: '1000000000000000000' },
       limits: {
-        maxGasWei: '50000000000000',
-        maxSlippageBps: 50,
-        deadlineUnix: 1739700000,
+        max_gas_wei: '50000000000000',
+        max_slippage_bps: 50,
+        deadline_unix: 1739700000,
       },
     };
 
     it('accepts a valid order', () => {
-      const result = validate('execution-orders', validOrder);
+      const result = validate('execution-order', validOrder);
+      expect(result.valid).toBe(true);
+    });
+
+    it('accepts an order with template_id and candidate_id', () => {
+      const result = validate('execution-order', {
+        ...validOrder,
+        template_id: 'LEND-001',
+        candidate_id: 'cand-1',
+      });
       expect(result.valid).toBe(true);
     });
 
     it('rejects missing limits', () => {
       const { limits: _, ...noLimits } = validOrder;
-      const result = validate('execution-orders', noLimits);
+      const result = validate('execution-order', noLimits);
       expect(result.valid).toBe(false);
     });
 
     it('rejects slippage over 1000 bps', () => {
-      const result = validate('execution-orders', {
+      const result = validate('execution-order', {
         ...validOrder,
-        limits: { ...validOrder.limits, maxSlippageBps: 1500 },
+        limits: { ...validOrder.limits, max_slippage_bps: 1500 },
       });
       expect(result.valid).toBe(false);
     });
 
     it('rejects unknown action', () => {
-      const result = validate('execution-orders', { ...validOrder, action: 'liquidate' });
+      const result = validate('execution-order', { ...validOrder, action: 'liquidate' });
       expect(result.valid).toBe(false);
     });
   });
 
-  describe('execution-results', () => {
+  describe('execution-result', () => {
     const validResult = {
       version: '1.0.0',
-      orderId: 'order-123',
-      correlationId: 'corr-456',
+      order_id: 'order-123',
+      correlation_id: 'corr-456',
       timestamp: '2026-02-16T12:00:00Z',
+      chain: 'base',
       status: 'confirmed',
-      txHash: '0xabc123',
-      blockNumber: 12345,
-      gasUsed: '21000',
+      tx_hash: '0xabc123',
+      block_number: 12345,
+      gas_used_wei: '21000',
     };
 
     it('accepts a valid result', () => {
-      const result = validate('execution-results', validResult);
+      const result = validate('execution-result', validResult);
+      expect(result.valid).toBe(true);
+    });
+
+    it('accepts a result echoing template_id and candidate_id', () => {
+      const result = validate('execution-result', {
+        ...validResult,
+        template_id: 'LEND-001',
+        candidate_id: 'cand-1',
+      });
       expect(result.valid).toBe(true);
     });
 
     it('rejects invalid status', () => {
-      const result = validate('execution-results', { ...validResult, status: 'pending' });
+      const result = validate('execution-result', { ...validResult, status: 'pending' });
       expect(result.valid).toBe(false);
     });
 
-    it('rejects missing orderId', () => {
-      const { orderId: _, ...noOrderId } = validResult;
-      const result = validate('execution-results', noOrderId);
+    it('rejects missing order_id', () => {
+      const { order_id: _, ...noOrderId } = validResult;
+      const result = validate('execution-result', noOrderId);
       expect(result.valid).toBe(false);
     });
   });
@@ -119,19 +147,21 @@ describe('schema-validator', () => {
   describe('validateOrThrow', () => {
     it('does not throw for valid data', () => {
       expect(() =>
-        validateOrThrow('market-events', {
+        validateOrThrow('market-event', {
           version: '1.0.0',
           timestamp: '2026-02-16T12:00:00Z',
+          chain: 'base',
           sequence: 0,
-          chain: 'ethereum',
-          eventType: 'new_block',
+          event_type: 'new_block',
           protocol: 'system',
+          correlation_id: 'corr-001',
+          base_specific: { block_number: 100 },
         })
       ).not.toThrow();
     });
 
     it('throws with descriptive message for invalid data', () => {
-      expect(() => validateOrThrow('market-events', {})).toThrow(
+      expect(() => validateOrThrow('market-event', {})).toThrow(
         /Schema validation failed/
       );
     });
