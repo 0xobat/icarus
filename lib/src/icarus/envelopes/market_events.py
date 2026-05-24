@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from icarus.types.market import Chain
 
@@ -80,3 +80,28 @@ class MarketEvent(_StrictBase):
     # Chain-specific addressing (exactly one of these is set, matching `chain`)
     base_specific: BaseChainSpecific | None = None
     solana_specific: SolanaChainSpecific | None = None
+
+    @model_validator(mode="after")
+    def _chain_specific_matches_chain(self) -> MarketEvent:
+        """Enforce the JSON Schema's allOf/if-then conditional in Python.
+
+        The shared/schemas/market-event.schema.json contract is:
+          chain == "base"   ⇒ base_specific present,  solana_specific is None
+          chain == "solana" ⇒ solana_specific present, base_specific is None
+
+        Without this validator the Python producer could emit envelopes that
+        the TypeScript consumer (which validates against the JSON Schema)
+        rejects — drift between two representations of the same contract.
+        Pin both sides to the same rule here.
+        """
+        if self.chain == "base":
+            if self.base_specific is None:
+                raise ValueError("chain='base' requires base_specific to be set")
+            if self.solana_specific is not None:
+                raise ValueError("chain='base' must leave solana_specific unset")
+        elif self.chain == "solana":
+            if self.solana_specific is None:
+                raise ValueError("chain='solana' requires solana_specific to be set")
+            if self.base_specific is not None:
+                raise ValueError("chain='solana' must leave base_specific unset")
+        return self

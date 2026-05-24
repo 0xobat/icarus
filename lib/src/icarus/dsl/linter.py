@@ -58,8 +58,73 @@ ALLOWED_IMPORTS: frozenset[str] = frozenset(
 )
 
 # Builtins evaluate.py may NOT use. These trigger an error even on bare-name use.
+# Includes:
+#   - code-from-string runners (eval/exec/compile)
+#   - the import machinery (__import__, __build_class__)
+#   - reflective accessors that bypass static name checks
+#     (getattr/setattr/delattr/globals/locals/vars/dir/help).
+#     `getattr(__builtins__, "eval")` is the classic escape; deny the verb.
+#   - I/O surface (open/input)
+#   - debugger (breakpoint)
 FORBIDDEN_BUILTINS: frozenset[str] = frozenset(
-    {"eval", "exec", "compile", "__import__", "open", "input", "breakpoint"}
+    {
+        "eval",
+        "exec",
+        "compile",
+        "__import__",
+        "__build_class__",
+        "open",
+        "input",
+        "breakpoint",
+        # Reflective access — the second half of the dunder-traversal escape ladder.
+        "getattr",
+        "setattr",
+        "delattr",
+        "globals",
+        "locals",
+        "vars",
+        "dir",
+        "help",
+    }
+)
+
+# Dunder attribute names that, if accessed anywhere in `evaluate.py`, indicate
+# a sandbox-escape attempt. The canonical Object-Subclass Traversal (OST) is
+#     (0).__class__.__mro__[1].__subclasses__()[i].__init__.__globals__['os'].system(...)
+# Every link in that chain is a dunder lookup. Deny the names regardless of
+# the root expression (literal, Name, Subscript, Call result, etc.) — this is
+# the inversion of FORBIDDEN_ATTR_ROOTS, which only catches Name roots.
+FORBIDDEN_DUNDER_ATTRS: frozenset[str] = frozenset(
+    {
+        # Type-hierarchy walks
+        "__class__",
+        "__base__",
+        "__bases__",
+        "__mro__",
+        "__subclasses__",
+        # Namespace and globals access
+        "__dict__",
+        "__globals__",
+        "__builtins__",
+        "__module__",
+        # Attribute machinery
+        "__getattribute__",
+        "__getattr__",
+        "__setattr__",
+        "__delattr__",
+        # Pickle / reduce escapes
+        "__reduce__",
+        "__reduce_ex__",
+        # Import + build hooks
+        "__import__",
+        "__build_class__",
+        "__class_getitem__",
+        # Code object access
+        "__code__",
+        "__closure__",
+        "__func__",
+        "__self__",
+    }
 )
 
 # Module roots evaluate.py may NOT reach via attribute access.
@@ -202,8 +267,17 @@ class _LintVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        # Walk down to the root Name to detect attribute reach into forbidden
-        # modules even when bound to an unfamiliar local alias.
+        # 1. Dunder-name check — fires regardless of root expression so the
+        #    OST escape ladder `(0).__class__.__mro__[1].__subclasses__()` is
+        #    caught at the FIRST dunder hop, before any root analysis.
+        if node.attr in FORBIDDEN_DUNDER_ATTRS:
+            self._error(
+                node,
+                "L006",
+                f"forbidden dunder attribute '{node.attr}' (sandbox escape vector)",
+            )
+        # 2. Module-root check — catches `os.environ`, `subprocess.run` even if
+        #    the local name was aliased through a forbidden module import.
         root = self._root_name(node)
         if root and root in FORBIDDEN_ATTR_ROOTS:
             self._error(
