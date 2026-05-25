@@ -7,6 +7,13 @@ dependencies = [
     "icarus",
     "numpy>=2.1",
     "scipy>=1.14",
+    "structlog>=24.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
 ]
 
 [build-system]
@@ -18,3 +25,6 @@ packages = ["src/lake_governor"]
 
 [tool.uv.sources]
 icarus = { workspace = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
