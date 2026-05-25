@@ -112,3 +112,21 @@ def test_input_validation() -> None:
         deflated_sharpe(np.zeros((2, 2)), n_trials=1)
     with pytest.raises(ValueError):
         deflated_sharpe(np.zeros(10), n_trials=0)
+
+
+def test_zero_variance_returns_zero_not_nan():
+    """Degenerate input (constant returns, std=0) returns 0.0 — coherent with
+    `_sharpe_ratio`'s zero-std convention. Spares every caller a nan-guard,
+    and matches the semantic "no detected skill ⇒ no probability of skill".
+
+    Regression test for the W3 parallel-merge bug: Stream B's stub adapter
+    produced flat returns, which made Stream C's deflated_sharpe return nan,
+    which violated the NOT NULL constraint on parameter_search_results.
+    """
+    # All-zero returns over 90 obs (matches Stream B's stub adapter shape).
+    dsr = deflated_sharpe(np.zeros(90), n_trials=9)
+    assert dsr == 0.0, f"expected 0.0 for zero-variance returns, got {dsr}"
+
+    # Constant non-zero returns (still zero variance) — same behavior.
+    dsr_const = deflated_sharpe(np.full(50, 0.001), n_trials=5)
+    assert dsr_const == 0.0, f"expected 0.0 for constant returns, got {dsr_const}"

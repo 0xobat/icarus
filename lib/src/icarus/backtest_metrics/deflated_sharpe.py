@@ -97,6 +97,13 @@ def deflated_sharpe(
         raise ValueError("n_trials must be >= 1")
 
     sr_hat = _sharpe_ratio(arr)
+    # Degenerate input (zero-variance returns) → sr_hat=0 from _sharpe_ratio
+    # AND skew/kurtosis are mathematically undefined (would propagate as nan).
+    # Coherent semantic: no detected skill ⇒ DSR = 0.0 (no probability of
+    # skill above the expected-max-N benchmark). Matches the _sharpe_ratio
+    # zero-std convention; spares every caller a nan-guard.
+    if float(arr.std(ddof=1)) == 0.0:
+        return 0.0
     g3 = float(stats.skew(arr, bias=False)) if skew is None else float(skew)
     # scipy.stats.kurtosis is excess (Fisher) by default; the formula expects
     # the non-excess (Pearson) g4 where a normal distribution has g4 = 3.
