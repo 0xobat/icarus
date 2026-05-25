@@ -32,6 +32,17 @@ def registry():
     return reg
 
 
+def test_default_smoke_test_mode_is_blocking():
+    """W4 milestone: registry loader enforces smoke tests by default.
+
+    Locks the default so a future refactor cannot silently drop production
+    back to warn-only mode. Per blueprint W4: "Smoke test enforcement turned
+    on in registry loader."
+    """
+    reg = TemplateRegistry(TEMPLATES_DIR)
+    assert reg._smoke_test_mode == "blocking"
+
+
 def test_lend_001_loads(registry):
     assert "LEND-001" in registry
     t = registry.by_id("LEND-001")

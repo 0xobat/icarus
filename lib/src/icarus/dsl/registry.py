@@ -95,9 +95,11 @@ class TemplateRegistry:
     `smoke_test_mode`:
       - "warn":     W1-W3 — run smoke tests if present; failures are warnings.
       - "blocking": W4+   — smoke tests must pass or the template is rejected.
+                    Default as of W4 per the blueprint's "smoke test enforcement
+                    turned on in registry loader" milestone.
     """
 
-    def __init__(self, root: Path, smoke_test_mode: str = "warn") -> None:
+    def __init__(self, root: Path, smoke_test_mode: str = "blocking") -> None:
         if smoke_test_mode not in ("warn", "blocking"):
             raise ValueError(
                 f"smoke_test_mode must be 'warn' or 'blocking', got {smoke_test_mode!r}"

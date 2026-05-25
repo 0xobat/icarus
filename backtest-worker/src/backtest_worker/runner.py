@@ -246,9 +246,11 @@ def build_default_registry(templates_root: Path | None = None) -> TemplateRegist
     """Construct the registry the worker uses by default.
 
     Looks in ``./templates`` relative to the repo root unless overridden.
-    Smoke-test mode is ``warn`` per the blueprint's W1-W3 schedule.
+    Smoke-test mode rides the registry default (``blocking`` as of W4 per
+    the blueprint's "smoke test enforcement turned on in registry loader"
+    milestone). A template that fails its smoke test is rejected outright.
     """
     root = templates_root or Path("templates")
-    registry = TemplateRegistry(root, smoke_test_mode="warn")
+    registry = TemplateRegistry(root)
     registry.load()
     return registry
