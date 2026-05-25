@@ -44,7 +44,7 @@ addopts = "-q --strict-markers --tb=short --import-mode=importlib"
 # satisfy). Registry runs them itself; pytest must not collect them.
 norecursedirs = ["templates", ".archive", "node_modules", ".venv*"]
 markers = [
-    "live: tests that call the real frontier API (requires ANTHROPIC_API_KEY); skipped if key missing",
+    "live: tests that call a real external service (frontier API via ANTHROPIC_API_KEY, or network via LIVE_NETWORK); each test is responsible for its own skip-if-missing guard",
 ]
 
 [dependency-groups]

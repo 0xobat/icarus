@@ -218,6 +218,14 @@ async def run_one_job(
     # 4. Persist both result sets in one transaction.
     _persist(db, search_rows=persisted_rows, walk_rows=walk_rows)
 
+    # TODO(W5): wire icarus.backtest_metrics.oos_gate over `walk_rows` per
+    # template_id and persist the resulting GateDecision. The decision feeds
+    # lake-governor's backtest -> paper_trade state transition. Deferred
+    # because the candidate state machine lives in lake-governor (W5);
+    # the runner here only owns the *search* outputs (parameter_search_results
+    # + walk_forward_results). Persisting a GateDecision row before
+    # lake-governor exists would create an unused column.
+
     outcome = RunOutcome(
         job_id=job.job_id,
         template_id=job.template_id,

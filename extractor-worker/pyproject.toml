@@ -32,5 +32,5 @@ icarus = { workspace = true }
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 markers = [
-    "live: tests that call the real frontier API (requires ANTHROPIC_API_KEY); skipped if key missing",
+    "live: tests that call a real external service (frontier API via ANTHROPIC_API_KEY, or network via LIVE_NETWORK); each test is responsible for its own skip-if-missing guard",
 ]
