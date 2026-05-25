@@ -52,12 +52,18 @@ logger = structlog.get_logger(service="icarus.db.notify")
 CHANNEL_LAKE_ROSTER_CHANGED = "lake_roster_changed"
 CHANNEL_EXECUTIONS_CHANGED = "executions_changed"
 
+# Mirrors `icarus.db.models.CANDIDATE_STATES` exactly. The duplication is
+# deliberate: Literal[...] needs string literals known at type-check time,
+# and the constant is a tuple. A unit test (`test_lake_roster_state_matches_models`)
+# pins these two definitions together so a future schema migration that
+# changes one MUST update the other or fail CI.
 LakeRosterState = Literal[
-    "candidate",
-    "blessed",
-    "live",
-    "demoted",
-    "retired",
+    "backtest",
+    "paper_trade",
+    "live_capped",
+    "live_mature",
+    "demoted_paper",
+    "archived",
 ]
 
 ExecutionsRowStatus = Literal[

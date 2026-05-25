@@ -42,8 +42,8 @@ def _roster_payload(**overrides) -> LakeRosterChangedPayload:
     data = {
         "candidate_id": "cand_abc",
         "template_id": "tmpl_basis_perp_001",
-        "previous_state": "blessed",
-        "new_state": "live",
+        "previous_state": "paper_trade",
+        "new_state": "live_capped",
         "transition_reason": "smoke_test_passed",
         "correlation_id": "corr_123",
         "emitted_at": datetime(2026, 5, 25, 12, 0, tzinfo=UTC),
@@ -76,7 +76,7 @@ def test_lake_roster_payload_happy_path_and_rejects_extra_fields():
     payload = _roster_payload()
     assert payload.version == "1.0.0"
     assert payload.candidate_id == "cand_abc"
-    assert payload.new_state == "live"
+    assert payload.new_state == "live_capped"
 
     # Round-trip through JSON proves the wire form is deterministic.
     rt = LakeRosterChangedPayload.model_validate_json(payload.model_dump_json())
@@ -232,7 +232,7 @@ async def test_listen_loop_with_synthetic_source():
         messages = [
             _roster_payload(candidate_id="cand_1").model_dump_json(),
             "garbage-not-json",
-            _roster_payload(candidate_id="cand_2", new_state="demoted").model_dump_json(),
+            _roster_payload(candidate_id="cand_2", new_state="demoted_paper").model_dump_json(),
         ]
         for raw in messages:
             parsed = _parse_payload(CHANNEL_LAKE_ROSTER_CHANGED, raw)
@@ -247,4 +247,25 @@ async def test_listen_loop_with_synthetic_source():
     assert len(received) == 2
     assert received[0].candidate_id == "cand_1"
     assert received[1].candidate_id == "cand_2"
-    assert received[1].new_state == "demoted"
+    assert received[1].new_state == "demoted_paper"
+
+
+def test_lake_roster_state_matches_candidate_states():
+    """Regression: LakeRosterState Literal MUST mirror CANDIDATE_STATES exactly.
+
+    A W5 review-pass found that Stream D's notify.py defined a made-up
+    vocabulary (`blessed`, `live`, `retired`) while Stream B's state
+    machine used the canonical `CANDIDATE_STATES` from db.models. Pinning
+    them here so a future schema migration to either side fails CI if it
+    doesn't update the other.
+    """
+    import typing
+
+    from icarus.db.models import CANDIDATE_STATES
+    from icarus.db.notify import LakeRosterState
+
+    literal_values = set(typing.get_args(LakeRosterState))
+    assert literal_values == set(CANDIDATE_STATES), (
+        f"LakeRosterState ({literal_values}) drifted from CANDIDATE_STATES "
+        f"({set(CANDIDATE_STATES)}). Update both to match."
+    )

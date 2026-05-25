@@ -34,6 +34,7 @@ stays responsive while sync SQLAlchemy sessions block.
 from __future__ import annotations
 
 import asyncio
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -42,6 +43,11 @@ from typing import Final
 import structlog
 from icarus.db.database import DatabaseManager
 from icarus.db.models import CANDIDATE_STATES, Candidate, LakeRoster
+from icarus.db.notify import (
+    CHANNEL_LAKE_ROSTER_CHANGED,
+    LakeRosterChangedPayload,
+    notify,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -268,6 +274,13 @@ class CandidateStateMachine:
             session.add(roster)
             candidate.state = "paper_trade"
             candidate.entered_state_at = now
+            self._emit_lake_roster_changed(
+                session,
+                previous_state=previous,
+                new_state="paper_trade",
+                template_id=template_id,
+                reason=reason,
+            )
             session.commit()
 
             self._log(previous, "paper_trade", reason, noop=False)
@@ -298,6 +311,13 @@ class CandidateStateMachine:
             roster.allocation_usd = Decimal("0")  # allocator will refill
             candidate.state = target
             candidate.entered_state_at = now
+            self._emit_lake_roster_changed(
+                session,
+                previous_state=previous,
+                new_state=target,
+                template_id=roster.template_id,
+                reason=reason,
+            )
             session.commit()
 
             self._log(
@@ -363,6 +383,13 @@ class CandidateStateMachine:
             candidate = self._load_candidate(session)
             candidate.state = "demoted_paper"
             candidate.entered_state_at = now
+            self._emit_lake_roster_changed(
+                session,
+                previous_state=previous,
+                new_state="demoted_paper",
+                template_id=roster.template_id,
+                reason=reason,
+            )
             session.commit()
 
             self._log(
@@ -398,6 +425,13 @@ class CandidateStateMachine:
                 roster.state = "archived"
                 roster.last_transition_at = now
                 roster.allocation_usd = Decimal("0")
+                self._emit_lake_roster_changed(
+                    session,
+                    previous_state=previous,
+                    new_state="archived",
+                    template_id=roster.template_id,
+                    reason=reason,
+                )
             session.commit()
 
             self._log(previous, "archived", reason, noop=False)
@@ -414,6 +448,35 @@ class CandidateStateMachine:
     def _guard(self, from_state: str, to_state: str) -> None:
         if not self.is_transition_allowed(from_state, to_state):
             raise InvalidTransitionError(self._candidate_id, from_state, to_state)
+
+    def _emit_lake_roster_changed(
+        self,
+        session: Session,
+        *,
+        previous_state: str,
+        new_state: str,
+        template_id: str,
+        reason: str,
+    ) -> None:
+        """Emit the cluster-seam notification *in the same transaction*
+        as the row mutation. Postgres delivers the NOTIFY only on commit;
+        SQLite degrades to a debug log per Stream D's no-op fallback.
+
+        This is the wire that satisfies the cluster invariant: cross-cluster
+        reads via Postgres notify, never service-to-service direct calls.
+        Decision-engine LISTENs on ``lake_roster_changed`` and reacts to
+        every transition emitted here.
+        """
+        payload = LakeRosterChangedPayload(
+            candidate_id=self._candidate_id,
+            template_id=template_id,
+            previous_state=previous_state,
+            new_state=new_state,
+            transition_reason=reason,
+            correlation_id=uuid.uuid4().hex,
+            emitted_at=datetime.now(UTC),
+        )
+        notify(session, CHANNEL_LAKE_ROSTER_CHANGED, payload)
 
     def _load_candidate(self, session: Session) -> Candidate:
         stmt = select(Candidate).where(Candidate.candidate_id == self._candidate_id)
