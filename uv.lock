@@ -251,8 +251,16 @@ dependencies = [
     { name = "icarus" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "redis" },
     { name = "scipy" },
+    { name = "structlog" },
     { name = "vectorbt" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
 ]
 
 [package.metadata]
@@ -261,8 +269,16 @@ requires-dist = [
     { name = "icarus", editable = "lib" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "pandas", specifier = ">=2.2" },
+    { name = "redis", specifier = ">=5.2" },
     { name = "scipy", specifier = ">=1.14" },
+    { name = "structlog", specifier = ">=24.4" },
     { name = "vectorbt", specifier = ">=0.27" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
 ]
 
 [[package]]
