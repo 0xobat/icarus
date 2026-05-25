@@ -655,9 +655,11 @@ source = { editable = "lib" }
 dependencies = [
     { name = "asyncpg" },
     { name = "jsonschema" },
+    { name = "numpy" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "redis", extra = ["hiredis"] },
+    { name = "scipy" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
 ]
@@ -666,9 +668,11 @@ dependencies = [
 requires-dist = [
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "jsonschema", specifier = ">=4.23" },
+    { name = "numpy", specifier = ">=2" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "redis", extras = ["hiredis"], specifier = ">=5.2" },
+    { name = "scipy", specifier = ">=1.14" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "structlog", specifier = ">=24.4" },
 ]
