@@ -35,6 +35,12 @@ Apply to: `risk/`, `db/`, `ts-executor/`, `shared/schemas/`, `AllowlistGuard.sol
 - `.archive/docs/system-design.md` — v4.2 spec (historical reference)
 - `.archive/docs/design-note-v2.md` — v2 draft proposal (superseded by blueprint)
 
+## Semi-autonomous execution mode
+
+Daedalus build runs semi-autonomously per the blueprint. Standing approval for
+blueprint-prescribed scope. Operator gates and the dispatch/merge/review loop
+are defined in memory: `feedback-semi-autonomous-blueprint-execution`.
+
 ## Commit messages
 
 ```
