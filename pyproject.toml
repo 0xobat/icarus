@@ -43,6 +43,9 @@ addopts = "-q --strict-markers --tb=short --import-mode=importlib"
 # (they reference sys.modules["icarus.templates.<id>"], which pytest can't
 # satisfy). Registry runs them itself; pytest must not collect them.
 norecursedirs = ["templates", ".archive", "node_modules", ".venv*"]
+markers = [
+    "live: tests that call the real frontier API (requires ANTHROPIC_API_KEY); skipped if key missing",
+]
 
 [dependency-groups]
 dev = [
