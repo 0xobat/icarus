@@ -42,6 +42,11 @@ from pydantic import ValidationError
 from extractor_worker.frontier import AnthropicClient, FrontierError
 from extractor_worker.loaders import SourceLoadError, load_source
 from extractor_worker.pipeline import ExtractionFailedError, extract_with_repair
+from extractor_worker.plausibility import (
+    RubricEmptyError,
+    judge_template,
+    update_verdict,
+)
 from extractor_worker.writer import (
     TemplateWriteError,
     cleanup_orphan_temp_dirs,
@@ -151,6 +156,37 @@ class ExtractorWorker:
                 input_tokens=extracted.total_input_tokens,
                 output_tokens=extracted.total_output_tokens,
             )
+            # Plausibility judge (Q8 veto-only advisor). Failures here do
+            # NOT roll back the template — the row stays with its default
+            # judge_verdict='FLAG_FOR_OPERATOR'. Operator sees both the
+            # template and the judge-call alert.
+            try:
+                verdict_result = await judge_template(extracted, client=self._frontier)
+                await update_verdict(self._db, template_id, verdict_result)
+                log.info(
+                    "plausibility_judged",
+                    template_id=template_id,
+                    verdict=verdict_result.verdict,
+                    confidence=verdict_result.confidence,
+                    input_tokens=verdict_result.input_tokens,
+                    output_tokens=verdict_result.output_tokens,
+                )
+            except (FrontierError, RubricEmptyError) as je:
+                log.warning(
+                    "judge_call_failed",
+                    template_id=template_id,
+                    error_class=type(je).__name__,
+                    error=str(je),
+                )
+                await record_extraction_failure(
+                    self._db,
+                    paper_job_id=job.job_id,
+                    template_id=template_id,
+                    source_type=job.source_type,
+                    source_ref=job.source_ref,
+                    error_class=f"judge:{type(je).__name__}",
+                    error_message=str(je),
+                )
         except (
             SourceLoadError,
             FrontierError,
