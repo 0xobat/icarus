@@ -1,8 +1,13 @@
-"""End-to-end registry test against templates/LEND-001/.
+"""End-to-end registry tests against the reference templates.
 
-Locks the DSL runtime against the first reference template. Any change
-to icarus.dsl.* or icarus.types.* that breaks LEND-001 fails CI here
-before it reaches the backtest engine.
+Locks the DSL runtime against the templates that live in templates/.
+Any change to icarus.dsl.* or icarus.types.* that breaks a reference
+template fails CI here before it reaches the backtest engine.
+
+The fixture loads with smoke_test_mode="blocking", so every template
+in templates/ must pass its own smoke_test.py for the fixture itself
+to construct. That makes structural failures explicit even without a
+template-specific test below.
 """
 
 from __future__ import annotations
@@ -78,3 +83,53 @@ def test_lend_001_enters_when_apy_high(registry):
     )
     assert decision.action == "enter"
     assert decision.target_size == Decimal("1000")
+
+
+def test_basis_perp_001_loads(registry):
+    assert "BASIS-PERP-001" in registry
+    t = registry.by_id("BASIS-PERP-001")
+    assert t.manifest.chain == "base"
+    assert t.manifest.protocol == "synthetix_perps_base"
+    assert t.manifest.allocation_max == Decimal("0.30")
+    assert set(t.manifest.params.keys()) == {
+        "funding_threshold",
+        "exit_funding_threshold",
+        "min_funding_streak",
+        "position_size_pct",
+    }
+
+
+def test_basis_perp_001_enters_when_funding_qualifies(registry):
+    t = registry.by_id("BASIS-PERP-001")
+    market = MarketSnapshot(
+        timestamp=datetime.now(UTC),
+        chain="base",
+        prices={"ETH": Decimal("3500"), "USDC": Decimal("1.0")},
+        apys={},
+        pool_state={},
+        gas_gwei=Decimal("0.05"),
+        metadata={
+            "funding_rates": {"synthetix_perps_base:eth-usd": Decimal("0.0002")},
+            "funding_streaks": {"synthetix_perps_base:eth-usd": 6},
+        },
+    )
+    portfolio = PortfolioSnapshot(
+        nav_usd=Decimal("1000"),
+        positions={},
+        cash_usd=Decimal("1000"),
+        drawdown_from_peak=Decimal("0"),
+        last_rebalance=datetime.now(UTC),
+    )
+    decision = t.evaluate(
+        {
+            "funding_threshold": "0.0001",
+            "exit_funding_threshold": "0.00001",
+            "min_funding_streak": "3",
+            "position_size_pct": "0.5",
+        },
+        market,
+        portfolio,
+    )
+    assert decision.action == "enter"
+    # Per-leg sizing: 0.5 of $1000 cash = $500 per leg.
+    assert decision.target_size == Decimal("500.0")

@@ -1,0 +1,80 @@
+id: BASIS-PERP-001
+semver: 0.1.0
+title: ETH delta-neutral basis trade on Base (spot Aerodrome, perp Synthetix Perps)
+
+chain: base
+protocol: synthetix_perps_base
+asset_universe: [ETH]
+
+sources:
+  - type: blog_url
+    ref: https://docs.synthetix.io/v/synthetix-perps-base/perpetual-futures/funding-rate
+    description: Synthetix Perps Base funding rate mechanics reference.
+  - type: blog_url
+    ref: https://research.paradigm.xyz/cash-and-carry
+    description: |
+      Cash-and-carry (basis trade) primer — long spot, short perp,
+      capture funding spread. Same shape as v2's BASIS-PERP-001
+      mapped onto an on-chain perp venue.
+source_doc_ref: docs/blueprint.md#component-design
+
+# Basis trades are leveraged (perp leg ~2-5x typical). Lower allocation
+# cap than the LEND-001 lending strategy reflects that gross exposure
+# is ~2x net for any given target_size.
+allocation_max: 0.30
+risk_profile: medium
+sizing: risk_parity
+
+params:
+  funding_threshold:
+    kind: continuous
+    low: "0.00005"   # 0.005% per 8-hour funding period (~5.5% annualized)
+    high: "0.0010"   # 0.10% per period (~110% annualized — extreme)
+    scale: log
+    default_steps: 8
+    description: |
+      Minimum 8-hour funding rate (received from short perp) required to
+      enter the basis trade. Log scale because the meaningful spread of
+      "barely profitable" to "extreme" is multiplicative, not additive.
+
+  exit_funding_threshold:
+    kind: continuous
+    low: "0.0"          # neutral funding — perp pays nothing
+    high: "0.00005"     # tiny positive — still nominally profitable
+    scale: linear
+    default_steps: 5
+    description: |
+      Exit when 8-hour funding falls below this. Set strictly less than
+      funding_threshold so we don't flip-flop on a single tick of noise
+      near the entry boundary.
+
+  min_funding_streak:
+    kind: grid
+    values: ["1", "3", "6"]
+    description: |
+      Funding must have been above funding_threshold for at least this
+      many consecutive 8-hour periods before we enter. Filters out
+      one-tick funding spikes. 1 = enter on first qualifying tick;
+      6 = wait 48 hours of sustained funding.
+
+  position_size_pct:
+    kind: grid
+    values: ["0.25", "0.50", "0.75"]
+    description: |
+      Fraction of available cash to deploy per leg. 0.5 = put $500 long
+      spot + $500 short perp when entering with $1000 cash. The
+      remaining cash absorbs perp margin volatility without forced
+      liquidation.
+
+top_k: 5
+turnover_lambda: "0.10"
+walk_forward: [60, 15, 3]
+
+expected_metrics:
+  # Basis trade Sharpe is typically modest but stable when funding is
+  # paying. Annualized returns under 10% are normal; >15% suggests
+  # backtest is fitting a brief funding-rich regime.
+  sharpe_min: "0.8"
+  max_dd_max: "0.08"
+  oos_sharpe_floor: "0.4"
+  expected_annual_return_pct: "0.08"
