@@ -119,7 +119,22 @@ fi
 # ──────────────────────────────────────────────────────────────────────────────
 section "Cluster isolation (W11)"
 if [ -f "harness/verify_cluster_isolation.sh" ]; then
-  run_or_fail "cluster-isolation invariant" bash harness/verify_cluster_isolation.sh
+  # The cluster-isolation script returns exit 0 in two cases:
+  #   1. PASS — invariant holds across all clusters
+  #   2. SKIP — docker daemon unavailable (env can't run the test)
+  # We disambiguate by inspecting stdout for "PASS" vs "skipped — docker".
+  # This keeps the gate honest: a missing docker daemon must not silently
+  # masquerade as a pass.
+  iso_out=$(bash harness/verify_cluster_isolation.sh 2>&1)
+  iso_rc=$?
+  if [ $iso_rc -ne 0 ]; then
+    fail "cluster-isolation invariant"
+    echo "$iso_out" | sed 's/^/    /' | tail -20
+  elif echo "$iso_out" | grep -qE 'skipped — docker|skipped -- docker'; then
+    skip "cluster-isolation (docker daemon unavailable)"
+  else
+    ok "cluster-isolation invariant"
+  fi
 else
   skip "cluster-isolation test not yet authored (W11)"
 fi
