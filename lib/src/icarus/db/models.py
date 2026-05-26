@@ -390,6 +390,12 @@ class ParameterSearchResult(Base):
     )
     compute_seconds: Mapped[float] = mapped_column(Numeric(precision=12, scale=3), nullable=False)
     is_top_k: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Multi-test correction outcome (W10). Nullable for backward compatibility
+    # with rows written before cohort correction was wired in.
+    multi_test_correction_method: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    multi_test_survives: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
