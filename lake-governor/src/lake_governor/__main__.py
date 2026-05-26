@@ -29,7 +29,6 @@ import json
 import os
 import signal
 import sys
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -42,6 +41,7 @@ from icarus.discord import ReplyTokenStore, WebhookPoster
 from icarus.dsl.registry import TemplateRegistry
 from sqlalchemy import select
 
+from lake_governor.discord_inbox import DiscordInbox, make_listener_function
 from lake_governor.paper_trade import PaperTradeHarness
 from lake_governor.promotion_gate import PromotionGate
 from lake_governor.state_machine import CandidateStateMachine
@@ -52,16 +52,35 @@ TICK_INTERVAL_SECONDS = int(os.environ.get("LAKE_GOVERNOR_TICK_SECONDS", "60"))
 DEFAULT_CHAIN = os.environ.get("LAKE_GOVERNOR_PRIMARY_CHAIN", "base")  # type: ignore[assignment]
 
 
-async def _no_replies() -> AsyncIterator[str]:
-    """Default reply source — yields nothing.
+async def _no_replies() -> None:
+    """Default reply source — always returns ``None`` (no message).
 
-    Real ingestion of Discord replies (bot listener / webhook callback)
-    is W9 work. Until then `poll_replies` runs against an empty
-    generator and `expire_stale_requests` still ticks every cycle to
-    keep the discord_reply_tokens table tidy.
+    Used when Discord credentials aren't configured. ``PromotionGate.
+    poll_replies`` calls its listener as a zero-arg callable and breaks
+    on the first ``None``, so this is the empty-batch sentinel.
     """
-    if False:  # pragma: no cover — make this a generator without yielding
-        yield ""
+    return None
+
+
+def _build_discord_reply_listener(db: DatabaseManager):
+    """Return the zero-arg listener that ``PromotionGate.poll_replies`` consumes.
+
+    When ``DISCORD_BOT_TOKEN`` and ``DISCORD_CHANNEL_ID`` are both set,
+    we construct a :class:`DiscordInbox` and adapt its async iterator
+    to the gate's per-call contract via
+    :func:`make_listener_function`. Otherwise we fall back to
+    :func:`_no_replies` — the inbox's ``configured`` flag would do this
+    itself, but short-circuiting here keeps the boot-time log line
+    clearer and avoids constructing an httpx client that will never
+    fire.
+
+    ``db`` is unused today but accepted so the factory signature is
+    stable if a future inbox variant needs to persist reply audit rows.
+    """
+    inbox = DiscordInbox()
+    if not inbox.configured:
+        return _no_replies
+    return make_listener_function(inbox)
 
 
 class LakeGovernor:
@@ -79,9 +98,11 @@ class LakeGovernor:
         *,
         harness_factory: callable,  # async () -> list[CycleOutcome]
         gate: PromotionGate,
+        reply_listener: callable,  # zero-arg () -> str | None | awaitable
     ) -> None:
         self._harness = harness_factory
         self._gate = gate
+        self._reply_listener = reply_listener
         self._stop = asyncio.Event()
 
     async def run(self) -> None:
@@ -115,9 +136,10 @@ class LakeGovernor:
             await self._gate.request_promotion(entry)
 
         # 3. Process any operator replies that landed since last tick.
-        # Empty in W8 v1 — Discord-reply ingestion is W9 work.
+        # Listener is supplied by the entrypoint — Discord polling when
+        # credentials are set, or a no-op stub for local/dev runs.
         replies_processed = await self._gate.poll_replies(
-            listener_function=_no_replies
+            listener_function=self._reply_listener
         )
 
         # 4. Expire any reply tokens older than the 24h TTL.
@@ -210,9 +232,12 @@ async def _amain() -> int:
         state_machine_factory=_state_machine_factory(db),
     )
 
+    reply_listener = _build_discord_reply_listener(db)
+
     governor = LakeGovernor(
         harness_factory=_step_paper_trade_candidates,
         gate=gate,
+        reply_listener=reply_listener,
     )
 
     loop = asyncio.get_running_loop()

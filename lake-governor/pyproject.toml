@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Icarus v2 Curation cluster — paper-trade harness, candidate state machine, decay detector, per-template breaker"
 requires-python = ">=3.13"
 dependencies = [
+    "httpx>=0.28.1",
     "icarus",
     "numpy>=2.1",
     "scipy>=1.14",

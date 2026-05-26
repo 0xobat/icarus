@@ -1480,6 +1480,7 @@ name = "lake-governor"
 version = "0.1.0"
 source = { editable = "lake-governor" }
 dependencies = [
+    { name = "httpx" },
     { name = "icarus" },
     { name = "numpy" },
     { name = "scipy" },
@@ -1494,6 +1495,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "icarus", editable = "lib" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "scipy", specifier = ">=1.14" },
