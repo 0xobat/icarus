@@ -40,10 +40,15 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
 import redis.asyncio as redis
 import structlog
+from icarus.allocator import ComposedAllocator
+from icarus.allocator.types import RosterEntry as AllocatorRosterEntry
+from icarus.data_adapters import build_default_adapter
 from icarus.db.database import DatabaseConfig, DatabaseManager
 from icarus.dsl.registry import TemplateRegistry
+from icarus.regime import RulesRegimeClassifier
 
 from decision_engine.cycle import DecisionCycle, RedisExecutorPublisher
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker
@@ -177,15 +182,58 @@ async def _amain() -> int:
         tx_failure=tx_failure,
     )
 
-    # Stream A / B / W3 impls are wired in their own PRs. The cycle
-    # supports late-binding (NotImplementedError → logged + skipped).
-    # When those streams land, replace the `_StubProtocol` instances
-    # below with the real impls; the cycle constructor is unchanged.
-    adapter = _StubDataAdapter()
-    regime_classifier = _StubRegimeClassifier()
-    allocator = _StubAllocator()
+    # Real impl wiring (W6 review fix — superseded the stubs below).
+    # DataAdapter: W3/W4 stream A's factory picks the v1 default
+    # (DefiLlamaAdapter — public API, no key required).
+    adapter = build_default_adapter()
+    # RegimeClassifier: W6 stream A's rules-based primary classifier.
+    regime_classifier = RulesRegimeClassifier()
 
     listener = RosterListener(db=db, connection_url=db_config.url)
+
+    # Allocator: W6 stream B's ComposedAllocator. Two integration
+    # adapters needed:
+    #   1. Bridge the two `RosterEntry` shapes — the cache's broad row
+    #      vs the allocator's narrow input. Trivial field projection.
+    #   2. The cache changes on every NOTIFY event, but ComposedAllocator
+    #      binds roster at construction. Solve with a thin wrapper that
+    #      rebuilds the allocator on every `.allocate()` call from the
+    #      live cache snapshot.
+    #
+    # `returns_lookup` returns empty — forces the composed-allocator
+    # cold-start path (equal-weight) until per-candidate return-history
+    # tracking lands (W8+). Cold-start is the blueprint default for new
+    # candidates anyway.
+    def _empty_returns_lookup(_candidate_id: str) -> np.ndarray:
+        return np.array([], dtype=np.float64)
+
+    class _LiveAllocator:
+        """Per-cycle allocator factory that consults the live roster cache.
+
+        ``ComposedAllocator`` is constructed fresh on each `allocate()` call
+        so newly-NOTIFY-promoted candidates land in the allocation set
+        without an engine restart.
+        """
+
+        name = "live-composed"
+
+        def allocate(self, candidate_decisions, portfolio, regime):
+            allocator_roster = {
+                cid: AllocatorRosterEntry(
+                    template_id=entry.template_id,
+                    allocation_max_pct=entry.allocation_max_pct,
+                )
+                for cid, entry in {
+                    e.candidate_id: e for e in listener.cache.live()
+                }.items()
+            }
+            inner = ComposedAllocator(
+                roster=allocator_roster,
+                returns_lookup=_empty_returns_lookup,
+            )
+            return inner.allocate(candidate_decisions, portfolio, regime)
+
+    allocator = _LiveAllocator()
 
     cycle = DecisionCycle(
         adapter=adapter,
