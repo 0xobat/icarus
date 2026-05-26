@@ -21,7 +21,7 @@ ENV NODE_ENV=production
 COPY --from=prod-build /app/node_modules ./node_modules
 COPY --from=prod-build /app/dist ./dist
 COPY package.json ./
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/main.js"]
 
 FROM deps AS dev
 ENV NODE_ENV=development
