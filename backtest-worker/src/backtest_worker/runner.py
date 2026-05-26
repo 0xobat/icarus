@@ -2,9 +2,11 @@
 
 Given a ``SearchJob`` envelope, the runner:
   1. Deserialises the embedded ``search_config`` dict into a
-     ``GridSearchConfig`` (the only ``kind`` supported in W3).
+     ``GridSearchConfig`` (``kind="grid"``) or ``BayesianSearchConfig``
+     (``kind="bayesian"``, added in W10).
   2. Resolves the template's ``evaluate`` callable via ``TemplateRegistry``.
-  3. Runs ``run_grid_search`` over a shared snapshot stream.
+  3. Runs ``run_grid_search`` or ``run_bayesian_search`` over a shared
+     snapshot stream — both return the same ``ParameterSearchResult`` shape.
   4. Selects top-K candidates (``select_top_k``) and runs
      ``run_walk_forward`` on each.
   5. Writes ``parameter_search_results`` + ``walk_forward_results`` rows
@@ -35,10 +37,19 @@ from icarus.db.models import (
 )
 from icarus.dsl import TemplateRegistry
 from icarus.envelopes.research import SearchJob
-from icarus.protocols.backtest import GridSearchConfig
+from icarus.protocols.backtest import (
+    BayesianCategoricalRange,
+    BayesianContinuousRange,
+    BayesianGridRange,
+    BayesianParamRange,
+    BayesianSearchConfig,
+    GridSearchConfig,
+    SearchConfig,
+)
 from icarus.protocols.data import DataAdapter
 from icarus.types.market import Chain
 
+from backtest_worker.bayesian_search import run_bayesian_search
 from backtest_worker.search import (
     ParameterSearchResult,
     _materialise_snapshots,
@@ -75,6 +86,26 @@ def _coerce_datetime(value: Any) -> datetime:
     return datetime.fromisoformat(str(value))
 
 
+def _base_kwargs(raw: dict[str, Any]) -> dict[str, Any]:
+    """Pull the 9 fields shared by grid + bayesian configs from the raw dict.
+
+    Both ``GridSearchConfig`` and ``BayesianSearchConfig`` extend the same
+    ``_BaseSearchConfig`` so extracting these once and splatting them into
+    each constructor keeps the two deserialisers symmetrical.
+    """
+    return {
+        "template_id": str(raw["template_id"]),
+        "template_version": str(raw["template_version"]),
+        "asset_universe": tuple(raw["asset_universe"]),
+        "chain": _coerce_chain(raw["chain"]),
+        "backtest_start": _coerce_datetime(raw["backtest_start"]),
+        "backtest_end": _coerce_datetime(raw["backtest_end"]),
+        "walk_forward": tuple(raw["walk_forward"]),
+        "turnover_lambda": Decimal(str(raw["turnover_lambda"])),
+        "top_k": int(raw["top_k"]),
+    }
+
+
 def deserialise_grid_search_config(raw: dict[str, Any]) -> GridSearchConfig:
     """Rebuild a ``GridSearchConfig`` from the ``SearchJob.search_config`` dict.
 
@@ -84,26 +115,79 @@ def deserialise_grid_search_config(raw: dict[str, Any]) -> GridSearchConfig:
     and types and bridges JSON-friendly values (ISO datetimes, string
     Decimals) back to their concrete types.
 
-    Raises ``ValueError`` if ``kind`` is anything other than ``"grid"``;
-    Bayesian is a W10 follow-up.
+    Raises ``ValueError`` if ``kind`` is not ``"grid"`` — callers
+    targeting Bayesian should route through ``deserialise_search_config``.
     """
     kind = raw.get("kind", "grid")
     if kind != "grid":
         raise ValueError(
-            f"backtest-worker W3 only supports kind='grid', got {kind!r}"
+            f"deserialise_grid_search_config: expected kind='grid', got {kind!r}"
         )
     return GridSearchConfig(
-        template_id=str(raw["template_id"]),
-        template_version=str(raw["template_version"]),
-        asset_universe=tuple(raw["asset_universe"]),
-        chain=_coerce_chain(raw["chain"]),
-        backtest_start=_coerce_datetime(raw["backtest_start"]),
-        backtest_end=_coerce_datetime(raw["backtest_end"]),
-        walk_forward=tuple(raw["walk_forward"]),  # type: ignore[arg-type]
-        turnover_lambda=Decimal(str(raw["turnover_lambda"])),
-        top_k=int(raw["top_k"]),
+        **_base_kwargs(raw),
         param_ranges={k: list(v) for k, v in raw["param_ranges"].items()},
     )
+
+
+def _deserialise_bayesian_range(raw: dict[str, Any]) -> BayesianParamRange:
+    """Map one entry of the envelope's ``param_ranges`` dict to a range obj.
+
+    Discriminated by the ``kind`` field on each entry — mirrors the
+    manifest's ParamSpec union so a template manifest's param spec can
+    be lowered into a search config without rewriting the encoding.
+    """
+    kind = raw.get("kind", "continuous")
+    if kind == "continuous":
+        return BayesianContinuousRange(
+            low=Decimal(str(raw["low"])),
+            high=Decimal(str(raw["high"])),
+            scale=raw.get("scale", "linear"),
+        )
+    if kind == "grid":
+        return BayesianGridRange(values=list(raw["values"]))
+    if kind == "categorical":
+        return BayesianCategoricalRange(choices=list(raw["choices"]))
+    raise ValueError(f"unknown bayesian param range kind: {kind!r}")
+
+
+def deserialise_bayesian_search_config(raw: dict[str, Any]) -> BayesianSearchConfig:
+    """Rebuild a ``BayesianSearchConfig`` from the envelope dict.
+
+    Layout (per param entry): ``{"kind": "continuous", "low": "0.1", "high": "0.9"}``
+    or ``{"kind": "grid", "values": [3, 5, 7]}``
+    or ``{"kind": "categorical", "choices": ["aave", "morpho"]}``.
+    `n_trials` and `seed` are top-level fields with sensible defaults so
+    existing callers that only know about grid don't break if they
+    transition.
+    """
+    kind = raw.get("kind", "bayesian")
+    if kind != "bayesian":
+        raise ValueError(
+            f"deserialise_bayesian_search_config: expected kind='bayesian', got {kind!r}"
+        )
+    return BayesianSearchConfig(
+        **_base_kwargs(raw),
+        param_ranges={
+            k: _deserialise_bayesian_range(v) for k, v in raw["param_ranges"].items()
+        },
+        n_trials=int(raw.get("n_trials", 32)),
+        seed=int(raw.get("seed", 42)),
+    )
+
+
+def deserialise_search_config(raw: dict[str, Any]) -> SearchConfig:
+    """Dispatch one envelope dict to the matching deserialiser by ``kind``.
+
+    Default ``kind`` is ``"grid"`` for backward compat with W3-era jobs
+    that didn't bother stamping the field (every job that reached
+    Postgres before W10 was implicitly grid).
+    """
+    kind = raw.get("kind", "grid")
+    if kind == "grid":
+        return deserialise_grid_search_config(raw)
+    if kind == "bayesian":
+        return deserialise_bayesian_search_config(raw)
+    raise ValueError(f"unknown search_config kind: {kind!r}")
 
 
 def _persist(
@@ -178,14 +262,23 @@ async def run_one_job(
     )
     log.info("job_start")
 
-    config = deserialise_grid_search_config(job.search_config)
+    config = deserialise_search_config(job.search_config)
     template = registry.by_id(job.template_id)
     evaluate_fn = template.evaluate
 
-    # 1. Grid search.
-    search_rows = await run_grid_search(
-        config, evaluate_fn=evaluate_fn, adapter=adapter
-    )
+    # 1. Parameter search — grid or bayesian per ``config.kind``. Both
+    # engines return the same ``ParameterSearchResult`` shape so every
+    # step after this one (top-K, walk-forward, persistence) is identical.
+    if isinstance(config, BayesianSearchConfig):
+        log.info("search_engine_dispatch", engine="bayesian", n_trials=config.n_trials)
+        search_rows = await run_bayesian_search(
+            config, evaluate_fn=evaluate_fn, adapter=adapter
+        )
+    else:
+        log.info("search_engine_dispatch", engine="grid")
+        search_rows = await run_grid_search(
+            config, evaluate_fn=evaluate_fn, adapter=adapter
+        )
     # 2. Top-K (with is_top_k=True on those rows).
     top_k_rows = select_top_k(search_rows, config.top_k)
     # Replace the underlying search_rows with the top-K-aware copies so

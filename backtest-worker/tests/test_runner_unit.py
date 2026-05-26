@@ -101,8 +101,10 @@ def test_deserialise_grid_search_config_round_trip():
     assert dict(cfg.param_ranges) == {"period": [3, 5]}
 
 
-def test_deserialise_rejects_bayesian():
-    with pytest.raises(ValueError, match="W3 only supports kind='grid'"):
+def test_deserialise_grid_rejects_bayesian_envelope():
+    """The grid-specific deserialiser still rejects non-grid envelopes —
+    callers wanting kind dispatch must route through ``deserialise_search_config``."""
+    with pytest.raises(ValueError, match="expected kind='grid'"):
         deserialise_grid_search_config({"kind": "bayesian"})
 
 
