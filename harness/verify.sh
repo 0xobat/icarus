@@ -109,6 +109,14 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
+section "End-to-end smoke (W9)"
+if [ -f "harness/e2e_smoke.sh" ]; then
+  run_or_fail "harness/e2e_smoke.sh" bash harness/e2e_smoke.sh
+else
+  skip "e2e smoke harness not yet authored (W9)"
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
 section "Cluster isolation (W11)"
 if [ -f "harness/verify_cluster_isolation.sh" ]; then
   run_or_fail "cluster-isolation invariant" bash harness/verify_cluster_isolation.sh
