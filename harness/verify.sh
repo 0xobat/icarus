@@ -140,6 +140,15 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
+section "Breaker dry-run (W11)"
+if [ -f "harness/breaker_dryrun.sh" ]; then
+  run_or_fail "harness/breaker_dryrun.sh (6 breakers, both chains)" \
+    bash harness/breaker_dryrun.sh
+else
+  skip "breaker dry-run harness not yet authored (W11)"
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
 section "Grafana dashboards"
 if [ -f "monitoring/grafana/validate.sh" ]; then
   if ! command -v jq >/dev/null 2>&1; then
