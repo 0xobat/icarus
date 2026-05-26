@@ -200,3 +200,112 @@ def test_basis_perp_001_enters_when_funding_qualifies(registry):
     assert decision.action == "enter"
     # Per-leg sizing: 0.5 of $1000 cash = $500 per leg.
     assert decision.target_size == Decimal("500.0")
+
+
+def test_basis_sol_drift_001_loads(registry):
+    assert "BASIS-SOL-DRIFT-001" in registry
+    t = registry.by_id("BASIS-SOL-DRIFT-001")
+    assert t.manifest.chain == "solana"
+    assert t.manifest.protocol == "drift"
+    assert t.manifest.allocation_max == Decimal("0.30")
+    assert set(t.manifest.asset_universe) == {"SOL", "ETH"}
+    assert set(t.manifest.params.keys()) == {
+        "funding_threshold",
+        "exit_funding_threshold",
+        "min_funding_streak",
+        "position_size_pct",
+        "asset_variant",
+    }
+
+
+def test_basis_sol_drift_001_enters_when_funding_qualifies(registry):
+    t = registry.by_id("BASIS-SOL-DRIFT-001")
+    market = MarketSnapshot(
+        timestamp=datetime.now(UTC),
+        chain="solana",
+        prices={"SOL": Decimal("150"), "ETH": Decimal("3500"), "USDC": Decimal("1.0")},
+        apys={},
+        pool_state={},
+        gas_gwei=Decimal("0"),
+        metadata={
+            # 0.0001/hr ≈ 88% annualized — well above 0.00005/hr threshold.
+            "funding_rates": {"drift:sol-perp": Decimal("0.0001")},
+            "funding_streaks": {"drift:sol-perp": 12},
+        },
+    )
+    portfolio = PortfolioSnapshot(
+        nav_usd=Decimal("1000"),
+        positions={},
+        cash_usd=Decimal("1000"),
+        drawdown_from_peak=Decimal("0"),
+        last_rebalance=datetime.now(UTC),
+    )
+    decision = t.evaluate(
+        {
+            "funding_threshold": "0.00005",
+            "exit_funding_threshold": "0.000005",
+            "min_funding_streak": "6",
+            "position_size_pct": "0.5",
+            "asset_variant": "SOL",
+        },
+        market,
+        portfolio,
+    )
+    assert decision.action == "enter"
+    # Per-leg sizing: 0.5 of $1000 cash = $500 per leg.
+    assert decision.target_size == Decimal("500.0")
+
+
+def test_lp_aero_001_loads(registry):
+    assert "LP-AERO-001" in registry
+    t = registry.by_id("LP-AERO-001")
+    assert t.manifest.chain == "base"
+    assert t.manifest.protocol == "aerodrome"
+    assert t.manifest.allocation_max == Decimal("0.40")
+    assert set(t.manifest.asset_universe) == {"USDC"}
+    assert set(t.manifest.params.keys()) == {
+        "fee_yield_threshold",
+        "min_pool_tvl_usd",
+        "gas_amortization_days",
+    }
+
+
+def test_lp_aero_001_enters_when_fee_yield_qualifies(registry):
+    t = registry.by_id("LP-AERO-001")
+    # 18% APR implied: fees_24h * 365 / tvl = 18% -> fees_24h = 0.18 * 8M / 365 ~ 3945.
+    tvl = Decimal("8000000")
+    fees_24h = Decimal("0.18") * tvl / Decimal("365")
+    market = MarketSnapshot(
+        timestamp=datetime.now(UTC),
+        chain="base",
+        prices={"USDC": Decimal("1.0"), "ETH": Decimal("3500")},
+        apys={},
+        pool_state={
+            "base:aerodrome:usdc-usdbc": PoolState(
+                pool_id="base:aerodrome:usdc-usdbc",
+                tvl=tvl,
+                depth=Decimal("250000"),
+                fees_24h=fees_24h,
+            )
+        },
+        gas_gwei=Decimal("0.05"),
+        metadata={},
+    )
+    portfolio = PortfolioSnapshot(
+        nav_usd=Decimal("1000"),
+        positions={},
+        cash_usd=Decimal("1000"),
+        drawdown_from_peak=Decimal("0"),
+        last_rebalance=datetime.now(UTC),
+    )
+    decision = t.evaluate(
+        {
+            "fee_yield_threshold": "0.10",
+            "min_pool_tvl_usd": "2000000",
+            "gas_amortization_days": "7",
+        },
+        market,
+        portfolio,
+    )
+    assert decision.action == "enter"
+    assert decision.target_size == Decimal("1000")

@@ -1,0 +1,85 @@
+id: LP-AERO-001
+semver: 0.1.0
+title: Aerodrome stable-pair LP yield rotation on Base
+
+chain: base
+protocol: aerodrome
+asset_universe: [USDC]
+
+sources:
+  - type: blog_url
+    ref: https://aerodrome.finance/docs
+    description: |
+      Aerodrome Finance is the dominant ve(3,3)-style AMM on Base.
+      Stable-pair pools (sAMM) use a flatter curve well-suited to
+      pegged-asset LPing with low impermanent loss; single-asset
+      entry/exit happens via Aerodrome's built-in zap routes so the
+      strategy needs no separate swap step.
+  - type: blog_url
+    ref: https://www.paradigm.xyz/2021/05/uniswap-v3-the-universal-amm
+    description: |
+      AMM LP economics reference. The basic LP return identity —
+      `fees_24h × 365 / TVL` annualizes the fee yield — applies
+      directly to Aerodrome's sAMM pools and motivates the
+      `fee_yield_threshold` parameter.
+source_doc_ref: docs/blueprint.md#component-design
+
+# Aerodrome LPing is a yield strategy (not leveraged), but TVL
+# flight risk in stable pools can drive realized fee yield to zero
+# overnight. 0.40 cap is between LEND-001's 0.70 (truly steady) and
+# BASIS-PERP-001's 0.30 (leveraged) — reflecting that LP returns
+# are higher-variance than lending but unleveraged.
+allocation_max: 0.40
+risk_profile: medium
+sizing: risk_parity
+
+params:
+  fee_yield_threshold:
+    kind: continuous
+    low: "0.05"
+    high: "0.30"
+    scale: log
+    default_steps: 8
+    description: |
+      Annualized fee yield (7d-trailing fees × 52 / TVL) required to
+      enter. Log scale because the meaningful range is multiplicative:
+      a 5% pool and a 30% pool are an order of magnitude apart in
+      expected return, not a linear ramp. Lower bound 5% is roughly
+      the floor where LPing beats parking USDC in Aave; upper bound
+      30% is "the pool is on fire" — likely a transient incentive
+      event the search should pick up but not anchor on.
+  min_pool_tvl_usd:
+    kind: grid
+    values: ["2000000", "5000000", "10000000"]
+    description: |
+      Pool TVL floor for both entry and exit. Below this, slippage
+      on enter/exit exceeds expected fee accrual within typical
+      holding periods. Three points span "wide universe / small AUM"
+      ($2M), "balanced default" ($5M), and "blue-chip only" ($10M).
+      Doubles as the capital-flight safety floor — if TVL drops
+      below this AFTER entry, the strategy exits.
+  gas_amortization_days:
+    kind: grid
+    values: ["3", "7", "14"]
+    description: |
+      Days within which estimated gas cost (enter + exit, two
+      transactions) must be recovered from fee yield. Mirrors
+      LEND-001's gas amortization knob: short = aggressive churn
+      only when yield is fat; long = sticky positions. Shifted left
+      vs LEND-001's {7, 14, 21} because LP positions turn over
+      faster than lending — the strategy expects to rotate as
+      TVL/fee dynamics shift.
+
+top_k: 5
+turnover_lambda: "0.08"
+walk_forward: [60, 15, 3]
+
+expected_metrics:
+  # Stable-pair LP returns are moderate-Sharpe steady streams when
+  # fee yield is on; 0.6 Sharpe floor is between lending (0.5) and
+  # basis trades (0.8). Drawdown bound at 10% — TVL flight can drag
+  # realized yield negative for short periods.
+  sharpe_min: "0.6"
+  max_dd_max: "0.10"
+  oos_sharpe_floor: "0.3"
+  expected_annual_return_pct: "0.06"

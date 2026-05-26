@@ -1,0 +1,109 @@
+id: BASIS-SOL-DRIFT-001
+semver: 0.1.0
+title: Delta-neutral basis trade on Solana (spot Jupiter, perp Drift)
+
+chain: solana
+protocol: drift
+asset_universe: [SOL, ETH]
+
+sources:
+  - type: code
+    ref: templates/BASIS-PERP-001/
+    description: |
+      Solana analog of BASIS-PERP-001. Same risk class (delta-neutral
+      cash-and-carry capturing perp funding), different chain + venue.
+      BASIS-PERP-001 runs on Base/Synthetix Perps with 8-hour funding;
+      this template runs on Solana/Drift, whose funding settles HOURLY
+      rather than every 8h. Per-period thresholds shrink accordingly
+      so the implied annualized hurdle stays comparable.
+  - type: blog_url
+    ref: https://docs.drift.trade/trading/perpetuals/funding-rate
+    description: |
+      Drift v2 perpetual futures funding-rate mechanics. Drift funds
+      hourly (24x/day) with a 1-hour TWAP, vs 8-hour Synthetix/Binance
+      cadences (3x/day). The strategy threshold convention follows
+      whichever native period the venue uses; the search space is
+      shifted left here to keep annualized return targets aligned.
+  - type: blog_url
+    ref: https://research.paradigm.xyz/cash-and-carry
+    description: |
+      Cash-and-carry (basis trade) primer — long spot, short perp,
+      capture funding spread. Identical strategy shape to
+      BASIS-PERP-001; chain/venue is the only structural change.
+source_doc_ref: docs/blueprint.md#component-design
+
+# Basis trades are leveraged (perp leg ~2-5x typical). Lower allocation
+# cap than the LEND-001 lending strategy reflects that gross exposure
+# is ~2x net for any given target_size. Drift's hourly funding cadence
+# means tighter monitoring but the same notional risk envelope as
+# BASIS-PERP-001 — allocation_max held at 0.30.
+allocation_max: 0.30
+risk_profile: medium
+sizing: risk_parity
+
+params:
+  funding_threshold:
+    kind: continuous
+    low: "0.00002"   # 0.002% per hour (~17.5% annualized)
+    high: "0.0005"   # 0.05% per hour (~440% annualized — extreme)
+    scale: log
+    default_steps: 8
+    description: |
+      Minimum 1-hour funding rate (received from short perp) required
+      to enter the basis trade. Drift funds hourly, so per-period
+      thresholds are roughly 1/8 of an 8-hour venue's. Log scale because
+      the meaningful spread of "barely profitable" to "extreme" is
+      multiplicative, not additive.
+
+  exit_funding_threshold:
+    kind: continuous
+    low: "0.0"          # neutral funding — perp pays nothing
+    high: "0.00002"     # tiny positive — still nominally profitable
+    scale: linear
+    default_steps: 5
+    description: |
+      Exit when 1-hour funding falls below this. Set strictly less than
+      funding_threshold so we don't flip-flop on a single hourly tick
+      of noise near the entry boundary.
+
+  min_funding_streak:
+    kind: grid
+    values: ["3", "6", "12"]
+    description: |
+      Funding must have been above funding_threshold for at least this
+      many consecutive hourly periods before we enter. Filters out
+      one-tick funding spikes. 3 = 3 hours; 12 = wait 12 hours of
+      sustained funding before believing the regime is real. Grid is
+      shifted up vs BASIS-PERP-001's {1,3,6} because Drift's hourly
+      cadence means "3 streaks" is only 3 hours, not 24h.
+
+  position_size_pct:
+    kind: grid
+    values: ["0.25", "0.50", "0.75"]
+    description: |
+      Fraction of available cash to deploy per leg. 0.5 = put $500 long
+      spot + $500 short perp when entering with $1000 cash. The
+      remaining cash absorbs perp margin volatility without forced
+      liquidation.
+
+  asset_variant:
+    kind: categorical
+    choices: [SOL, ETH]
+    description: |
+      Which Drift perp market to trade. SOL-perp is Drift's deepest
+      market by open interest; ETH-perp is the second tier. The search
+      lets the backtest pick which market has the better historical
+      funding-yield record per regime.
+
+top_k: 5
+turnover_lambda: "0.10"
+walk_forward: [60, 15, 3]
+
+expected_metrics:
+  # Drift basis trade Sharpe is typically modest but stable when
+  # funding is paying. Annualized returns under 10% are normal; >15%
+  # suggests backtest is fitting a brief funding-rich regime.
+  sharpe_min: "0.8"
+  max_dd_max: "0.08"
+  oos_sharpe_floor: "0.4"
+  expected_annual_return_pct: "0.08"
