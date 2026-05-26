@@ -20,6 +20,15 @@ No I/O, no logging, no ORM — caller (lake-governor) manages persistence.
 from __future__ import annotations
 
 from icarus.lake_metrics.breaker import TemplateBreaker
-from icarus.lake_metrics.decay import DetectorState, PageHinkleyDetector
+from icarus.lake_metrics.decay import (
+    DetectorState,
+    PageHinkleyDetector,
+    explain_decay_trip,
+)
 
-__all__ = ["DetectorState", "PageHinkleyDetector", "TemplateBreaker"]
+__all__ = [
+    "DetectorState",
+    "PageHinkleyDetector",
+    "TemplateBreaker",
+    "explain_decay_trip",
+]

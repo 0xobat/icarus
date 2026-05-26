@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import numpy as np
-from icarus.allocator.composed import compute_composed_weights
-from icarus.allocator.types import CandidateInput
+from icarus.allocator.composed import ComposedAllocator, compute_composed_weights
+from icarus.allocator.types import CandidateInput, RosterEntry
+from icarus.inference import Advisory
+from icarus.protocols.regime import Regime
+from icarus.types import Decision, PortfolioSnapshot
 
 OBSERVATION_WINDOW_DAYS = 14
 
@@ -135,3 +139,79 @@ def test_mixed_cohort_splits_nav_share_by_subset_size() -> None:
 
     # Total NAV deployed sums to 1.0 (no caps bound), within float coercion slack.
     assert abs(sum(weights.values()) - Decimal(1)) < tol
+
+
+class _StubOllamaClient:
+    """Stub OllamaClient that returns a known advisory string.
+
+    Mirrors the OllamaClient public surface used by the advisor helpers
+    (`.ask(prompt, system=...)` returning an `Advisory`). The composed
+    allocator's commentary should prepend this text to the deterministic
+    commentary.
+    """
+
+    def __init__(self, response_text: str) -> None:
+        self._response_text = response_text
+
+    async def ask(self, prompt: str, *, system: str | None = None) -> Advisory:
+        return Advisory(text=self._response_text, latency_ms=42, model="stub")
+
+
+def test_allocate_prepends_advisor_text_when_inference_client_provided() -> None:
+    """When an OllamaClient is wired in, the commentary starts with the
+    advisor's text and still contains the deterministic body."""
+    rng = np.random.default_rng(seed=20)
+    short = rng.normal(loc=0.0, scale=0.02, size=5)
+    returns_by_cid = {"A": short, "B": short}
+    roster = {
+        "A": RosterEntry(template_id="T_A", allocation_max_pct=Decimal("1.0")),
+        "B": RosterEntry(template_id="T_B", allocation_max_pct=Decimal("1.0")),
+    }
+    advisor_line = "Advisor: regime looks stable; cold-start sizing prudent."
+    client = _StubOllamaClient(response_text=advisor_line)
+
+    allocator = ComposedAllocator(
+        roster,
+        returns_lookup=lambda cid: returns_by_cid[cid],
+        inference_client=client,
+    )
+    decisions = {
+        "A": Decision(
+            action="enter",
+            target_size=Decimal("1"),
+            confidence=Decimal("1"),
+            reasoning="",
+        ),
+        "B": Decision(
+            action="enter",
+            target_size=Decimal("1"),
+            confidence=Decimal("1"),
+            reasoning="",
+        ),
+    }
+    portfolio = PortfolioSnapshot(
+        nav_usd=Decimal("100000"),
+        positions={},
+        cash_usd=Decimal("100000"),
+        drawdown_from_peak=Decimal("0"),
+        last_rebalance=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    regime = Regime(
+        volatility="normal",
+        funding="neutral",
+        trend="mean_reverting",
+        tvl="stable",
+        confidence=Decimal("0.8"),
+        features={},
+        source="stub",
+        rationale="",
+    )
+
+    result = allocator.allocate(decisions, portfolio, regime)
+
+    # The commentary MUST start with the advisor's prose...
+    assert result.commentary.startswith(advisor_line)
+    # ...and MUST still contain the deterministic body so the dashboard
+    # always has the canonical record.
+    assert "composed[" in result.commentary
+    assert "cold-start" in result.commentary

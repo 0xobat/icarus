@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from icarus.lake_metrics import DetectorState, PageHinkleyDetector
+from icarus.inference import Advisory
+from icarus.lake_metrics import DetectorState, PageHinkleyDetector, explain_decay_trip
 
 # Synthetic-stream parameters chosen to mimic 7-day rolling-Sharpe noise
 # around a paper-trade baseline. `sharpe_sigma=0.3` is loose enough to
@@ -172,3 +173,27 @@ def test_detector_latches_after_firing() -> None:
     # Now feed baseline-recovery observations; the latch must persist.
     for _ in range(5):
         assert detector.update(1.0) is True
+
+
+class _StubOllamaClient:
+    """Stub OllamaClient that returns a known advisory string."""
+
+    def __init__(self, response_text: str) -> None:
+        self._response_text = response_text
+
+    async def ask(self, prompt: str, *, system: str | None = None) -> Advisory:
+        return Advisory(text=self._response_text, latency_ms=7, model="stub")
+
+
+async def test_explain_decay_trip_returns_model_text() -> None:
+    """`explain_decay_trip` returns the stub model's prose on success."""
+    expected = "Decay looks structural — Sharpe trajectory deteriorating."
+    client = _StubOllamaClient(response_text=expected)
+
+    result = await explain_decay_trip(
+        client=client,
+        candidate_id="MOMO-001",
+        recent_sharpe_history=[1.4, 1.1, 0.8, 0.4, -0.1],
+    )
+
+    assert result == expected

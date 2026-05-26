@@ -33,18 +33,31 @@ Pure compute. No I/O.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import numpy as np
+import structlog
 
 from icarus.allocator._caps import apply_caps
 from icarus.allocator.equal_weight import compute_equal_weight_weights
 from icarus.allocator.risk_parity import compute_risk_parity_weights
 from icarus.allocator.types import CandidateInput, RosterEntry
+from icarus.inference import InferenceUnavailable, commentary_for_allocation
 from icarus.protocols.allocator import AllocationDecision
 from icarus.protocols.regime import Regime
 from icarus.types import Decision, PortfolioSnapshot
+
+if TYPE_CHECKING:
+    from icarus.inference import OllamaClient
+
+_logger = structlog.get_logger(service="allocator.composed")
+
+_ADVISOR_TIMEOUT_SECONDS = 5.0
+"""Hard ceiling on the advisor call — matches the inference module's own 5s
+budget. The allocator never blocks the decision cycle on inference."""
 
 DEFAULT_OBSERVATION_WINDOW_DAYS = 14
 """Default ``observation_window_days``. Mirrors the per-template breaker
@@ -167,11 +180,20 @@ class ComposedAllocator:
         returns_lookup: Callable[[str], np.ndarray],
         *,
         observation_window_days: int = DEFAULT_OBSERVATION_WINDOW_DAYS,
+        inference_client: OllamaClient | None = None,
     ):
-        """Bind a roster snapshot, returns-lookup, and switching window."""
+        """Bind a roster snapshot, returns-lookup, and switching window.
+
+        If ``inference_client`` is provided, ``allocate()`` will additionally
+        ask the LLM advisor for a brief commentary line (fire-and-forget,
+        5s ceiling) and PREPEND it to the deterministic commentary. The
+        allocation result itself is untouched — advisor failure or absence
+        never affects sizing.
+        """
         self._roster = dict(roster)
         self._returns_lookup = returns_lookup
         self._window_days = observation_window_days
+        self._inference_client = inference_client
 
     def allocate(
         self,
@@ -189,14 +211,78 @@ class ComposedAllocator:
         targets = {
             cid: (portfolio.nav_usd * frac) for cid, frac in weights.items()
         }
+        deterministic = composed_commentary(
+            inputs, template_caps, mode, self._window_days
+        )
+        commentary = _maybe_prepend_advisor_commentary(
+            client=self._inference_client,
+            candidates=inputs,
+            decisions=list(candidate_decisions.values()),
+            regime=regime,
+            deterministic_commentary=deterministic,
+        )
         return AllocationDecision(
             target_usd_by_candidate=targets,
             mode=mode,
             template_caps_applied=template_caps,
-            commentary=composed_commentary(
-                inputs, template_caps, mode, self._window_days
-            ),
+            commentary=commentary,
         )
+
+
+def _maybe_prepend_advisor_commentary(
+    *,
+    client: OllamaClient | None,
+    candidates: Sequence[CandidateInput],
+    decisions: Sequence[Decision],
+    regime: Regime,
+    deterministic_commentary: str,
+) -> str:
+    """Run the optional LLM advisor and prepend its text to the deterministic
+    commentary.
+
+    Fire-and-forget: any failure (InferenceUnavailable, timeout, missing
+    event loop) returns the deterministic commentary unchanged. The
+    allocator MUST never fail because the advisor failed.
+
+    Per CLAUDE.md ("LLM calls are advisory only, never inside
+    capital-protecting gates"), the deterministic commentary is the
+    canonical record; the advisor text is decoration prepended only when
+    available.
+    """
+    if client is None:
+        return deterministic_commentary
+
+    async def _ask() -> str:
+        return await asyncio.wait_for(
+            commentary_for_allocation(client, candidates, decisions, regime),
+            timeout=_ADVISOR_TIMEOUT_SECONDS,
+        )
+
+    try:
+        advisor_text = asyncio.run(_ask())
+    except InferenceUnavailable as exc:
+        # commentary_for_allocation catches this internally and returns
+        # an "advisor error: ..." string, so reaching here means a
+        # programmer- or transport-level failure escaped. Treat as
+        # advisor-down and continue.
+        _logger.warning("allocator.advisor.unavailable", error=str(exc))
+        return deterministic_commentary
+    except TimeoutError:
+        _logger.warning(
+            "allocator.advisor.timeout",
+            timeout_seconds=_ADVISOR_TIMEOUT_SECONDS,
+        )
+        return deterministic_commentary
+    except RuntimeError as exc:
+        # asyncio.run() refuses to nest inside an already-running loop;
+        # if the caller is async, they should call the advisor themselves.
+        # Fall back silently to deterministic commentary.
+        _logger.warning("allocator.advisor.event_loop_error", error=str(exc))
+        return deterministic_commentary
+
+    if not advisor_text:
+        return deterministic_commentary
+    return f"{advisor_text}\n\n{deterministic_commentary}"
 
 
 def compose_allocators(

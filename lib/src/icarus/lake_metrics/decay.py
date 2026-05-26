@@ -41,6 +41,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, replace
+from typing import TYPE_CHECKING
+
+from icarus.inference import commentary_for_decay
+
+if TYPE_CHECKING:
+    from icarus.inference import OllamaClient
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,3 +186,25 @@ class PageHinkleyDetector:
             fired=fired,
         )
         return fired
+
+
+async def explain_decay_trip(
+    *,
+    client: OllamaClient,
+    candidate_id: str,
+    recent_sharpe_history: list[float],
+) -> str:
+    """Post-trip LLM advisor explanation for a Page-Hinkley decay event.
+
+    Module-level wrapper over `icarus.inference.commentary_for_decay` so
+    that lake-governor's decay-watcher imports a single domain-coherent
+    symbol from the same module that owns the detector. The detector
+    itself is pure compute and stays that way; this function is the
+    explicit, discoverable seam where the advisor is invoked after a
+    trip is observed.
+
+    Returns the model's prose on success, or a string prefixed with
+    ``ADVISOR_ERROR_PREFIX`` ("advisor error: ") on inference failure.
+    Never raises — the caller's decay-handling path must continue.
+    """
+    return await commentary_for_decay(client, candidate_id, recent_sharpe_history)
