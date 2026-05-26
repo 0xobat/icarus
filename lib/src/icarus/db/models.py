@@ -498,3 +498,74 @@ class PaperTradeState(Base):
         Index("ix_pts_candidate_id", "candidate_id"),
         Index("ix_pts_entered_paper_at", "entered_paper_at"),
     )
+
+
+# =============================================================================
+# Discord reply-token state (W8)
+# =============================================================================
+# Per blueprint §"Operator alerts": the lake-governor's promotion gate posts
+# a structured PROMOTION REQUEST to the operator's Discord webhook, then
+# waits for an "APPROVE c-xxx" / "REJECT c-xxx <reason>" reply. The reply-
+# token row threads the request ↔ reply correlation; pending tokens older
+# than DISCORD_REPLY_TOKEN_TIMEOUT_HOURS are swept to "expired" by the
+# governor's tick loop so a stale gate never blocks the cycle.
+#
+# Status state machine (enforced in Python, not via CHECK constraint to
+# stay portable between SQLite/Postgres):
+#   pending → {approved, rejected, expired}  — terminal once set.
+
+DISCORD_REPLY_TOKEN_STATUSES = (
+    "pending",
+    "approved",
+    "rejected",
+    "expired",
+)
+
+DISCORD_REPLY_TOKEN_KINDS = (
+    "promotion_request",
+    "demotion_explain",
+)
+
+
+class DiscordReplyToken(Base):
+    """One operator-attention round-trip via the Discord webhook.
+
+    Created in ``pending`` when ``WebhookPoster.post_promotion_request``
+    fires (or any future kind). Transitions to ``approved``/``rejected``
+    when ``ReplyTokenStore.match_reply`` parses a matching operator
+    message, or to ``expired`` when ``ReplyTokenStore.expire_stale``
+    sweeps tokens older than ``expires_at``.
+
+    ``candidate_id`` is a soft FK (string) matching v4.2 + v2 convention.
+    The composite ``(candidate_id, status, created_at)`` index serves the
+    "most recent unanswered token per candidate" lookup hot path.
+    """
+
+    __tablename__ = "discord_reply_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    candidate_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    template_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    replied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    reply_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reply_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    __table_args__ = (
+        Index("ix_discord_reply_tokens_candidate_id", "candidate_id"),
+        Index("ix_discord_reply_tokens_status", "status"),
+        Index("ix_discord_reply_tokens_created_at", "created_at"),
+        Index(
+            "ix_discord_reply_tokens_candidate_status_created",
+            "candidate_id",
+            "status",
+            "created_at",
+        ),
+    )
