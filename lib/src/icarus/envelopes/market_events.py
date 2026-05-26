@@ -44,9 +44,19 @@ class SolanaChainSpecific(_StrictBase):
 
     Slot / signature / lamports instead of block_number / tx_hash / wei.
     Only attached to MarketEvents with chain="solana".
+
+    `slot` is Solana's block-number analogue (monotonic per cluster).
+    `block_time` is the unix-seconds wallclock the validator stamped the
+    slot's bank with; required for cross-chain timestamp alignment in the
+    market cache. (solana RPC `getBlockTime` populates it.)
     """
 
     slot: int = Field(ge=0)
+    block_time: int | None = Field(
+        default=None,
+        ge=0,
+        description="Unix seconds — validator wallclock for the slot's bank.",
+    )
     signature: str | None = None
     priority_fee_lamports: int | None = Field(default=None, ge=0)
 

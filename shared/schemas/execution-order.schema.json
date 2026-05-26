@@ -66,6 +66,39 @@
         "max_slippage_bps": { "type": "integer", "minimum": 0, "maximum": 1000 },
         "deadline_unix": { "type": "integer", "minimum": 0 }
       }
+    },
+    "solana_specific": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "SVM tx knobs — compute-unit pricing + address-lookup-table addresses. Only set when chain='solana'.",
+      "properties": {
+        "compute_unit_price": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Priority fee in micro-lamports per compute unit."
+        },
+        "compute_unit_limit": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Max compute units the tx may consume."
+        },
+        "lookup_tables": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Address-lookup-table addresses for v0 tx compression."
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "chain": { "const": "solana" } }, "required": ["chain"] },
+      "then": { "required": ["solana_specific"] }
+    },
+    {
+      "if": { "properties": { "chain": { "const": "base" } }, "required": ["chain"] },
+      "then": { "properties": { "solana_specific": { "type": "null" } } }
+    }
+  ]
 }

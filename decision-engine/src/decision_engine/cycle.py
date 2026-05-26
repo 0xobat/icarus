@@ -39,7 +39,12 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import structlog
 from icarus.db.models import PortfolioPosition
-from icarus.envelopes.orders import ExecutionOrder, OrderLimits, OrderParams
+from icarus.envelopes.orders import (
+    ExecutionOrder,
+    OrderLimits,
+    OrderParams,
+    SolanaSpecificOrder,
+)
 from icarus.protocols.allocator import AllocationDecision, Allocator
 from icarus.protocols.data import DataAdapter
 from icarus.protocols.regime import RegimeClassifier
@@ -478,6 +483,12 @@ class DecisionCycle:
             max_slippage_bps=DEFAULT_MAX_SLIPPAGE_BPS,
             deadline_unix=deadline_unix,
         )
+        # Solana orders MUST carry a `solana_specific` block per W7 envelope
+        # contract. Leave the per-field knobs unset — the solana-executor
+        # picks defaults (compute_unit_price from current cluster priority
+        # fees, compute_unit_limit from the protocol adapter's gas estimator,
+        # no lookup tables unless the allocator specifies them).
+        solana_specific = SolanaSpecificOrder() if chain == "solana" else None
         return ExecutionOrder(
             order_id=order_id,
             correlation_id=correlation_id,
@@ -490,6 +501,7 @@ class DecisionCycle:
             candidate_id=entry.candidate_id,
             params=params,
             limits=limits,
+            solana_specific=solana_specific,
         )
 
 

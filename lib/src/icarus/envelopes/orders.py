@@ -68,6 +68,33 @@ class OrderLimits(_StrictBase):
     deadline_unix: int = Field(ge=0)
 
 
+class SolanaSpecificOrder(_StrictBase):
+    """SVM-side per-order detail.
+
+    `compute_unit_price` is the priority fee in micro-lamports per CU (the
+    SVM analogue of EVM's `maxPriorityFeePerGas`); the solana-executor
+    multiplies it by `compute_unit_limit` to bound total priority spend.
+    `lookup_tables` are optional address-lookup-table addresses (v0 tx
+    compression) — empty list means no ALTs.
+
+    Only attached to ExecutionOrders with chain="solana"."""
+
+    compute_unit_price: int | None = Field(
+        default=None,
+        ge=0,
+        description="Priority fee in micro-lamports per compute unit.",
+    )
+    compute_unit_limit: int | None = Field(
+        default=None,
+        ge=0,
+        description="Max compute units the tx may consume (SVM gas budget).",
+    )
+    lookup_tables: list[str] = Field(
+        default_factory=list,
+        description="Address-lookup-table addresses for v0 tx compression.",
+    )
+
+
 class ExecutionOrder(_StrictBase):
     """One order, one chain, one candidate.
 
@@ -95,6 +122,12 @@ class ExecutionOrder(_StrictBase):
     params: OrderParams
     limits: OrderLimits
 
+    # Chain-specific addressing. Base-side orders carry nothing here yet
+    # (everything they need is in `limits`); Solana-side orders carry
+    # compute_unit_price/compute_unit_limit/lookup_tables. Matches the
+    # MarketEvent / ExecutionResult chain-discriminator pattern.
+    solana_specific: SolanaSpecificOrder | None = None
+
     @model_validator(mode="after")
     def _strategy_matches_template_candidate(self) -> ExecutionOrder:
         """If both template_id and candidate_id are set, `strategy` must equal
@@ -113,4 +146,20 @@ class ExecutionOrder(_StrictBase):
             pass
         elif self.template_id or self.candidate_id:
             raise ValueError("template_id and candidate_id must be set together or both None")
+        return self
+
+    @model_validator(mode="after")
+    def _chain_specific_matches_chain(self) -> ExecutionOrder:
+        """Mirror the JSON Schema's allOf/if-then conditional for chain-side
+        blocks. solana_specific is only valid when chain="solana"; chain=
+        "solana" requires it to be present. Same pattern as MarketEvent.
+
+        Base side is intentionally schema-flat for now — Base orders don't
+        need a chain-specific block beyond what `limits` already carries.
+        """
+
+        if self.chain == "solana" and self.solana_specific is None:
+            raise ValueError("chain='solana' requires solana_specific to be set")
+        if self.chain == "base" and self.solana_specific is not None:
+            raise ValueError("chain='base' must leave solana_specific unset")
         return self

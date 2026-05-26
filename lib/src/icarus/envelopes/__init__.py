@@ -40,9 +40,10 @@ from icarus.envelopes.orders import (
     OrderLimits,
     OrderParams,
     OrderPriority,
+    SolanaSpecificOrder,
 )
 from icarus.envelopes.research import PaperJob, SearchJob, SourceType
-from icarus.envelopes.results import ExecutionResult, ExecutionStatus
+from icarus.envelopes.results import ExecutionResult, ExecutionStatus, SolanaSpecificResult
 
 __all__ = [
     "BaseChainSpecific",
@@ -58,5 +59,7 @@ __all__ = [
     "PaperJob",
     "SearchJob",
     "SolanaChainSpecific",
+    "SolanaSpecificOrder",
+    "SolanaSpecificResult",
     "SourceType",
 ]

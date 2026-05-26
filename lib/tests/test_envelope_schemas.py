@@ -26,6 +26,8 @@ from icarus.envelopes import (
     OrderLimits,
     OrderParams,
     SolanaChainSpecific,
+    SolanaSpecificOrder,
+    SolanaSpecificResult,
 )
 
 SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "shared" / "schemas"
@@ -86,7 +88,11 @@ def test_solana_market_event_serializes_to_schema_compliant(market_event_schema)
         event_type="new_slot",
         protocol="system",
         correlation_id="corr-sol-1",
-        solana_specific=SolanaChainSpecific(slot=265_000_000, priority_fee_lamports=5000),
+        solana_specific=SolanaChainSpecific(
+            slot=265_000_000,
+            block_time=1_748_000_000,
+            priority_fee_lamports=5000,
+        ),
     )
     jsonschema.validate(instance=ev.model_dump(mode="json"), schema=market_event_schema)
 
@@ -110,6 +116,32 @@ def test_allocator_order_serializes_to_schema_compliant(execution_order_schema):
             max_gas_wei=Decimal("1000000000000"),
             max_slippage_bps=50,
             deadline_unix=1735689600,
+        ),
+    )
+    jsonschema.validate(instance=order.model_dump(mode="json"), schema=execution_order_schema)
+
+
+def test_solana_order_serializes_to_schema_compliant(execution_order_schema):
+    order = ExecutionOrder(
+        order_id="ord-sol-9999",
+        correlation_id="corr-sol",
+        timestamp=datetime.now(UTC),
+        chain="solana",
+        protocol="kamino",
+        action="supply",
+        strategy="LEND-KAMINO-001:c-aaaa",
+        template_id="LEND-KAMINO-001",
+        candidate_id="c-aaaa",
+        params=OrderParams(token_in="USDC", amount=Decimal("1000")),
+        limits=OrderLimits(
+            max_priority_fee_lamports=Decimal("50000"),
+            max_slippage_bps=50,
+            deadline_unix=1735689600,
+        ),
+        solana_specific=SolanaSpecificOrder(
+            compute_unit_price=10_000,
+            compute_unit_limit=200_000,
+            lookup_tables=["AddressLookupTable11111111111111111111111111"],
         ),
     )
     jsonschema.validate(instance=order.model_dump(mode="json"), schema=execution_order_schema)
@@ -161,9 +193,12 @@ def test_solana_execution_result_serializes_to_schema_compliant(execution_result
         status="confirmed",
         template_id="DRIFT-001",
         candidate_id="c-deadbeef",
-        signature="3xyzABCDEF",
-        slot=265_000_001,
-        priority_fee_lamports=Decimal("10000"),
+        solana_specific=SolanaSpecificResult(
+            signature="3xyzABCDEF",
+            slot=265_000_001,
+            compute_units_consumed=120_000,
+            priority_fee_lamports=10_000,
+        ),
         amount_out=Decimal("500000000"),
     )
     jsonschema.validate(instance=r.model_dump(mode="json"), schema=execution_result_schema)

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "execution-result.schema.json",
   "title": "ExecutionResult (v2)",
-  "description": "Results published by a chain executor to execution:results:{base|solana}. v2 extends v4.2 with chain discriminator, template_id, candidate_id (echoed from the order), and Solana fields (signature, slot, priority fee).",
+  "description": "Results published by a chain executor to execution:results:{base|solana}. v2 extends v4.2 with chain discriminator, template_id, candidate_id (echoed from the order), and a solana_specific block (signature, slot, compute_units_consumed, priority_fee_lamports). Base-side per-chain detail stays at the top level (tx_hash, block_number, gas_used_wei, effective_gas_price_wei) to preserve the ts-executor v2 wire shape.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "order_id", "correlation_id", "timestamp", "chain", "status"],
@@ -20,18 +20,48 @@
     "candidate_id": { "type": ["string", "null"] },
 
     "tx_hash": { "type": ["string", "null"], "description": "Base only" },
-    "signature": { "type": ["string", "null"], "description": "Solana only" },
     "block_number": { "type": ["integer", "null"], "minimum": 0, "description": "Base only" },
-    "slot": { "type": ["integer", "null"], "minimum": 0, "description": "Solana only" },
 
-    "gas_used_wei": { "type": ["string", "null"] },
-    "effective_gas_price_wei": { "type": ["string", "null"] },
-    "priority_fee_lamports": { "type": ["string", "null"] },
+    "gas_used_wei": { "type": ["string", "null"], "description": "Base only" },
+    "effective_gas_price_wei": { "type": ["string", "null"], "description": "Base only" },
     "fill_price": { "type": ["string", "null"] },
     "amount_out": { "type": ["string", "null"] },
+
+    "solana_specific": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "SVM tx receipt detail. Only set when chain='solana'.",
+      "properties": {
+        "signature": {
+          "type": ["string", "null"],
+          "description": "Base58 tx signature (64 bytes)."
+        },
+        "slot": { "type": ["integer", "null"], "minimum": 0 },
+        "compute_units_consumed": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Actual compute-unit spend reported by the cluster."
+        },
+        "priority_fee_lamports": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Total priority fee paid in lamports."
+        }
+      }
+    },
 
     "revert_reason": { "type": ["string", "null"] },
     "error": { "type": ["string", "null"] },
     "retry_count": { "type": "integer", "minimum": 0, "default": 0 }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "chain": { "const": "solana" } }, "required": ["chain"] },
+      "then": { "required": ["solana_specific"] }
+    },
+    {
+      "if": { "properties": { "chain": { "const": "base" } }, "required": ["chain"] },
+      "then": { "properties": { "solana_specific": { "type": "null" } } }
+    }
+  ]
 }
