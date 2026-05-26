@@ -117,6 +117,18 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
+section "Grafana dashboards"
+if [ -f "monitoring/grafana/validate.sh" ]; then
+  if ! command -v jq >/dev/null 2>&1; then
+    skip "jq not installed — install via 'brew install jq' or apt-get install jq"
+  else
+    run_or_fail "grafana dashboard JSON valid" bash monitoring/grafana/validate.sh
+  fi
+else
+  skip "monitoring/grafana/validate.sh not present"
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
 echo
 echo -e "${DIM}─────────────────────────────────${RESET}"
 echo -e "  ${GREEN}${PASS_COUNT} pass${RESET}   ${YELLOW}${SKIP_COUNT} skip${RESET}   ${RED}${FAIL_COUNT} fail${RESET}"

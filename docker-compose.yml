@@ -119,16 +119,30 @@ services:
       - ./webapp/public:/app/public
 
   grafana:
-    image: grafana/grafana:11.4.0
+    # Sidecar dashboard for the Curation cluster (W9). Reads Postgres
+    # directly via the provisioned datasource — no agent, no service-to-
+    # service call. Provisioning is mounted read-only from
+    # ./monitoring/grafana/, so dashboards are git-tracked source-of-truth.
+    # Host port 3001 (webapp owns host 3000); container stays on 3000.
+    image: grafana/grafana:11.3.0
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      # piechart panel is needed by the allocations dashboard.
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+      # Pass Postgres creds through so the provisioned datasource
+      # template-substitutes them at boot.
+      POSTGRES_USER: ${POSTGRES_USER:-icarus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-icarus_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-icarus}
     ports:
       - "3001:3000"
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       postgres:
         condition: service_healthy

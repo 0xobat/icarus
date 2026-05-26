@@ -1,0 +1,41 @@
+{
+  "uid": "icarus-template-performance",
+  "title": "Icarus — Template Performance",
+  "tags": ["icarus", "v2"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-30d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Per-template rolling 14d Sharpe (walk-forward test windows)",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "icarus-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT w.test_start AS time, c.template_id AS metric, AVG(w.test_sharpe) OVER (PARTITION BY c.template_id ORDER BY w.test_start ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) AS value FROM walk_forward_results w JOIN candidates c ON c.candidate_id = w.candidate_id WHERE $__timeFilter(w.test_start) ORDER BY w.test_start ASC;"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Per-template aggregate (avg test Sharpe / MaxDD / window count)",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 10 },
+      "datasource": { "type": "postgres", "uid": "icarus-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT c.template_id, COUNT(*) AS windows, ROUND(AVG(w.test_sharpe)::numeric, 4) AS avg_test_sharpe, ROUND(MAX(w.test_max_dd)::numeric, 4) AS worst_max_dd, ROUND((SUM(CASE WHEN w.test_sharpe > 0 THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*),0)), 4) AS win_rate FROM walk_forward_results w JOIN candidates c ON c.candidate_id = w.candidate_id WHERE $__timeFilter(w.test_start) GROUP BY c.template_id ORDER BY avg_test_sharpe DESC NULLS LAST;"
+        }
+      ],
+      "options": { "showHeader": true }
+    }
+  ]
+}

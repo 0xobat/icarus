@@ -1,0 +1,20 @@
+# File-based dashboard provider: loads every *.json from the mounted
+# dashboards folder on Grafana boot and on a 30s rescan interval.
+#
+# foldersFromFilesStructure=false keeps everything in the single "Icarus"
+# folder regardless of subfolder layout — v1 has 4 dashboards, no need
+# for taxonomy.
+apiVersion: 1
+
+providers:
+  - name: icarus-v2
+    orgId: 1
+    folder: Icarus
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

@@ -1,0 +1,30 @@
+# Postgres datasource for Icarus v2 Curation cluster dashboards.
+#
+# Grafana provisions this on boot from the file mount at
+# /etc/grafana/provisioning/datasources/. The connection points at the
+# in-stack `postgres` service (docker-compose network DNS); credentials
+# come from the same env vars the application services use, sourced from
+# the root .env (POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB).
+#
+# v1 scope: read-only dashboards. The user Grafana connects as is the same
+# application user; we rely on docker-compose network isolation for access
+# control. If/when we add an operator-actionable Grafana, switch to a
+# dedicated read-only Postgres role (CREATE ROLE grafana_ro ... GRANT SELECT).
+apiVersion: 1
+
+datasources:
+  - name: Icarus Postgres
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    user: ${POSTGRES_USER}
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD}
+    jsonData:
+      database: ${POSTGRES_DB}
+      sslmode: disable
+      postgresVersion: 1700
+      timescaledb: false
+    isDefault: true
+    editable: false
+    uid: icarus-postgres

@@ -1,0 +1,56 @@
+{
+  "uid": "icarus-allocations",
+  "title": "Icarus — Allocations",
+  "tags": ["icarus", "v2"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "piechart",
+      "title": "Current allocation distribution (USD)",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "icarus-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT candidate_id AS metric, allocation_usd AS value FROM lake_roster WHERE allocation_usd > 0 ORDER BY allocation_usd DESC;"
+        }
+      ],
+      "options": { "pieType": "pie", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] } }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Allocation table",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "icarus-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT candidate_id, template_id, state, allocation_usd, allocation_max_pct FROM lake_roster WHERE allocation_usd > 0 ORDER BY allocation_usd DESC;"
+        }
+      ],
+      "options": { "showHeader": true }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Allocation per candidate over time (last_transition_at)",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 10 },
+      "datasource": { "type": "postgres", "uid": "icarus-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT last_transition_at AS time, candidate_id AS metric, allocation_usd AS value FROM lake_roster WHERE $__timeFilter(last_transition_at) ORDER BY last_transition_at ASC;"
+        }
+      ]
+    }
+  ]
+}
