@@ -90,6 +90,11 @@ class ParameterSearchResult:
     oos_sharpe: float | None
     compute_seconds: float
     is_top_k: bool = False
+    # W10 multi-test correction (W10 review fix).
+    # Populated by the runner after the full cohort's DSRs are known —
+    # BH correction is cohort-dependent, can't be computed at single-row time.
+    multi_test_correction_method: str | None = None
+    multi_test_survives: bool | None = None
 
     @property
     def candidate_id(self) -> str:

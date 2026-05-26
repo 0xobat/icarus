@@ -190,6 +190,42 @@ def deserialise_search_config(raw: dict[str, Any]) -> SearchConfig:
     raise ValueError(f"unknown search_config kind: {kind!r}")
 
 
+_MULTI_TEST_METHOD: str = "benjamini_hochberg"
+_MULTI_TEST_ALPHA: float = 0.05
+
+
+def _annotate_multi_test_correction(
+    rows: list[ParameterSearchResult],
+) -> list[ParameterSearchResult]:
+    """Apply BH multi-test correction over the cohort's DSRs and return
+    new dataclass copies with ``multi_test_correction_method`` and
+    ``multi_test_survives`` populated.
+
+    The correction is cohort-level (BH compares each p-value against a
+    rank-dependent threshold), so it MUST be computed once over the full
+    search surface — not per-row. Empty cohort returns [] unchanged.
+    """
+    from dataclasses import replace
+
+    import numpy as np
+    from icarus.backtest_metrics import apply_cohort_correction
+
+    if not rows:
+        return rows
+    dsrs = np.array([r.deflated_sharpe for r in rows])
+    result = apply_cohort_correction(
+        dsrs, method=_MULTI_TEST_METHOD, alpha=_MULTI_TEST_ALPHA
+    )
+    return [
+        replace(
+            r,
+            multi_test_correction_method=_MULTI_TEST_METHOD,
+            multi_test_survives=bool(result.survives[i]),
+        )
+        for i, r in enumerate(rows)
+    ]
+
+
 def _persist(
     db: DatabaseManager,
     *,
@@ -218,6 +254,8 @@ def _persist(
                     oos_sharpe=r.oos_sharpe,
                     compute_seconds=r.compute_seconds,
                     is_top_k=r.is_top_k,
+                    multi_test_correction_method=r.multi_test_correction_method,
+                    multi_test_survives=r.multi_test_survives,
                 )
             )
         for w in walk_rows:
@@ -289,6 +327,13 @@ async def run_one_job(
     for t in top_k_rows:
         by_params[t.candidate_id] = t
     persisted_rows = [by_params[r.candidate_id] for r in search_rows]
+
+    # 2b. W10 multi-test correction across the full cohort. Tightens the
+    # OOS gate: with N parameter combinations, the chance ≥1 yields a
+    # false-positive DSR rises with N. BH-FDR (W10 Stream B) corrects.
+    # Annotate every row (not just top-K) so the audit log preserves the
+    # full cohort's correction context.
+    persisted_rows = _annotate_multi_test_correction(persisted_rows)
 
     # 3. Walk-forward over the top-K candidates only — re-materialise
     # the snapshot stream once and share across candidates (same

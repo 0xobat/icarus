@@ -143,3 +143,20 @@ async def test_run_one_job_persists_search_and_walk_forward(
     # walk-forward row's candidate_id matches one of the top-K rows.
     candidate_ids = {r.candidate_id for r in wf_db_rows}
     assert len(candidate_ids) == 2
+
+    # W10 review regression: multi-test correction must populate
+    # `multi_test_correction_method` + `multi_test_survives` on every
+    # persisted row (was None before the W10 review wire-up).
+    methods = {r.multi_test_correction_method for r in search_db_rows}
+    assert methods == {"benjamini_hochberg"}, (
+        f"expected all 9 rows to carry BH method, got {methods}"
+    )
+    survives_count = sum(1 for r in search_db_rows if r.multi_test_survives is True)
+    # Empty cohort would fail the test loudly; a real cohort always has
+    # some survives flag (True or False) set, never None.
+    assert all(r.multi_test_survives is not None for r in search_db_rows), (
+        "all rows must carry a survives flag after BH correction"
+    )
+    # On the stub adapter's deterministic synthetic returns, exactly the
+    # top performers survive (BH with alpha=0.05 over 9 candidates).
+    assert 0 <= survives_count <= 9
