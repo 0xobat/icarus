@@ -96,6 +96,62 @@ def test_lend_001_enters_when_apy_high(registry):
     assert decision.target_size == Decimal("1000")
 
 
+def test_lend_kamino_001_loads(registry):
+    assert "LEND-KAMINO-001" in registry
+    t = registry.by_id("LEND-KAMINO-001")
+    assert t.manifest.chain == "solana"
+    assert t.manifest.protocol == "kamino"
+    assert t.manifest.allocation_max == Decimal("0.70")
+    assert set(t.manifest.asset_universe) == {"USDC", "USDT", "SOL"}
+    assert set(t.manifest.params.keys()) == {
+        "apy_threshold",
+        "min_liquidity_usd",
+        "priority_fee_amortization_days",
+        "asset_variant",
+    }
+
+
+def test_lend_kamino_001_enters_when_apy_high(registry):
+    t = registry.by_id("LEND-KAMINO-001")
+    market = MarketSnapshot(
+        timestamp=datetime.now(UTC),
+        chain="solana",
+        prices={"USDC": Decimal("1.0"), "SOL": Decimal("150")},
+        apys={"kamino.usdc.solana": Decimal("0.065")},
+        pool_state={
+            "solana:kamino:usdc": PoolState(
+                pool_id="solana:kamino:usdc",
+                tvl=Decimal("8000000"),
+                depth=Decimal("200000"),
+                fees_24h=Decimal("500"),
+            )
+        },
+        gas_gwei=Decimal("0"),
+        metadata={
+            "priority_fees": {"solana_p50_microlamports": Decimal("50000")},
+        },
+    )
+    portfolio = PortfolioSnapshot(
+        nav_usd=Decimal("1000"),
+        positions={},
+        cash_usd=Decimal("1000"),
+        drawdown_from_peak=Decimal("0"),
+        last_rebalance=datetime.now(UTC),
+    )
+    decision = t.evaluate(
+        {
+            "apy_threshold": "0.04",
+            "min_liquidity_usd": "1000000",
+            "priority_fee_amortization_days": "7",
+            "asset_variant": "USDC",
+        },
+        market,
+        portfolio,
+    )
+    assert decision.action == "enter"
+    assert decision.target_size == Decimal("1000")
+
+
 def test_basis_perp_001_loads(registry):
     assert "BASIS-PERP-001" in registry
     t = registry.by_id("BASIS-PERP-001")

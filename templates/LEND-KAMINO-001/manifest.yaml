@@ -1,0 +1,77 @@
+id: LEND-KAMINO-001
+semver: 0.1.0
+title: Kamino stablecoin supply rotation on Solana
+
+chain: solana
+protocol: kamino
+asset_universe: [USDC, USDT, SOL]
+
+sources:
+  - type: code
+    ref: templates/LEND-001/
+    description: |
+      Solana analog of LEND-001. Same risk class (stablecoin supply
+      rotation on a blue-chip money market), different chain + venue.
+      LEND-001 hand-converted v4.2 Aave logic; this template mirrors
+      that shape against Kamino's reserves to isolate cross-chain risk
+      from cross-strategy risk in the v2 DSL's first real test.
+  - type: blog_url
+    ref: https://docs.kamino.finance/
+    description: |
+      Kamino Lend documentation. Reserve mechanics on Solana mirror
+      Aave V3 closely (supply/borrow APYs derived from utilization,
+      per-reserve TVL caps, oracle-priced collateral), so the LEND-001
+      logic transfers without structural changes.
+
+allocation_max: 0.70
+risk_profile: low
+sizing: risk_parity
+
+params:
+  apy_threshold:
+    kind: continuous
+    low: "0.005"
+    high: "0.100"
+    scale: log
+    default_steps: 10
+    description: |
+      Supply APY rotation threshold. Enter when best Kamino reserve
+      APY exceeds this; exit when it drops below. Log scale because
+      Solana stablecoin yields cluster low (1-3%) most of the year
+      with rare spikes — linear sampling wastes most steps on the
+      uninteresting upper half of the range.
+  min_liquidity_usd:
+    kind: grid
+    values: ["500000", "1000000", "2500000"]
+    description: |
+      Minimum reserve TVL to consider eligible. Lower = wider
+      universe but worse withdrawal-queue risk; higher = blue-chip
+      reserves only (USDC/USDT main). The 2.5M upper bucket is
+      tighter than LEND-001's 2M because Kamino's main-pool reserves
+      are typically deeper than Aave's Base reserves.
+  priority_fee_amortization_days:
+    kind: grid
+    values: ["3", "7", "14"]
+    description: |
+      Days within which estimated Solana priority-fee cost must be
+      recovered from APY delta. Replaces LEND-001's gas_amortization
+      (Solana priority fees are cheap and amortize fast, so the grid
+      shifts left: 3/7/14 vs Aave's 7/14/21).
+  asset_variant:
+    kind: categorical
+    choices: [USDC, USDT, SOL]
+    description: |
+      Which Solana asset to deploy. USDC + USDT are the canonical
+      stables (Circle and Tether); SOL is included because Kamino
+      SOL-reserve APY is occasionally competitive with stable yields
+      when MEV/staking dynamics drive supply demand.
+
+top_k: 5
+turnover_lambda: "0.05"
+walk_forward: [60, 15, 3]
+
+expected_metrics:
+  sharpe_min: "0.5"
+  max_dd_max: "0.05"
+  oos_sharpe_floor: "0.3"
+  expected_annual_return_pct: "0.045"
