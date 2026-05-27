@@ -10,13 +10,11 @@ the Drift market id (e.g. `drift:sol-perp`), per the v2 metadata-as-
 extension-hatch convention. Fixtures populate them directly.
 """
 
-import sys
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from icarus.types import MarketSnapshot, PortfolioSnapshot, Position
 
-_mod = sys.modules["icarus.templates.basis_sol_drift_001"]
 
 _SOL_VENUE = "drift:sol-perp"
 _ETH_VENUE = "drift:eth-perp"
@@ -73,7 +71,7 @@ def test_enter_when_funding_qualifies_and_streak_satisfied():
         "position_size_pct": "0.5",
         "asset_variant": "SOL",
     }
-    d = _mod.evaluate(params, _mk_market(funding=0.0001, streak=12), _mk_portfolio(cash=1000))
+    d = evaluate(params, _mk_market(funding=0.0001, streak=12), _mk_portfolio(cash=1000))
     assert d.action == "enter", f"expected enter, got {d.action}: {d.reasoning}"
     # 0.5 of cash $1000 = $500 per leg.
     assert d.target_size == Decimal("500.0"), f"size {d.target_size}"
@@ -86,7 +84,7 @@ def test_hold_when_funding_below_threshold_and_no_position():
         "min_funding_streak": "6",
         "asset_variant": "SOL",
     }
-    d = _mod.evaluate(params, _mk_market(funding=0.00001, streak=12), _mk_portfolio(cash=1000))
+    d = evaluate(params, _mk_market(funding=0.00001, streak=12), _mk_portfolio(cash=1000))
     assert d.action == "hold", f"expected hold, got {d.action}"
     assert "threshold" in d.reasoning
 
@@ -99,7 +97,7 @@ def test_hold_when_streak_insufficient_despite_high_funding():
         "min_funding_streak": "12",
         "asset_variant": "SOL",
     }
-    d = _mod.evaluate(params, _mk_market(funding=0.0005, streak=3), _mk_portfolio(cash=1000))
+    d = evaluate(params, _mk_market(funding=0.0005, streak=3), _mk_portfolio(cash=1000))
     assert d.action == "hold", f"expected hold (streak), got {d.action}"
     assert "streak" in d.reasoning
 
@@ -110,7 +108,7 @@ def test_exit_when_funding_drops_below_exit_threshold_with_open_position():
         "exit_funding_threshold": "0.000005",
         "asset_variant": "SOL",
     }
-    d = _mod.evaluate(
+    d = evaluate(
         params,
         _mk_market(funding=0.000001, streak=0),
         _mk_portfolio(with_position=True),
@@ -129,7 +127,7 @@ def test_eth_perp_variant_reads_eth_venue_key():
         "position_size_pct": "0.25",
         "asset_variant": "ETH",
     }
-    d = _mod.evaluate(
+    d = evaluate(
         params,
         _mk_market(funding=0.0002, streak=12, venue=_ETH_VENUE),
         _mk_portfolio(cash=1000),

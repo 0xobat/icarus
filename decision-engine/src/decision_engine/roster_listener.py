@@ -44,6 +44,15 @@ from icarus.db.notify import (
 )
 from sqlalchemy import select
 
+# Per-state cap multiplier — see blueprint §"Capital allocation":
+# live_capped is 0.5x the baseline cap stored on the row;
+# live_mature gets the full baseline. All other states never reach the
+# allocator (only LIVE_STATES are read), so their multiplier is academic.
+_STATE_CAP_MULTIPLIER: dict[str, Decimal] = {
+    "live_capped": Decimal("0.5"),
+    "live_mature": Decimal("1.0"),
+}
+
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import AsyncIterator
 
@@ -163,6 +172,15 @@ class RosterListener:
 
     @staticmethod
     def _row_to_entry(row: LakeRoster) -> RosterEntry:
+        # The DB stores the *baseline* allocation_max_pct (set when the
+        # candidate first entered paper_trade). The state machine does
+        # NOT mutate this field on promotion, so the listener projects
+        # the state-dependent cap multiplier into the value the
+        # allocator consumes. This is the blueprint's 0.5x capital-
+        # protection invariant for live_capped — without scaling here
+        # the allocator would size live_capped at the full cap.
+        baseline_max_pct = Decimal(str(row.allocation_max_pct))
+        multiplier = _STATE_CAP_MULTIPLIER.get(row.state, Decimal("1"))
         return RosterEntry(
             candidate_id=row.candidate_id,
             template_id=row.template_id,
@@ -170,7 +188,7 @@ class RosterListener:
             # Lake-governor enforces the state machine, so we trust the value.
             state=row.state,  # type: ignore[arg-type]
             allocation_usd=Decimal(str(row.allocation_usd)),
-            allocation_max_pct=Decimal(str(row.allocation_max_pct)),
+            allocation_max_pct=baseline_max_pct * multiplier,
             breaker_tripped=bool(row.breaker_tripped),
         )
 
@@ -233,9 +251,19 @@ class RosterListener:
         self._task = asyncio.create_task(_runner(), name="roster-listener")
 
     async def _listen_with_payload_type(self) -> AsyncIterator[LakeRosterChangedPayload]:
-        """Narrow the union returned by `notify.listen` to our payload type."""
+        """Narrow the union returned by `notify.listen` to our payload type.
+
+        Passes ``bootstrap`` as the ``on_connect`` callback so every
+        reconnect re-materialises the cache — closing the window
+        between asyncpg.connect and add_listener where a NOTIFY emitted
+        in-between would be dropped.
+        """
         assert self.connection_url is not None
-        async for payload in listen(self.connection_url, CHANNEL_LAKE_ROSTER_CHANGED):
+        async for payload in listen(
+            self.connection_url,
+            CHANNEL_LAKE_ROSTER_CHANGED,
+            on_connect=self.bootstrap,
+        ):
             # `notify.listen` is typed as the union of all payload models
             # because it serves both channels; runtime guard for safety.
             if isinstance(payload, LakeRosterChangedPayload):

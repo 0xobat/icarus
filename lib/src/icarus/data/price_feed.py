@@ -400,8 +400,11 @@ class PriceFeedManager:
                 "sources": sources,
             }
 
-        if results:
-            self._last_fetch_time = now_epoch
+        # Always advance the throttle, even when both upstreams failed.
+        # Otherwise a sustained outage means every caller of fetch_prices()
+        # re-hits both Alchemy and DefiLlama immediately, hammering them
+        # during the exact window they're already struggling.
+        self._last_fetch_time = now_epoch
 
         return results
 

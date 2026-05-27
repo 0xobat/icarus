@@ -167,8 +167,9 @@ class ExposureChecker:
 
     def check(self, order: ExecutionOrder, ctx: RiskContext) -> RiskDecision:
         # The limiter's check_order accepts a loose dict; translate from
-        # the typed envelope. The legacy keys it reads are
-        # strategy/protocol/chain/action/asset/amount_usd.
+        # the typed envelope. The legacy keys it reads (per
+        # ExposureLimiter.check_order docstring) are
+        # value_usd / protocol / asset.
         legacy = {
             "strategy": order.strategy,
             "protocol": order.protocol,
@@ -179,7 +180,7 @@ class ExposureChecker:
             # for the gate we conservatively treat it as USD. The allocator
             # already converted to dollar targets before constructing the
             # order, so this is the closest available proxy.
-            "amount_usd": float(order.params.amount or Decimal("0")),
+            "value_usd": float(order.params.amount or Decimal("0")),
         }
         result = self._limiter.check_order(legacy)
         # ExposureCheckResult has .allowed/.reason fields; older variants
@@ -284,9 +285,34 @@ class RiskGate:
         On failure, emits a structured log line so dropped orders are
         always traceable to the rejecting checker without re-running
         anything.
+
+        Fails closed on checker exceptions. A capital-protection gate
+        must not silently let an order through because a checker raised —
+        the cycle's outer ``except Exception`` would swallow the trace
+        and the order would never be published, but a future refactor
+        that moves the call out from under that catch-all would silently
+        pass orders. Translate exceptions to an explicit reject here.
         """
         for checker in self._checkers:
-            decision = checker.check(order, ctx)
+            try:
+                decision = checker.check(order, ctx)
+            except Exception as exc:
+                logger.error(
+                    "risk_gate_checker_exception",
+                    order_id=order.order_id,
+                    correlation_id=order.correlation_id,
+                    chain=order.chain,
+                    strategy=order.strategy,
+                    checker=getattr(checker, "name", checker.__class__.__name__),
+                    error_class=type(exc).__name__,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                return RiskDecision(
+                    passed=False,
+                    checker=getattr(checker, "name", checker.__class__.__name__),
+                    reason=f"checker_exception:{type(exc).__name__}:{exc}",
+                )
             if not decision.passed:
                 logger.warning(
                     "risk_gate_reject",

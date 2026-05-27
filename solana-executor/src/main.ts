@@ -21,48 +21,40 @@ import {
   SquadsSigner,
 } from "./wallet/squads.js";
 import { OrderProcessor, type AdapterRegistry } from "./processor.js";
+import { buildDefaultAdapters } from "./adapters/index.js";
 
 const SERVICE_NAME = "solana-executor";
 
 /**
- * Build the adapter registry by importing the Stream C barrel
- * (`./adapters/index.js`). If the barrel is missing — e.g. the two streams
- * have not yet merged — log a warning and return an empty registry. The
- * executor still boots; every order is dropped with a `failed` result
- * tagged "No adapter registered for protocol …".
+ * Strip the password component out of a Redis URL before logging.
+ * `redis://:secret@host:port` → `redis://:***@host:port`. Defensive on
+ * malformed URLs — never logs the original on parse failure.
  */
-export async function buildAdapterRegistry(
-  logger: Logger,
-): Promise<AdapterRegistry> {
-  const registry: AdapterRegistry = new Map();
+export function redactRedisUrl(url: string): string {
   try {
-    const mod = (await import("./adapters/index.js").catch(() => null)) as
-      | { ADAPTERS?: Record<string, unknown> }
-      | null;
-    if (mod === null || !mod.ADAPTERS) {
-      logger.warn({}, "adapter_registry_empty_no_barrel");
-      return registry;
-    }
-    const writable = registry as Map<string, AdapterRegistry extends ReadonlyMap<string, infer V> ? V : never>;
-    for (const [protocol, adapter] of Object.entries(mod.ADAPTERS)) {
-      if (
-        adapter &&
-        typeof adapter === "object" &&
-        typeof (adapter as { name?: unknown }).name === "string" &&
-        typeof (adapter as { buildInstructions?: unknown }).buildInstructions ===
-          "function"
-      ) {
-        writable.set(protocol, adapter as never);
-        logger.info({ protocol }, "adapter_registered");
-      } else {
-        logger.warn({ protocol }, "adapter_registry_invalid_export");
-      }
-    }
-  } catch (err) {
-    logger.error(
-      { err: err instanceof Error ? err.message : String(err) },
-      "adapter_registry_load_failed",
-    );
+    const parsed = new URL(url);
+    if (parsed.password) parsed.password = "***";
+    return parsed.toString();
+  } catch {
+    return "redis://[unparseable]";
+  }
+}
+
+/**
+ * Build the adapter registry, injecting the signer pubkey into every
+ * adapter that needs it. Required because Jupiter bakes the pubkey
+ * into the swap's ATAs and Kamino bakes it into the obligation owner —
+ * any default-constructed adapter would fail on-chain.
+ */
+export function buildAdapterRegistry(
+  signer: PublicKey,
+  logger: Logger,
+): AdapterRegistry {
+  const registry = new Map<string, AdapterRegistry extends ReadonlyMap<string, infer V> ? V : never>();
+  const adapters = buildDefaultAdapters({ signer });
+  for (const [protocol, adapter] of Object.entries(adapters)) {
+    registry.set(protocol, adapter as never);
+    logger.info({ protocol }, "adapter_registered");
   }
   return registry;
 }
@@ -99,10 +91,10 @@ export async function main(): Promise<void> {
 
   const redis = new Redis(redisUrl, { lazyConnect: true });
   await redis.connect();
-  logger.info({ url: redisUrl }, "redis_connected");
+  logger.info({ url: redactRedisUrl(redisUrl) }, "redis_connected");
 
   const publisher = new ResultsPublisher({ redis, logger });
-  const adapters = await buildAdapterRegistry(logger);
+  const adapters = buildAdapterRegistry(signer.signerPubkey, logger);
   const processor = new OrderProcessor({
     adapters,
     signer,

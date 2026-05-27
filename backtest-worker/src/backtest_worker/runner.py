@@ -380,15 +380,35 @@ async def run_one_job(
     return outcome
 
 
-def build_default_registry(templates_root: Path | None = None) -> TemplateRegistry:
+def build_default_registry(
+    templates_root: Path | None = None,
+    *,
+    db: DatabaseManager | None = None,
+) -> TemplateRegistry:
     """Construct the registry the worker uses by default.
 
-    Looks in ``./templates`` relative to the repo root unless overridden.
+    Resolution order: explicit ``templates_root`` argument >
+    ``TEMPLATES_DIR`` env var > ``/app/templates`` (docker WORKDIR default).
+    The env var name MUST match extractor-worker's writer so templates
+    written by one service are visible to the other — see
+    ``extractor_worker.writer.DEFAULT_TEMPLATES_DIR``.
+
     Smoke-test mode rides the registry default (``blocking`` as of W4 per
     the blueprint's "smoke test enforcement turned on in registry loader"
     milestone). A template that fails its smoke test is rejected outright.
+
+    When ``db`` is provided, the registry consults
+    ``templates.judge_verdict`` and refuses to load any REJECT'd
+    template. The worker entrypoint always passes ``db``; the no-arg
+    path stays for tests that point at a hand-built templates dir
+    without a live DB.
     """
-    root = templates_root or Path("templates")
-    registry = TemplateRegistry(root)
+    import os
+
+    from icarus.dsl import build_db_verdict_lookup
+
+    root = templates_root or Path(os.environ.get("TEMPLATES_DIR", "/app/templates"))
+    verdict_lookup = build_db_verdict_lookup(db) if db is not None else None
+    registry = TemplateRegistry(root, verdict_lookup=verdict_lookup)
     registry.load()
     return registry

@@ -398,3 +398,113 @@ def lint_evaluate_py(path: Path) -> LintReport:
         )
 
     return LintReport(path=path, issues=tuple(visitor.issues))
+
+
+# ---------------------------------------------------------------------------
+# smoke_test.py linter — narrower allowlist; no required `evaluate()`.
+# ---------------------------------------------------------------------------
+
+# Smoke tests legitimately need only assert + numerical fixtures + the DSL
+# contract types. Pandas is allowed in evaluate.py but smoke tests rarely
+# need it, so drop it to shrink the attack surface.
+ALLOWED_SMOKE_IMPORTS: frozenset[str] = frozenset(
+    {
+        "math",
+        "decimal",
+        "datetime",
+        "typing",
+        "collections",
+        "collections.abc",
+        "dataclasses",
+        "enum",
+        "functools",
+        "itertools",
+        "statistics",
+        "numpy",
+        "icarus.types",
+    }
+)
+
+
+class _SmokeLintVisitor(_LintVisitor):
+    """Same forbidden-builtin/attr rules; different import allowlist and
+    function-shape rule (require ≥1 `test_*` function, no `evaluate`).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._test_count = 0
+
+    @staticmethod
+    def _is_allowed_import(name: str) -> bool:
+        if not name:
+            return False
+        if name in ALLOWED_SMOKE_IMPORTS:
+            return True
+        for allowed in ALLOWED_SMOKE_IMPORTS:
+            if name.startswith(f"{allowed}."):
+                return True
+        return False
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        # Skip the parent's `evaluate`-shape check; smoke tests don't
+        # define `evaluate`. Count `test_*` functions instead.
+        if node.name.startswith("test_"):
+            self._test_count += 1
+        # Walk children so nested forbidden constructs still trip.
+        self.generic_visit(node)
+
+
+def lint_smoke_test_py(path: Path) -> LintReport:
+    """Lint a single smoke_test.py file.
+
+    Same forbidden-builtin / forbidden-dunder / forbidden-module rules as
+    ``lint_evaluate_py`` (the file runs in-process at registry load time,
+    same threat model). Differences:
+
+      * Import allowlist is tighter — pandas is removed, and the rest is
+        same as evaluate.
+      * Function-shape rule requires ≥1 ``test_*`` function instead of
+        exactly one ``evaluate()``.
+
+    Without this lint, an extractor-emitted smoke_test.py could carry
+    top-level ``import os; os.system(...)`` past the write-time syntax
+    check and execute during ``TemplateRegistry._run_smoke``, which fires
+    at startup of decision-engine, lake-governor, and backtest-worker.
+    """
+
+    source = path.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(source, filename=str(path))
+    except SyntaxError as e:
+        return LintReport(
+            path=path,
+            issues=(
+                LintIssue(
+                    severity="error",
+                    line=e.lineno or 0,
+                    col=e.offset or 0,
+                    code="L000",
+                    message=f"syntax error: {e.msg}",
+                ),
+            ),
+        )
+
+    visitor = _SmokeLintVisitor()
+    visitor.visit(tree)
+
+    if visitor._test_count == 0:
+        visitor.issues.append(
+            LintIssue(
+                severity="error",
+                line=0,
+                col=0,
+                code="L021",
+                message=(
+                    "smoke_test.py defines no `test_*` functions — "
+                    "the registry has nothing to run"
+                ),
+            )
+        )
+
+    return LintReport(path=path, issues=tuple(visitor.issues))

@@ -32,7 +32,12 @@ from extractor_worker.pipeline import ExtractedTemplate
 
 _logger = structlog.get_logger(service="extractor.writer")
 
-DEFAULT_TEMPLATES_DIR = Path(os.environ.get("TEMPLATES_DIR", "templates"))
+# Absolute default so containers under WORKDIR=/app and local-dev callers
+# from any CWD resolve to the same directory. Operators in non-docker
+# environments override via the TEMPLATES_DIR env var. Both extractor-worker
+# (writer) and backtest-worker (registry loader) must use the same value or
+# templates written by one are invisible to the other.
+DEFAULT_TEMPLATES_DIR = Path(os.environ.get("TEMPLATES_DIR", "/app/templates"))
 
 
 class TemplateWriteError(RuntimeError):

@@ -3,11 +3,13 @@
  *
  * The orders processor (Stream B) looks an adapter up by name and calls
  * `buildInstructions(order, connection)`. Adding a new venue is a one-line
- * change to {@link ADAPTERS} below — the processor stays agnostic.
+ * change to {@link buildDefaultAdapters} below — the processor stays agnostic.
  *
  * v1 venues: Jupiter (swap), Kamino (deposit/withdraw).
  * v2+ (deferred per blueprint W10): Drift, MarginFi.
  */
+
+import type { PublicKey } from "@solana/web3.js";
 
 import { JupiterAdapter } from "./jupiter.js";
 import { KaminoAdapter } from "./kamino.js";
@@ -22,32 +24,35 @@ export type {
   ExecutionOrderLimits,
 } from "./types.js";
 
-/**
- * Default lazily-constructed adapter map. Built once on first access so that
- * tests can `import { ADAPTERS }` without paying for adapter construction
- * at module-load time.
- *
- * Note: KaminoAdapter is constructed without an `owner` here — the processor
- * is expected to inject its own KaminoAdapter instance once it knows the
- * Squads vault PDA. This default exists only so a smoke-test routing call
- * (`loadAdapter('kamino')`) returns something rather than throwing.
- */
-export const ADAPTERS: Readonly<Record<string, SolanaAdapter>> = Object.freeze({
-  jupiter: new JupiterAdapter(),
-  kamino: new KaminoAdapter(),
-});
+/** Options for {@link buildDefaultAdapters}. */
+export interface BuildAdaptersOptions {
+  /**
+   * Pubkey that owns the on-chain side effects of every order built by
+   * the resulting adapters — the Squads vault PDA in production, the
+   * member keypair pubkey in single-signer fallback. Required because
+   * Jupiter bakes it into the ATAs it derives and Kamino bakes it into
+   * the obligation owner field; either built with a placeholder would
+   * fail on-chain.
+   */
+  readonly signer: PublicKey;
+}
 
 /**
- * Look up an adapter by name. Throws if `name` is not a known v1 adapter.
- * Use lowercase identifiers (`jupiter`, `kamino`); these match the
- * `protocol` field on v2 ExecutionOrders.
+ * Build the v1 adapter map, injecting the runtime signer pubkey into
+ * every adapter that needs it. The processor's {@link AdapterRegistry}
+ * is constructed from the entries of this object.
+ *
+ * Replaces the module-level `ADAPTERS` constant — that earlier shape
+ * created Jupiter with a SystemProgram placeholder and Kamino without
+ * an owner, both of which guaranteed on-chain failure. There is no
+ * useful "default-constructed" adapter; construction requires the
+ * signer pubkey.
  */
-export function loadAdapter(name: string): SolanaAdapter {
-  const adapter = ADAPTERS[name];
-  if (!adapter) {
-    throw new Error(
-      `loadAdapter: unknown adapter '${name}' (known: ${Object.keys(ADAPTERS).join(", ")})`,
-    );
-  }
-  return adapter;
+export function buildDefaultAdapters(
+  opts: BuildAdaptersOptions,
+): Readonly<Record<string, SolanaAdapter>> {
+  return Object.freeze({
+    jupiter: new JupiterAdapter({ userPublicKey: opts.signer }),
+    kamino: new KaminoAdapter({ owner: opts.signer }),
+  });
 }

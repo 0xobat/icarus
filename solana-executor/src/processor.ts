@@ -112,8 +112,13 @@ export class OrderProcessor {
         signature: outcome.signature,
         slot: outcome.slot,
         compute_units_consumed: null,
-        priority_fee_lamports:
-          order.solana_specific?.compute_unit_price ?? null,
+        // Schema is "total priority fee paid in lamports". Computing
+        // that needs `compute_units_consumed` (which we don't fetch
+        // post-confirm yet) multiplied by `compute_unit_price`
+        // (microlamports/CU) divided by 1e6. Writing the rate here
+        // misreports the field by ~6 orders of magnitude, so we leave
+        // it null until a post-confirm tx parse lands.
+        priority_fee_lamports: null,
       },
       fill_price: null,
       amount_out: null,

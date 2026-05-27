@@ -130,3 +130,47 @@ def test_gate_exposes_checker_tuple():
     a, b = _AlwaysPass("a"), _AlwaysPass("b")
     gate = RiskGate([a, b])
     assert gate.checkers == (a, b)
+
+
+# ─── W12 review regressions ────────────────────────────────────────────────
+
+
+@dataclass
+class _Raising:
+    """Test double whose check() raises — proves the gate fails closed."""
+
+    name: str
+
+    def check(self, order, ctx):
+        raise KeyError("simulated dict-key contract drift")
+
+
+def test_gate_fails_closed_when_checker_raises():
+    """W12 review #2 defense-in-depth: a checker exception must translate
+    to a REJECT, never bubble up to a caller's catch-all where it would
+    be swallowed and the order silently approved on the next attempt."""
+    gate = RiskGate([_AlwaysPass("a"), _Raising("b"), _AlwaysPass("c")])
+    verdict = gate.check(_order(), _ctx())
+    assert verdict.passed is False
+    assert verdict.checker == "b"
+    assert "checker_exception" in verdict.reason
+    assert "KeyError" in verdict.reason
+
+
+def test_exposure_checker_uses_value_usd_key_not_amount_usd():
+    """W12 review #2 root cause: ExposureChecker previously wrote
+    `amount_usd` while ExposureLimiter.check_order reads `value_usd`,
+    raising KeyError and silently bypassing the gate via the cycle's
+    outer except. Pin the exact key so a future rename trips here loudly.
+    """
+    from decision_engine.risk.exposure_limits import ExposureLimiter
+    from decision_engine.risk_gate import ExposureChecker
+
+    limiter = ExposureLimiter(total_capital=Decimal("10000"))
+    checker = ExposureChecker(limiter)
+    # Should NOT raise KeyError. With $100 order against $10k capital
+    # the proportion is 1%, well under default 40% protocol limit.
+    verdict = checker.check(_order(), _ctx())
+    assert verdict.passed is True, (
+        f"exposure gate must allow a 1% order; got reject: {verdict.reason}"
+    )

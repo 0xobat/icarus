@@ -20,11 +20,19 @@ All DB writes wrap sync SQLAlchemy sessions inside :func:`asyncio.to_thread`
 to keep the lake-governor event loop responsive — same pattern as
 ``lake_governor.state_machine``.
 
-Reply syntax (case-insensitive on the verb, sensitive on the slug)::
+Reply syntax (case-insensitive on the verb)::
 
-    APPROVE c-7af3
-    REJECT c-7af3 returns concentrated in 4-day window
-    approve c-7af3
+    APPROVE tok-42
+    REJECT tok-42 returns concentrated in 4-day window
+    approve tok-42
+
+The ``tok-<id>`` slug is the integer ``DiscordReplyToken.id`` printed
+in the outbound promotion-request message. Earlier the reply syntax
+was ``APPROVE <candidate_id>``, but the bot itself broadcast the
+candidate id in the same message — any reader of the channel could
+echo it, satisfying the regex without ever holding a per-request
+secret. The token-id form requires the reply to reference the
+SPECIFIC pending request, not just the candidate (see W12 review).
 
 Anything else returns ``None`` from ``match_reply``.
 """
@@ -83,24 +91,37 @@ class ReplyTokenMatch:
 
 # ─── Reply parsing ──────────────────────────────────────────────────────────
 
-# ``^(APPROVE|REJECT) <candidate_id> [reason...]$``
+# ``^(APPROVE|REJECT) tok-<id> [reason...]$``
 # - Verb is case-insensitive (we ``.upper()`` after parsing).
-# - Candidate id matches ``[\w-]+`` so canonical ``c-7af3`` style works,
-#   but doesn't accidentally swallow surrounding punctuation.
+# - Token id is the durable per-request identifier (``DiscordReplyToken.id``
+#   prefixed with ``tok-``). Earlier shape was ``APPROVE <candidate_id>``,
+#   which let any reader of the broadcast message satisfy the regex with
+#   no per-request secret — flagged in the W12 review as auth bypass.
+#   Using ``tok-<id>`` means the reply must reference the SPECIFIC pending
+#   request, not just the candidate.
 # - Reason is optional; APPROVE typically has none, REJECT typically has one.
+TOKEN_SLUG_PREFIX: Final[str] = "tok-"
+
+
+def format_token_slug(token_id: int) -> str:
+    """Render the operator-facing token slug for ``DiscordReplyToken.id``."""
+    return f"{TOKEN_SLUG_PREFIX}{token_id}"
+
+
 _REPLY_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"^(?P<verb>APPROVE|REJECT)\s+(?P<candidate_id>[\w-]+)(?:\s+(?P<reason>.+))?$",
+    r"^(?P<verb>APPROVE|REJECT)\s+tok-(?P<token_id>\d+)(?:\s+(?P<reason>.+))?$",
     re.IGNORECASE | re.DOTALL,
 )
 
 
-def _parse_reply(message: str) -> tuple[Verdict, str, str | None] | None:
+def _parse_reply(message: str) -> tuple[Verdict, int, str | None] | None:
     """Parse an operator reply.
 
-    Returns ``(verdict, candidate_id, reason)`` if the message matches the
+    Returns ``(verdict, token_id, reason)`` if the message matches the
     accepted shape, else ``None``. ``verdict`` is normalized to
     ``"approved"`` / ``"rejected"`` to match the persisted ``reply_verdict``
-    column values.
+    column values. ``token_id`` is the integer ``DiscordReplyToken.id``
+    parsed from the ``tok-<n>`` slug.
     """
     stripped = message.strip()
     if not stripped:
@@ -109,12 +130,15 @@ def _parse_reply(message: str) -> tuple[Verdict, str, str | None] | None:
     if match is None:
         return None
     verb = match.group("verb").upper()
-    candidate_id = match.group("candidate_id")
+    try:
+        token_id = int(match.group("token_id"))
+    except ValueError:
+        return None
     reason = match.group("reason")
     verdict: Verdict = "approved" if verb == "APPROVE" else "rejected"
     if reason is not None:
         reason = reason.strip() or None
-    return verdict, candidate_id, reason
+    return verdict, token_id, reason
 
 
 # ─── Store ──────────────────────────────────────────────────────────────────
@@ -157,19 +181,23 @@ class ReplyTokenStore:
         )
 
     async def match_reply(self, *, message: str) -> ReplyTokenMatch | None:
-        """Parse ``message`` and resolve it against a pending token.
+        """Parse ``message`` and resolve it against the pending token by id.
 
         Returns the match (with the row updated to its terminal state) on
         success; ``None`` if the message doesn't parse or no pending
-        token for the referenced candidate exists.
+        token with the referenced ``tok-<id>`` exists.
+
+        The token-id lookup (vs. the prior candidate-id lookup) is what
+        makes the reply unforgeable by a non-allowlist reader of the
+        broadcast message — see W12 review §"Discord auth bypass".
         """
         parsed = _parse_reply(message)
         if parsed is None:
             logger.debug("reply_tokens.match.no_parse", message_prefix=message[:80])
             return None
-        verdict, candidate_id, reason = parsed
+        verdict, token_id, reason = parsed
         return await asyncio.to_thread(
-            self._sync_match_reply, candidate_id, verdict, reason, message
+            self._sync_match_reply, token_id, verdict, reason, message
         )
 
     async def expire_stale(
@@ -217,19 +245,20 @@ class ReplyTokenStore:
 
     def _sync_match_reply(
         self,
-        candidate_id: str,
+        token_id: int,
         verdict: Verdict,
         reason: str | None,
         raw_message: str,
     ) -> ReplyTokenMatch | None:
         now = datetime.now(UTC)
         with self._db.get_session() as session:
-            row = self._most_recent_pending(session, candidate_id)
-            if row is None:
+            row = session.get(DiscordReplyToken, token_id)
+            if row is None or row.status != "pending":
                 logger.info(
                     "reply_tokens.match.no_pending_token",
-                    candidate_id=candidate_id,
+                    token_id=token_id,
                     verdict=verdict,
+                    actual_status=row.status if row is not None else None,
                 )
                 return None
             row.status = verdict
@@ -242,7 +271,7 @@ class ReplyTokenStore:
         logger.info(
             "reply_tokens.matched",
             token_id=snap.id,
-            candidate_id=candidate_id,
+            candidate_id=snap.candidate_id,
             verdict=verdict,
             has_reason=reason is not None,
         )

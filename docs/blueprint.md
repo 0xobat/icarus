@@ -343,15 +343,16 @@ Curation owns candidate lifecycle: paper-trade observation, lake state machine, 
 - **Promotion-approval message schema (week 7):**
   ```
   [PROMOTION REQUEST]
+  token: tok-42
   template: BASIS-PERP-001
   candidate: c-7af3
   paper-trade Sharpe: 1.42 (window: 21 days)
   paper-trade MaxDD: 4.1%
   proposed allocation: $2,500 (capped at 0.5 × allocation_max)
   llm-advisor: "78% of returns came in a 4-day window of abnormally negative ETH funding. Regime-conditional, may not generalize."
-  reply with: APPROVE c-7af3   or   REJECT c-7af3 <reason>
+  reply with: APPROVE tok-42   or   REJECT tok-42 <reason>
   ```
-  Reply tokens are matched against the most recent unanswered PROMOTION REQUEST per candidate; a 24h timeout on reply means the request expires and must be re-issued. The `llm-advisor` line is enrichment from the Curation-cluster advisor; operator decision is not bound by it.
+  Reply tokens are matched by id (the `tok-<n>` slug shown in the request — `DiscordReplyToken.id`), not by candidate slug. The token-id form is what makes the reply unforgeable by other readers of the broadcast channel; combined with the `DISCORD_OPERATOR_USER_IDS` author allowlist (post-W12 security review), only an allowlisted author replying with the specific token id can authorize the promotion. A 24h timeout on reply means the request expires and must be re-issued. The `llm-advisor` line is enrichment from the Curation-cluster advisor; operator decision is not bound by it.
 
 ### Execution cluster components
 

@@ -185,3 +185,29 @@ def test_bootstrap_loads_all_rows():
     asyncio.run(listener.bootstrap())
     ids = {e.candidate_id for e in listener.cache.all()}
     assert ids == {"A", "B"}
+
+
+# ─── W12 review #9 regression ─────────────────────────────────────────────
+
+
+def test_live_capped_cap_is_halved_at_read_time():
+    """W12 review #9: ``live_capped`` candidates must surface 0.5x the
+    baseline ``allocation_max_pct`` to the allocator. The state machine
+    leaves the baseline on the row; the listener applies the multiplier
+    when materialising RosterEntry. ``live_mature`` keeps the full cap.
+    """
+    import asyncio
+
+    db = _FakeDB(
+        rows={
+            "CAPPED": _row_dict("CAPPED", "live_capped"),
+            "MATURE": _row_dict("MATURE", "live_mature"),
+        }
+    )
+    listener = RosterListener(db=db)  # type: ignore[arg-type]
+    asyncio.run(listener.bootstrap())
+    by_id = {e.candidate_id: e for e in listener.cache.all()}
+    # Baseline on every test row is 0.1; live_capped projects to 0.05,
+    # live_mature stays at 0.1.
+    assert by_id["CAPPED"].allocation_max_pct == Decimal("0.05")
+    assert by_id["MATURE"].allocation_max_pct == Decimal("0.1")

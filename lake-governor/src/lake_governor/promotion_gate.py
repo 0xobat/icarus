@@ -53,7 +53,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lake_governor.paper_trade import OBSERVATION_WINDOW_DAYS
-from lake_governor.state_machine import CandidateStateMachine
+from lake_governor.state_machine import CandidateStateMachine, InvalidTransitionError
 
 __all__ = [
     "CandidateEligibility",
@@ -392,7 +392,37 @@ class PromotionGate:
             if verdict == "APPROVE":
                 sm = self._sm_factory(match.candidate_id)
                 reason = f"discord_approval_{match.token_id}"
-                result = await sm.promote_to_live_capped(reason=reason)
+                # Per-reply error isolation: a candidate may have been
+                # demoted (CB / decay) between request and reply, in
+                # which case promote_to_live_capped raises
+                # InvalidTransitionError. Without the catch, one stale
+                # reply would break the loop and drop every remaining
+                # reply in the batch. Any other exception (DB error,
+                # etc.) is also isolated — the operator can always
+                # re-issue an APPROVE if it wasn't applied.
+                try:
+                    result = await sm.promote_to_live_capped(reason=reason)
+                except InvalidTransitionError as exc:
+                    logger.warning(
+                        "promotion_approve_stale_state",
+                        candidate_id=match.candidate_id,
+                        template_id=match.template_id,
+                        token_id=match.token_id,
+                        reason=reason,
+                        error=str(exc),
+                    )
+                    continue
+                except Exception as exc:
+                    logger.exception(
+                        "promotion_approve_failed",
+                        candidate_id=match.candidate_id,
+                        template_id=match.template_id,
+                        token_id=match.token_id,
+                        reason=reason,
+                        error_class=type(exc).__name__,
+                        error=str(exc),
+                    )
+                    continue
                 logger.info(
                     "promotion_approved",
                     candidate_id=match.candidate_id,

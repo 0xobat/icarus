@@ -134,21 +134,30 @@ class TestCriticalThreshold:
 
 
 # ---------------------------------------------------------------------------
-# Boundary: exactly 20% must NOT trigger critical (spec says >20%)
+# Boundary: exactly 20% MUST trigger critical (inclusive threshold).
+# Earlier the implementation used strict `>` and exactly-20% only fired
+# the softer warning level — flagged in the W12 review as a
+# capital-protection boundary gap. The threshold is now `>=`.
 # ---------------------------------------------------------------------------
 class TestCriticalBoundary:
 
-    def test_exactly_20pct_does_not_trigger_critical(self) -> None:
+    def test_exactly_20pct_triggers_critical(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
         b.update(Decimal("8000"))  # exactly 20%
-        assert not b.trading_halted
-        assert not b.should_unwind_all()
+        assert b.trading_halted
+        assert b.should_unwind_all()
 
     def test_just_over_20pct_triggers_critical(self) -> None:
         b = _make_breaker(initial_value=Decimal("10000"))
         b.update(Decimal("7999"))  # 20.01%
         assert b.trading_halted
         assert b.should_unwind_all()
+
+    def test_just_under_20pct_warning_only(self) -> None:
+        b = _make_breaker(initial_value=Decimal("10000"))
+        b.update(Decimal("8001"))  # 19.99%
+        assert not b.trading_halted
+        assert b.entries_paused  # warning level still fires at 15%+
 
 
 # ---------------------------------------------------------------------------

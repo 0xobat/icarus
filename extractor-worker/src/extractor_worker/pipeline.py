@@ -34,7 +34,7 @@ from pathlib import Path
 
 import structlog
 import yaml
-from icarus.dsl.linter import lint_evaluate_py
+from icarus.dsl.linter import lint_evaluate_py, lint_smoke_test_py
 from icarus.dsl.manifest import TemplateManifest
 from pydantic import ValidationError
 
@@ -177,16 +177,29 @@ def _validate_evaluate(evaluate_py: str) -> None:
 
 
 def _validate_smoke_test_syntax(smoke_test_py: str) -> None:
-    """Confirm smoke_test.py parses as Python. Execution is deferred to
-    the writer (after files land on disk, behind the registry loader's
-    smoke-test runner)."""
-    import ast
+    """Lint smoke_test.py against the DSL allowlist before it lands on disk.
 
+    Earlier this only ``ast.parse``'d the source — that catches syntax
+    errors but happily admits e.g. top-level ``import os; os.system(...)``,
+    which the registry then executes at startup (RCE on the service UID).
+    Run the full AST lint here so a prompt-injected payload trips during
+    extraction and surfaces back into the repair loop, never reaching the
+    on-disk template tree.
+    """
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(smoke_test_py)
+        tmp_path = Path(f.name)
     try:
-        ast.parse(smoke_test_py)
-    except SyntaxError as e:
-        msg = f"smoke_test.py SyntaxError L{e.lineno}: {e.msg}"
-        raise ValueError(msg) from e
+        report = lint_smoke_test_py(tmp_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    if not report.ok:
+        lines = [
+            f"  {i.code} L{i.line}:{i.col} — {i.message}" for i in report.errors
+        ]
+        msg = "smoke_test.py failed AST lint:\n" + "\n".join(lines)
+        raise ValueError(msg)
 
 
 def _validate_all(files: dict[str, str], expected_template_id: str) -> TemplateManifest:

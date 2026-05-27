@@ -2,8 +2,14 @@
 
 Closes the W8 gap where ``PromotionGate.poll_replies`` ran against an
 empty generator. This module pulls inbound operator messages
-(``APPROVE c-abc`` / ``REJECT c-abc <reason>``) from a Discord text
+(``APPROVE tok-<id>`` / ``REJECT tok-<id> <reason>``) from a Discord text
 channel via the bot REST API and feeds them to the gate's reply parser.
+
+Authentication contract (W12 review #2): only messages whose
+``author.id`` is in ``DISCORD_OPERATOR_USER_IDS`` are forwarded. An
+empty allowlist is fail-closed — the inbox drops every message and
+no promotion can be authorized through Discord until the operator
+populates the env var.
 
 Design notes
 ============
@@ -66,6 +72,12 @@ def _state_path_from_env() -> Path:
     return Path(raw) if raw else _DEFAULT_STATE_PATH
 
 
+def _operator_ids_from_env() -> frozenset[str]:
+    """Parse ``DISCORD_OPERATOR_USER_IDS`` (comma-separated allowlist)."""
+    raw = os.environ.get("DISCORD_OPERATOR_USER_IDS", "")
+    return frozenset(p.strip() for p in raw.split(",") if p.strip())
+
+
 class DiscordInbox:
     """Polling reader for a single Discord text channel.
 
@@ -81,10 +93,21 @@ class DiscordInbox:
         channel_id: str | None = None,
         poll_interval_seconds: int = 30,
         http_client: httpx.AsyncClient | None = None,
+        operator_user_ids: frozenset[str] | None = None,
     ) -> None:
         self._bot_token = bot_token or os.environ.get("DISCORD_BOT_TOKEN")
         self._channel_id = channel_id or os.environ.get("DISCORD_CHANNEL_ID")
         self._poll_interval_seconds = max(1, int(poll_interval_seconds))
+        # Operator allowlist — messages from authors NOT in this set are
+        # filtered out before reaching the reply parser. Empty allowlist
+        # means no inbound message can authorize a promotion (fail-closed);
+        # the operator MUST set DISCORD_OPERATOR_USER_IDS to receive any
+        # APPROVE/REJECT. See W12 review #2 (Discord auth bypass).
+        self._operator_user_ids = (
+            operator_user_ids
+            if operator_user_ids is not None
+            else _operator_ids_from_env()
+        )
         # Optional injection for tests — production constructs its own
         # client per ``listen()`` call so the connection lifecycle is
         # tied to the iterator.
@@ -170,6 +193,24 @@ class DiscordInbox:
                 content = (msg.get("content") or "").strip()
                 message_id = msg.get("id")
                 if not message_id or not content:
+                    continue
+                # Operator allowlist — every reply that authorizes a
+                # promotion must come from a known operator user id.
+                # The bot literally prints the candidate id it expects
+                # back, so without this filter any writer in the channel
+                # (second bot, drifted permissions, compromised non-
+                # operator account) could echo APPROVE and cause real
+                # capital to move. Fail-closed on empty allowlist —
+                # the operator must explicitly set
+                # DISCORD_OPERATOR_USER_IDS to receive any reply.
+                author_id = str((msg.get("author") or {}).get("id", ""))
+                if not author_id or author_id not in self._operator_user_ids:
+                    logger.warning(
+                        "discord_inbox.non_operator_dropped",
+                        message_id=str(message_id),
+                        author_id=author_id or "<missing>",
+                        content_preview=content[:80],
+                    )
                     continue
                 yield (str(message_id), content)
 

@@ -183,13 +183,24 @@ Before flipping to live capital, the operator should verify:
   - `ALCHEMY_API_KEY` + `WALLET_PRIVATE_KEY` + `SAFE_ADDRESS` + `CONTRACT_ALLOWLIST` (Base)
   - `HELIUS_API_KEY` + `SOLANA_MEMBER_KEYPAIR_PATH` (Solana)
   - `DISCORD_WEBHOOK_URL` + `DISCORD_BOT_TOKEN` + `DISCORD_CHANNEL_ID`
+  - `DISCORD_OPERATOR_USER_IDS` (**post-W12.2 security gate** — empty
+    allowlist is fail-closed; no Discord reply can authorize a promotion
+    until at least one operator user id is listed)
+  - `DECISION_ENGINE_TOTAL_CAPITAL_USD` (**post-W12.1 required** —
+    decision-engine refuses to boot without it; this is the NAV
+    denominator the exposure limiter divides by)
   - `DUNE_API_KEY`
 - [ ] `docker compose up -d --wait` brings full stack to healthy
 - [ ] `bash harness/verify.sh` reports 19/1/0 (or 20/0/0 if docker is up — cluster-isolation step transitions from skip to pass)
 - [ ] `bash harness/signing_dryrun.sh` Phase 2+3 PASS with real keys
 - [ ] `python -m extractor_worker.enqueue paper_pdf <real-paper>` and watch the cycle: template lands, top-K → paper-trade in <5d
+  - Note: post-W12.2, the registry refuses templates whose plausibility
+    judge wrote `judge_verdict=REJECT`. Inspect any rejected template
+    via the webapp before re-extracting.
 - [ ] After 14d of paper-trade observation, watch for the first
-      PROMOTION REQUEST in Discord; reply APPROVE; watch
+      PROMOTION REQUEST in Discord (now includes a `token: tok-<id>`
+      line — see blueprint §"Promotion-approval message schema"); reply
+      `APPROVE tok-<id>` from an allowlisted operator account; watch
       `lake_roster_changed` fire; watch decision-engine pick up the
       candidate; watch the first real ExecutionOrder publish
 

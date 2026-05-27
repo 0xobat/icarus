@@ -38,6 +38,7 @@ import os
 import signal
 import sys
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
@@ -47,6 +48,7 @@ from icarus.allocator import ComposedAllocator
 from icarus.allocator.types import RosterEntry as AllocatorRosterEntry
 from icarus.data_adapters import build_default_adapter
 from icarus.db.database import DatabaseConfig, DatabaseManager
+from icarus.dsl import build_db_verdict_lookup
 from icarus.dsl.registry import TemplateRegistry
 from icarus.regime import RulesRegimeClassifier
 
@@ -162,14 +164,39 @@ async def _amain() -> int:
     db = DatabaseManager(db_config)
     db.create_tables()
 
-    template_root = Path(os.environ.get("TEMPLATE_ROOT", "templates"))
-    registry = TemplateRegistry(template_root)
+    # TEMPLATES_DIR is the canonical name shared with extractor-worker
+    # writer and backtest-worker registry loader. TEMPLATE_ROOT is kept
+    # as a backward-compat fallback. Absolute default matches the docker
+    # WORKDIR mount in docker-compose.
+    template_root = Path(
+        os.environ.get("TEMPLATES_DIR")
+        or os.environ.get("TEMPLATE_ROOT")
+        or "/app/templates"
+    )
+    # verdict_lookup blocks REJECT-judged templates from loading. The
+    # plausibility judge persists its verdict on the templates row at
+    # extraction time; the loader must consult it before exec_module.
+    registry = TemplateRegistry(
+        template_root, verdict_lookup=build_db_verdict_lookup(db)
+    )
     registry.load()
 
     # Risk modules — instantiated with defaults; production config wires
     # in env-driven thresholds via each module's `*Config` dataclass.
     drawdown = DrawdownBreaker()
-    exposure = ExposureLimiter()
+    # ExposureLimiter requires the operator-declared total capital. The
+    # check_order math divides by it, so a missing/zero value would either
+    # crash at construction or silently no-op the limit; we fail loudly
+    # on missing env so an operator never starts the engine with a
+    # silently-disabled exposure gate.
+    total_capital_raw = os.environ.get("DECISION_ENGINE_TOTAL_CAPITAL_USD")
+    if not total_capital_raw:
+        raise RuntimeError(
+            "DECISION_ENGINE_TOTAL_CAPITAL_USD is required — the exposure "
+            "limiter divides by it to compute per-protocol / per-asset "
+            "ratios. Set it in .env to the live NAV ceiling (e.g. 10000)."
+        )
+    exposure = ExposureLimiter(total_capital=Decimal(total_capital_raw))
     gas_spike = GasSpikeBreaker()
     position_loss = PositionLossLimit()
     tx_failure = TxFailureMonitor()

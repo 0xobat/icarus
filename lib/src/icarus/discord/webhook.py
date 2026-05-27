@@ -26,7 +26,11 @@ from decimal import Decimal
 import httpx
 import structlog
 
-from icarus.discord.reply_tokens import ReplyToken, ReplyTokenStore
+from icarus.discord.reply_tokens import (
+    ReplyToken,
+    ReplyTokenStore,
+    format_token_slug,
+)
 
 logger = structlog.get_logger(service="discord", component="webhook")
 
@@ -219,6 +223,7 @@ class WebhookPoster:
             kind="promotion_request",
         )
         content = _format_promotion_request(
+            token_slug=format_token_slug(token.id),
             template_id=template_id,
             candidate_id=candidate_id,
             paper_sharpe=paper_sharpe,
@@ -237,6 +242,7 @@ class WebhookPoster:
 
 def _format_promotion_request(
     *,
+    token_slug: str,
     template_id: str,
     candidate_id: str,
     paper_sharpe: float,
@@ -247,9 +253,13 @@ def _format_promotion_request(
     llm_advisor_text: str | None,
 ) -> str:
     """Render the PROMOTION REQUEST block per the blueprint."""
-    # Blueprint format (docs/blueprint.md ~line 342-354).
+    # Blueprint format (docs/blueprint.md ~line 342-354). The reply
+    # instruction uses the per-request token slug, not the candidate
+    # id, so a reader of the broadcast cannot satisfy the reply parser
+    # by echoing the candidate slug alone — see W12 review #2.
     lines = [
         "[PROMOTION REQUEST]",
+        f"token: {token_slug}",
         f"template: {template_id}",
         f"candidate: {candidate_id}",
         f"paper-trade Sharpe: {paper_sharpe:.2f} (window: {observation_days} days)",
@@ -265,6 +275,6 @@ def _format_promotion_request(
         flat = " ".join(llm_advisor_text.split())
         lines.append(f'llm-advisor: "{flat}"')
     lines.append(
-        f"reply with: APPROVE {candidate_id}   or   REJECT {candidate_id} <reason>"
+        f"reply with: APPROVE {token_slug}   or   REJECT {token_slug} <reason>"
     )
     return "\n".join(lines)

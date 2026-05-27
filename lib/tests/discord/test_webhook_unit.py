@@ -181,8 +181,14 @@ async def test_post_promotion_request_creates_token_and_posts(db_manager):
     assert "$5,000" in content
     assert "llm-advisor:" in content
     assert "78% of returns" in content
-    assert "APPROVE c-7af3" in content
-    assert "REJECT c-7af3" in content
+    # Reply instruction now references the per-request token slug, not
+    # the candidate id — W12 review #2 (a reader of the broadcast must
+    # not be able to satisfy the reply parser by echoing the candidate
+    # slug alone).
+    expected_slug = f"tok-{token.id}"
+    assert f"token: {expected_slug}" in content
+    assert f"APPROVE {expected_slug}" in content
+    assert f"REJECT {expected_slug}" in content
 
     await client.aclose()
 

@@ -20,7 +20,12 @@ ever emitted. Bump the manifest's `semver` field on any breaking change
 and provide a migration in the registry loader.
 """
 
-from icarus.dsl.linter import LintIssue, LintReport, lint_evaluate_py
+from icarus.dsl.linter import (
+    LintIssue,
+    LintReport,
+    lint_evaluate_py,
+    lint_smoke_test_py,
+)
 from icarus.dsl.manifest import (
     CategoricalParam,
     ContinuousParam,
@@ -30,7 +35,7 @@ from icarus.dsl.manifest import (
     Source,
     TemplateManifest,
 )
-from icarus.dsl.registry import Template, TemplateRegistry
+from icarus.dsl.registry import Template, TemplateRegistry, VerdictLookup
 
 __all__ = [
     "CategoricalParam",
@@ -44,5 +49,38 @@ __all__ = [
     "Template",
     "TemplateManifest",
     "TemplateRegistry",
+    "VerdictLookup",
+    "build_db_verdict_lookup",
     "lint_evaluate_py",
+    "lint_smoke_test_py",
 ]
+
+
+def build_db_verdict_lookup(db) -> VerdictLookup:  # type: ignore[no-untyped-def]
+    """Build a VerdictLookup that reads ``templates.judge_verdict`` from
+    the DatabaseManager. Cached per-call inside the closure so a single
+    registry load fires one SELECT instead of N.
+
+    The import is lazy + db is untyped here so this module stays free
+    of a hard dependency on `icarus.db` (kept importable in test
+    contexts that don't have a DB stack wired).
+    """
+    from sqlalchemy import select
+
+    from icarus.db.models import Template as TemplateRow
+
+    cache: dict[str, str | None] | None = None
+
+    def _lookup(template_id: str) -> str | None:
+        nonlocal cache
+        if cache is None:
+            cache = {}
+            with db.get_session() as session:
+                rows = session.execute(
+                    select(TemplateRow.template_id, TemplateRow.judge_verdict)
+                ).all()
+                for tid, verdict in rows:
+                    cache[tid] = verdict
+        return cache.get(template_id)
+
+    return _lookup

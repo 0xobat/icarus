@@ -10,13 +10,11 @@ as `fees_24h * 365 / tvl`; the fixtures pick fees/tvl pairs that imply
 the yield we want to test.
 """
 
-import sys
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from icarus.types import MarketSnapshot, PoolState, PortfolioSnapshot, Position
 
-_mod = sys.modules["icarus.templates.lp_aero_001"]
 
 _POOL_KEY = "base:aerodrome:usdc-usdbc"
 
@@ -76,7 +74,7 @@ def test_enter_when_fee_yield_above_threshold_and_tvl_ok():
         "min_pool_tvl_usd": "2000000",
         "gas_amortization_days": "7",
     }
-    d = _mod.evaluate(
+    d = evaluate(
         params, _mk_market(fee_yield_apr=0.18, tvl=8_000_000), _mk_portfolio(cash=1000)
     )
     assert d.action == "enter", f"expected enter, got {d.action}: {d.reasoning}"
@@ -88,7 +86,7 @@ def test_hold_when_fee_yield_below_threshold_and_no_position():
         "fee_yield_threshold": "0.15",
         "min_pool_tvl_usd": "2000000",
     }
-    d = _mod.evaluate(
+    d = evaluate(
         params, _mk_market(fee_yield_apr=0.08, tvl=8_000_000), _mk_portfolio(cash=1000)
     )
     assert d.action == "hold", f"expected hold, got {d.action}"
@@ -100,7 +98,7 @@ def test_exit_when_fee_yield_collapses_with_open_position():
         "fee_yield_threshold": "0.10",
         "min_pool_tvl_usd": "2000000",
     }
-    d = _mod.evaluate(
+    d = evaluate(
         params,
         _mk_market(fee_yield_apr=0.03, tvl=8_000_000),
         _mk_portfolio(with_position=True),
@@ -118,7 +116,7 @@ def test_exit_on_capital_flight_when_tvl_drops_below_floor():
     }
     # TVL is 1M (below 5M floor) but the implied yield is high — capital
     # flight signal must dominate.
-    d = _mod.evaluate(
+    d = evaluate(
         params,
         _mk_market(fee_yield_apr=0.30, tvl=1_000_000),
         _mk_portfolio(with_position=True),
@@ -134,7 +132,7 @@ def test_hold_when_gas_amortization_exceeds_limit():
         "min_pool_tvl_usd": "2000000",
         "gas_amortization_days": "1",
     }
-    d = _mod.evaluate(
+    d = evaluate(
         params,
         _mk_market(fee_yield_apr=0.06, tvl=8_000_000, gas=500),
         _mk_portfolio(cash=1000),

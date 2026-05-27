@@ -116,6 +116,26 @@ export class SquadsSigner {
   }
 
   /**
+   * Pubkey adapters should bake into instructions as the swap/deposit
+   * owner (Jupiter `userPublicKey`, Kamino obligation `owner`, etc.).
+   *
+   * In single-signer fallback this is the member keypair's pubkey.
+   * In multisig mode this would be the Squads vault PDA (derived from
+   * `multisigPda` + the vault seed) — but the multisig sign path is
+   * stubbed in W7 v1, so we throw here too. When the operator wires
+   * the real Squads SDK in {@link proposeAndExecute}, return the vault
+   * PDA from this getter at the same time.
+   */
+  get signerPubkey(): PublicKey {
+    if (this.multisigPda === null) return this.memberKeypair.publicKey;
+    throw new Error(
+      "SquadsSigner.signerPubkey: multisig vault PDA derivation is not " +
+        "implemented in W7 v1 — wire @sqds/multisig vault-PDA derivation " +
+        "alongside the proposeAndExecute multisig path.",
+    );
+  }
+
+  /**
    * Build a Squads proposal (or single-signer tx) containing `instructions`,
    * sign with the member keypair, broadcast, and wait for confirmation.
    *

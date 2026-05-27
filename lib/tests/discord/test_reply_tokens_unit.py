@@ -83,14 +83,15 @@ async def test_match_reply_approves_pending_token(db_manager, store):
         kind="promotion_request",
     )
 
-    match = await store.match_reply(message="APPROVE c-abc")
+    reply = f"APPROVE tok-{token.id}"
+    match = await store.match_reply(message=reply)
 
     assert match is not None
     assert match.verdict == "approved"
     assert match.reason is None
     assert match.token.id == token.id
     assert match.token.status == "approved"
-    assert match.token.reply_message == "APPROVE c-abc"
+    assert match.token.reply_message == reply
     assert match.token.reply_verdict == "approved"
     assert match.token.replied_at is not None
 
@@ -113,7 +114,7 @@ async def test_match_reply_rejects_with_reason(db_manager, store):
     )
 
     reason_text = "returns concentrated in 4-day window"
-    match = await store.match_reply(message=f"REJECT c-abc {reason_text}")
+    match = await store.match_reply(message=f"REJECT tok-{token.id} {reason_text}")
 
     assert match is not None
     assert match.verdict == "rejected"
@@ -126,50 +127,14 @@ async def test_match_reply_rejects_with_reason(db_manager, store):
 
 @pytest.mark.asyncio
 async def test_match_reply_case_insensitive_verb(store):
-    await store.create_pending(
+    token = await store.create_pending(
         candidate_id="c-xyz",
         template_id="LEND-001",
         kind="promotion_request",
     )
-    match = await store.match_reply(message="approve c-xyz")
+    match = await store.match_reply(message=f"approve tok-{token.id}")
     assert match is not None
     assert match.verdict == "approved"
-
-
-@pytest.mark.asyncio
-async def test_match_reply_matches_most_recent_pending(db_manager, store):
-    """Two pending tokens for the same candidate → most recent wins."""
-    older = await store.create_pending(
-        candidate_id="c-abc",
-        template_id="LEND-001",
-        kind="promotion_request",
-    )
-    # Backdate the older token by 1h so order-by-created_at-desc is unambiguous.
-    with db_manager.get_session() as session:
-        row = session.scalar(
-            select(DiscordReplyToken).where(DiscordReplyToken.id == older.id)
-        )
-        assert row is not None
-        row.created_at = row.created_at - timedelta(hours=1)
-        session.commit()
-
-    newer = await store.create_pending(
-        candidate_id="c-abc",
-        template_id="LEND-001",
-        kind="promotion_request",
-    )
-
-    match = await store.match_reply(message="APPROVE c-abc")
-    assert match is not None
-    assert match.token.id == newer.id
-
-    # Older token remains pending.
-    with db_manager.get_session() as session:
-        row = session.scalar(
-            select(DiscordReplyToken).where(DiscordReplyToken.id == older.id)
-        )
-        assert row is not None
-        assert row.status == "pending"
 
 
 # ─── match_reply: negative cases ────────────────────────────────────────────
@@ -177,42 +142,44 @@ async def test_match_reply_matches_most_recent_pending(db_manager, store):
 
 @pytest.mark.asyncio
 async def test_match_reply_returns_none_for_junk_message(store):
-    await store.create_pending(
+    token = await store.create_pending(
         candidate_id="c-abc",
         template_id="LEND-001",
         kind="promotion_request",
     )
     assert await store.match_reply(message="lol") is None
     assert await store.match_reply(message="") is None
-    assert await store.match_reply(message="approve") is None  # no candidate id
-    assert await store.match_reply(message="MAYBE c-abc") is None  # bad verb
+    assert await store.match_reply(message="approve") is None  # no token id
+    assert await store.match_reply(message=f"MAYBE tok-{token.id}") is None  # bad verb
+    # Bare candidate id (the old, broken form) no longer matches —
+    # the parser now requires the tok-<id> slug per W12 review #2.
+    assert await store.match_reply(message="APPROVE c-abc") is None
 
 
 @pytest.mark.asyncio
-async def test_match_reply_returns_none_when_candidate_has_no_pending_token(store):
+async def test_match_reply_returns_none_when_token_id_unknown(store):
     await store.create_pending(
         candidate_id="c-abc",
         template_id="LEND-001",
         kind="promotion_request",
     )
-    # Different candidate id → no pending token.
-    assert await store.match_reply(message="APPROVE x-no-such-token") is None
+    # Unknown token id (the persisted token's id will be 1, not 9999).
+    assert await store.match_reply(message="APPROVE tok-9999") is None
 
 
 @pytest.mark.asyncio
 async def test_match_reply_returns_none_after_token_already_terminal(
     db_manager, store
 ):
-    """Once approved/rejected, the same candidate's token won't re-match."""
-    await store.create_pending(
+    """Once approved/rejected, replaying the same tok-<id> reply won't re-match."""
+    token = await store.create_pending(
         candidate_id="c-abc",
         template_id="LEND-001",
         kind="promotion_request",
     )
-    first = await store.match_reply(message="APPROVE c-abc")
+    first = await store.match_reply(message=f"APPROVE tok-{token.id}")
     assert first is not None
-    # Now there are no more pending tokens for c-abc.
-    second = await store.match_reply(message="APPROVE c-abc")
+    second = await store.match_reply(message=f"APPROVE tok-{token.id}")
     assert second is None
 
 
@@ -271,12 +238,12 @@ async def test_expire_stale_idempotent_when_no_stale_tokens(store):
 @pytest.mark.asyncio
 async def test_expire_stale_does_not_touch_already_terminal_rows(db_manager, store):
     """Approved tokens stay approved; only pending rows can be swept."""
-    await store.create_pending(
+    token = await store.create_pending(
         candidate_id="c-abc",
         template_id="LEND-001",
         kind="promotion_request",
     )
-    await store.match_reply(message="APPROVE c-abc")
+    await store.match_reply(message=f"APPROVE tok-{token.id}")
 
     # Even with a far-future cutoff, the approved row is untouched.
     far_future = datetime.now(UTC) + timedelta(days=365)

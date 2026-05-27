@@ -80,7 +80,9 @@ python -m extractor_worker.enqueue paper_pdf path/to/paper.pdf   # or blog_url <
 # 5. Watch
 open http://localhost:3000    # webapp insight UI
 open http://localhost:3001    # Grafana dashboards
-# Discord channel receives PROMOTION REQUEST after 14d paper-trade observation
+# Discord channel receives PROMOTION REQUEST after 14d paper-trade observation.
+# Reply: `APPROVE tok-<id>` (token id is printed in the request). Only authors
+# whose user-id is in DISCORD_OPERATOR_USER_IDS can authorize a promotion.
 ```
 
 ## Reference templates
@@ -103,12 +105,15 @@ Per `docs/W12-go-no-go.md`. The build is structurally complete; the remaining
 gates are operator-side, not code-side:
 
 - [ ] `git push origin daedalus`
-- [ ] Fill `.env` with real keys
+- [ ] Fill `.env` with real keys, including post-security-review additions:
+  - `DECISION_ENGINE_TOTAL_CAPITAL_USD` — required; decision-engine fails to boot without it (exposure limiter divides by this)
+  - `DISCORD_OPERATOR_USER_IDS` — required for any Discord reply to authorize anything (empty allowlist is fail-closed)
+  - `DISCORD_BOT_TOKEN` + `DISCORD_CHANNEL_ID` — required for the reply-ingestion long-poll path
 - [ ] `docker compose up -d --wait` reports all healthy
 - [ ] `bash harness/verify.sh` → 19/1/0 (or 20/0/0 with docker up)
 - [ ] `bash harness/signing_dryrun.sh` Phase 2+3 PASS with real keys
-- [ ] Enqueue first real paper; verify top-K → paper-trade in <5d
-- [ ] Wait 14d for paper-trade observation; APPROVE first PROMOTION REQUEST in Discord
+- [ ] Enqueue first real paper; verify top-K → paper-trade in <5d. Note: templates with `judge_verdict=REJECT` are refused at load time; inspect any rejection in the webapp before re-extracting.
+- [ ] Wait 14d for paper-trade observation; reply `APPROVE tok-<id>` to the first PROMOTION REQUEST in Discord from an allowlisted operator account
 
 ## Conventions
 

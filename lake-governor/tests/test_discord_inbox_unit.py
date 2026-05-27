@@ -26,6 +26,17 @@ import json
 import httpx
 from lake_governor.discord_inbox import DiscordInbox, make_listener_function
 
+# W12 review #2: every inbound message must carry an operator-allowlisted
+# author.id or it is dropped before reaching the reply parser. Tests run
+# with a single allowlisted id and stamp every fixture message with it.
+OPERATOR_ID = "111111111111111111"
+ALLOWLIST = frozenset({OPERATOR_ID})
+
+
+def _msg(id_: str, content: str, *, author: str = OPERATOR_ID) -> dict:
+    """Shape one Discord-API-style message fixture."""
+    return {"id": id_, "content": content, "author": {"id": author}}
+
 
 def _json_response(payload: list[dict], headers: dict[str, str] | None = None):
     return httpx.Response(
@@ -37,6 +48,12 @@ def _json_response(payload: list[dict], headers: dict[str, str] | None = None):
 
 def _make_transport(handler):
     return httpx.MockTransport(handler)
+
+
+def _inbox(**kwargs) -> DiscordInbox:
+    """Construct an inbox with the test allowlist applied by default."""
+    kwargs.setdefault("operator_user_ids", ALLOWLIST)
+    return DiscordInbox(**kwargs)
 
 
 # ─── (a) Unconfigured inbox is a silent no-op ────────────────────────────────
@@ -71,8 +88,8 @@ async def test_messages_since_yields_two_messages_in_oldest_first_order():
     # Discord returns newest-first; ids are snowflakes (monotonic) so
     # the inbox must reverse the list before yielding.
     payload = [
-        {"id": "200", "content": "REJECT c-002 returns concentrated"},
-        {"id": "100", "content": "APPROVE c-001"},
+        _msg("200", "REJECT tok-2 returns concentrated"),
+        _msg("100", "APPROVE tok-1"),
     ]
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -81,16 +98,14 @@ async def test_messages_since_yields_two_messages_in_oldest_first_order():
         return _json_response(payload, headers={"X-RateLimit-Remaining": "4"})
 
     async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
-        inbox = DiscordInbox(
-            bot_token="TOKEN", channel_id="CHAN", http_client=client
-        )
+        inbox = _inbox(bot_token="TOKEN", channel_id="CHAN", http_client=client)
         out: list[tuple[str, str]] = []
         async for item in inbox.messages_since(None):
             out.append(item)
 
     assert out == [
-        ("100", "APPROVE c-001"),
-        ("200", "REJECT c-002 returns concentrated"),
+        ("100", "APPROVE tok-1"),
+        ("200", "REJECT tok-2 returns concentrated"),
     ]
 
 
@@ -98,21 +113,19 @@ async def test_messages_since_skips_empty_content():
     # Embeds / attachments arrive with empty ``content`` — the inbox
     # should drop them rather than feed empty strings to the parser.
     payload = [
-        {"id": "300", "content": "   "},
-        {"id": "200", "content": ""},
-        {"id": "100", "content": "APPROVE c-x"},
+        _msg("300", "   "),
+        _msg("200", ""),
+        _msg("100", "APPROVE tok-1"),
     ]
 
     def handler(request: httpx.Request) -> httpx.Response:
         return _json_response(payload)
 
     async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
-        inbox = DiscordInbox(
-            bot_token="T", channel_id="C", http_client=client
-        )
+        inbox = _inbox(bot_token="T", channel_id="C", http_client=client)
         out = [item async for item in inbox.messages_since(None)]
 
-    assert out == [("100", "APPROVE c-x")]
+    assert out == [("100", "APPROVE tok-1")]
 
 
 # ─── (c) listen() persists the latest message id ────────────────────────────
@@ -121,8 +134,8 @@ async def test_messages_since_skips_empty_content():
 async def test_listen_persists_latest_message_id(tmp_path):
     """After draining one batch, the state file holds the newest id."""
     payload = [
-        {"id": "500", "content": "APPROVE c-zzz"},
-        {"id": "400", "content": "REJECT c-yyy bad fill"},
+        _msg("500", "APPROVE tok-5"),
+        _msg("400", "REJECT tok-4 bad fill"),
     ]
     state_path = tmp_path / "subdir" / "seen.txt"
     # ``listen()`` would loop forever; we drive it through two anext
@@ -139,7 +152,7 @@ async def test_listen_persists_latest_message_id(tmp_path):
         return _json_response([])
 
     async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
-        inbox = DiscordInbox(
+        inbox = _inbox(
             bot_token="T",
             channel_id="C",
             poll_interval_seconds=1,
@@ -157,8 +170,8 @@ async def test_listen_persists_latest_message_id(tmp_path):
             pass
         await agen.aclose()
 
-    assert first == "REJECT c-yyy bad fill"
-    assert second == "APPROVE c-zzz"
+    assert first == "REJECT tok-4 bad fill"
+    assert second == "APPROVE tok-5"
     assert state_path.exists()
     assert state_path.read_text(encoding="utf-8").strip() == "500"
 
@@ -175,7 +188,7 @@ async def test_listen_stops_on_401_auth_error(tmp_path, caplog):
         return httpx.Response(401, content=b"{}", headers={"content-type": "application/json"})
 
     async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
-        inbox = DiscordInbox(
+        inbox = _inbox(
             bot_token="BAD",
             channel_id="C",
             poll_interval_seconds=1,
@@ -195,9 +208,7 @@ async def test_messages_since_403_stops_without_yielding():
         return httpx.Response(403, content=b"{}", headers={"content-type": "application/json"})
 
     async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
-        inbox = DiscordInbox(
-            bot_token="T", channel_id="C", http_client=client
-        )
+        inbox = _inbox(bot_token="T", channel_id="C", http_client=client)
         out = [item async for item in inbox.messages_since(None)]
         # Sentinel is set so the listen() wrapper can stop.
         assert inbox._auth_failed is True
@@ -217,7 +228,7 @@ async def test_messages_since_sleeps_when_rate_limit_exhausted(monkeypatch):
 
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
-    payload = [{"id": "1", "content": "APPROVE c-z"}]
+    payload = [_msg("1", "APPROVE tok-9")]
 
     def handler(request: httpx.Request) -> httpx.Response:
         return _json_response(
@@ -229,12 +240,10 @@ async def test_messages_since_sleeps_when_rate_limit_exhausted(monkeypatch):
         )
 
     async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
-        inbox = DiscordInbox(
-            bot_token="T", channel_id="C", http_client=client
-        )
+        inbox = _inbox(bot_token="T", channel_id="C", http_client=client)
         out = [item async for item in inbox.messages_since(None)]
 
-    assert out == [("1", "APPROVE c-z")]
+    assert out == [("1", "APPROVE tok-9")]
     # Backoff sleep was triggered with the advertised reset_after.
     assert 2.0 in sleeps
 
@@ -249,14 +258,12 @@ async def test_messages_since_does_not_sleep_when_remaining_positive(monkeypatch
 
     def handler(request: httpx.Request) -> httpx.Response:
         return _json_response(
-            [{"id": "1", "content": "APPROVE c-x"}],
+            [_msg("1", "APPROVE tok-3")],
             headers={"X-RateLimit-Remaining": "3", "X-RateLimit-Reset-After": "5"},
         )
 
     async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
-        inbox = DiscordInbox(
-            bot_token="T", channel_id="C", http_client=client
-        )
+        inbox = _inbox(bot_token="T", channel_id="C", http_client=client)
         _ = [item async for item in inbox.messages_since(None)]
 
     # No rate-limit sleep was triggered (only the inner poll-loop sleep
@@ -275,9 +282,7 @@ async def test_messages_since_passes_after_cursor():
         return _json_response([])
 
     async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
-        inbox = DiscordInbox(
-            bot_token="T", channel_id="C", http_client=client
-        )
+        inbox = _inbox(bot_token="T", channel_id="C", http_client=client)
         _ = [item async for item in inbox.messages_since("999")]
 
     assert "after=999" in seen_url["q"]
@@ -291,9 +296,7 @@ async def test_messages_since_swallows_transport_errors():
         raise httpx.ConnectError("simulated network failure")
 
     async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
-        inbox = DiscordInbox(
-            bot_token="T", channel_id="C", http_client=client
-        )
+        inbox = _inbox(bot_token="T", channel_id="C", http_client=client)
         out = [item async for item in inbox.messages_since(None)]
 
     assert out == []
@@ -306,3 +309,64 @@ async def test_make_listener_function_returns_none_when_unconfigured():
     inbox = DiscordInbox(bot_token=None, channel_id=None)
     listener = make_listener_function(inbox)
     assert await listener() is None
+
+
+# ─── W12 review #2 regressions: operator allowlist + fail-closed ───────────
+
+
+async def test_messages_since_drops_non_allowlist_author():
+    """A message from a non-allowlisted author is dropped before yield."""
+    # Discord returns newest-first; the inbox reverses to yield oldest-first.
+    payload = [
+        _msg("300", "APPROVE tok-3", author=OPERATOR_ID),
+        _msg("200", "APPROVE tok-2", author="999999999"),  # not in allowlist
+        _msg("100", "APPROVE tok-1", author=OPERATOR_ID),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _json_response(payload)
+
+    async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
+        inbox = _inbox(bot_token="T", channel_id="C", http_client=client)
+        out = [item async for item in inbox.messages_since(None)]
+
+    assert out == [
+        ("100", "APPROVE tok-1"),
+        ("300", "APPROVE tok-3"),
+    ]
+
+
+async def test_messages_since_fail_closed_when_allowlist_empty():
+    """Empty allowlist means every message is dropped — never authorize."""
+    payload = [_msg("100", "APPROVE tok-1", author=OPERATOR_ID)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _json_response(payload)
+
+    async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
+        inbox = DiscordInbox(
+            bot_token="T",
+            channel_id="C",
+            http_client=client,
+            operator_user_ids=frozenset(),  # explicit empty allowlist
+        )
+        out = [item async for item in inbox.messages_since(None)]
+
+    assert out == []
+
+
+async def test_messages_since_drops_message_missing_author_id():
+    """A message with no author field at all is dropped (malformed input)."""
+    payload = [
+        {"id": "100", "content": "APPROVE tok-1"},  # no author key
+        {"id": "200", "content": "APPROVE tok-2", "author": {}},  # author with no id
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _json_response(payload)
+
+    async with httpx.AsyncClient(transport=_make_transport(handler)) as client:
+        inbox = _inbox(bot_token="T", channel_id="C", http_client=client)
+        out = [item async for item in inbox.messages_since(None)]
+
+    assert out == []

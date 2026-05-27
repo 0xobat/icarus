@@ -10,13 +10,11 @@ v2 metadata-as-extension-hatch convention; the smoke test fixtures
 populate them directly.
 """
 
-import sys
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from icarus.types import MarketSnapshot, PortfolioSnapshot, Position
 
-_mod = sys.modules["icarus.templates.basis_perp_001"]
 
 _VENUE_KEY = "synthetix_perps_base:eth-usd"
 
@@ -70,7 +68,7 @@ def test_enter_when_funding_qualifies_and_streak_satisfied():
         "min_funding_streak": "3",
         "position_size_pct": "0.5",
     }
-    d = _mod.evaluate(params, _mk_market(funding=0.0002, streak=6), _mk_portfolio(cash=1000))
+    d = evaluate(params, _mk_market(funding=0.0002, streak=6), _mk_portfolio(cash=1000))
     assert d.action == "enter", f"expected enter, got {d.action}: {d.reasoning}"
     # 0.5 of cash $1000 = $500 per leg.
     assert d.target_size == Decimal("500.0"), f"size {d.target_size}"
@@ -82,7 +80,7 @@ def test_hold_when_funding_below_threshold_and_no_position():
         "exit_funding_threshold": "0.00001",
         "min_funding_streak": "3",
     }
-    d = _mod.evaluate(params, _mk_market(funding=0.00005, streak=6), _mk_portfolio(cash=1000))
+    d = evaluate(params, _mk_market(funding=0.00005, streak=6), _mk_portfolio(cash=1000))
     assert d.action == "hold", f"expected hold, got {d.action}"
     assert "threshold" in d.reasoning
 
@@ -94,7 +92,7 @@ def test_hold_when_streak_insufficient_despite_high_funding():
         "exit_funding_threshold": "0.00001",
         "min_funding_streak": "6",
     }
-    d = _mod.evaluate(params, _mk_market(funding=0.0010, streak=2), _mk_portfolio(cash=1000))
+    d = evaluate(params, _mk_market(funding=0.0010, streak=2), _mk_portfolio(cash=1000))
     assert d.action == "hold", f"expected hold (streak), got {d.action}"
     assert "streak" in d.reasoning
 
@@ -104,7 +102,7 @@ def test_exit_when_funding_drops_below_exit_threshold_with_open_position():
         "funding_threshold": "0.0001",
         "exit_funding_threshold": "0.00001",
     }
-    d = _mod.evaluate(
+    d = evaluate(
         params, _mk_market(funding=0.000005, streak=0), _mk_portfolio(with_position=True)
     )
     assert d.action == "exit", f"expected exit, got {d.action}: {d.reasoning}"
@@ -118,7 +116,7 @@ def test_hold_with_open_position_when_funding_still_above_exit_threshold():
         "exit_funding_threshold": "0.00005",
     }
     # Funding at 0.0001 — above exit but below re-entry. Should hold the open trade.
-    d = _mod.evaluate(
+    d = evaluate(
         params, _mk_market(funding=0.0001, streak=10), _mk_portfolio(with_position=True)
     )
     assert d.action == "hold", f"expected hold (hysteresis band), got {d.action}"

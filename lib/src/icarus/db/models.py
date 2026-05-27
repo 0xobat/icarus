@@ -511,10 +511,11 @@ class PaperTradeState(Base):
 # =============================================================================
 # Per blueprint §"Operator alerts": the lake-governor's promotion gate posts
 # a structured PROMOTION REQUEST to the operator's Discord webhook, then
-# waits for an "APPROVE c-xxx" / "REJECT c-xxx <reason>" reply. The reply-
-# token row threads the request ↔ reply correlation; pending tokens older
-# than DISCORD_REPLY_TOKEN_TIMEOUT_HOURS are swept to "expired" by the
-# governor's tick loop so a stale gate never blocks the cycle.
+# waits for an "APPROVE tok-<id>" / "REJECT tok-<id> <reason>" reply where
+# <id> is this table's primary key (printed back in the broadcast message).
+# The reply-token row threads the request ↔ reply correlation; pending
+# tokens older than DISCORD_REPLY_TOKEN_TIMEOUT_HOURS are swept to "expired"
+# by the governor's tick loop so a stale gate never blocks the cycle.
 #
 # Status state machine (enforced in Python, not via CHECK constraint to
 # stay portable between SQLite/Postgres):

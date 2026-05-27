@@ -11,14 +11,11 @@ the v2 metadata-as-extension-hatch convention (Stream A is extending the
 MarketSnapshot metadata schema with this key).
 """
 
-import sys
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from icarus.types import MarketSnapshot, PoolState, PortfolioSnapshot, Position
 
-# Resolve the synthetic module the registry created for our evaluate.py.
-_mod = sys.modules["icarus.templates.lend_kamino_001"]
 
 
 def _mk_market(
@@ -75,20 +72,20 @@ def test_enter_when_apy_above_threshold_and_tvl_ok():
         "priority_fee_amortization_days": "7",
         "asset_variant": "USDC",
     }
-    d = _mod.evaluate(params, _mk_market(apy=0.06, tvl=5_000_000), _mk_portfolio(cash=1000))
+    d = evaluate(params, _mk_market(apy=0.06, tvl=5_000_000), _mk_portfolio(cash=1000))
     assert d.action == "enter", f"expected enter, got {d.action}: {d.reasoning}"
     assert d.target_size == Decimal("1000")
 
 
 def test_hold_when_apy_below_threshold_and_no_position():
     params = {"apy_threshold": "0.05", "asset_variant": "USDC"}
-    d = _mod.evaluate(params, _mk_market(apy=0.03), _mk_portfolio(cash=1000))
+    d = evaluate(params, _mk_market(apy=0.03), _mk_portfolio(cash=1000))
     assert d.action == "hold", f"expected hold, got {d.action}"
 
 
 def test_exit_when_apy_drops_below_threshold_with_open_position():
     params = {"apy_threshold": "0.05", "asset_variant": "USDC"}
-    d = _mod.evaluate(params, _mk_market(apy=0.02), _mk_portfolio(with_position=True))
+    d = evaluate(params, _mk_market(apy=0.02), _mk_portfolio(with_position=True))
     assert d.action == "exit", f"expected exit, got {d.action}"
 
 
@@ -98,7 +95,7 @@ def test_hold_when_tvl_below_min_liquidity():
         "min_liquidity_usd": "10000000",
         "asset_variant": "USDC",
     }
-    d = _mod.evaluate(params, _mk_market(apy=0.06, tvl=2_000_000), _mk_portfolio(cash=1000))
+    d = evaluate(params, _mk_market(apy=0.06, tvl=2_000_000), _mk_portfolio(cash=1000))
     assert d.action == "hold", f"expected hold (tvl-limited), got {d.action}"
     assert "tvl" in d.reasoning
 
@@ -113,7 +110,7 @@ def test_hold_when_priority_fee_amortization_exceeds_limit():
         "priority_fee_amortization_days": "1",
         "asset_variant": "USDC",
     }
-    d = _mod.evaluate(
+    d = evaluate(
         params,
         _mk_market(apy=0.012, priority_fee_microlamports=5e13),
         _mk_portfolio(cash=1000),

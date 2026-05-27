@@ -38,6 +38,7 @@ from icarus.db.database import DatabaseConfig, DatabaseManager
 from icarus.db.models import Candidate as CandidateRow
 from icarus.db.models import LakeRoster
 from icarus.discord import ReplyTokenStore, WebhookPoster
+from icarus.dsl import build_db_verdict_lookup
 from icarus.dsl.registry import TemplateRegistry
 from sqlalchemy import select
 
@@ -188,8 +189,10 @@ async def _amain() -> int:
     db = DatabaseManager(db_config)
     db.create_tables()
 
-    templates_root = Path(os.environ.get("TEMPLATES_DIR", "templates"))
-    registry = TemplateRegistry(templates_root)
+    templates_root = Path(os.environ.get("TEMPLATES_DIR", "/app/templates"))
+    registry = TemplateRegistry(
+        templates_root, verdict_lookup=build_db_verdict_lookup(db)
+    )
     registry.load()
 
     adapter = build_default_adapter()

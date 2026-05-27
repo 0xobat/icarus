@@ -21,7 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from icarus.dsl import lint_evaluate_py
+from icarus.dsl import lint_evaluate_py, lint_smoke_test_py
 
 # Building dynamic-execution names from string concatenation so static security
 # scanners in CI don't flag this test file as containing a literal `eval(`.
@@ -192,3 +192,84 @@ def evaluate(params, market_data, portfolio_state) -> Decision:
 """
     rep = lint_evaluate_py(tmp_evaluate(src))
     assert rep.ok, f"linter rejected string literal containing harmless text: {rep.errors}"
+
+
+# ─── W12 review #1 regressions: smoke_test.py linter ───────────────────────
+
+
+def _write_smoke(tmp_path: Path, body: str) -> Path:
+    p = tmp_path / "smoke_test.py"
+    p.write_text(body, encoding="utf-8")
+    return p
+
+
+def test_smoke_lint_rejects_os_import(tmp_path: Path):
+    """The W12 review's exact attack vector — top-level os import
+    in an extractor-emitted smoke_test.py — must be rejected at lint."""
+    src = """\
+import os
+def test_pwn():
+    pass
+"""
+    rep = lint_smoke_test_py(_write_smoke(tmp_path, src))
+    assert not rep.ok
+    assert any("os" in e.message for e in rep.errors)
+
+
+def test_smoke_lint_rejects_subprocess_import(tmp_path: Path):
+    src = """\
+from subprocess import run
+def test_pwn():
+    run(["whoami"])
+"""
+    rep = lint_smoke_test_py(_write_smoke(tmp_path, src))
+    assert not rep.ok
+
+
+def test_smoke_lint_rejects_dunder_traversal(tmp_path: Path):
+    src = """\
+def test_pwn():
+    cls = (0).__class__
+    assert cls is int
+"""
+    rep = lint_smoke_test_py(_write_smoke(tmp_path, src))
+    assert not rep.ok
+    assert any("__class__" in e.message for e in rep.errors)
+
+
+def test_smoke_lint_rejects_no_test_functions(tmp_path: Path):
+    """Without ≥1 test_* function the registry has nothing to run —
+    refuse the file rather than silently load it."""
+    src = """\
+from decimal import Decimal
+x = Decimal("1")
+"""
+    rep = lint_smoke_test_py(_write_smoke(tmp_path, src))
+    assert not rep.ok
+    assert any(e.code == "L021" for e in rep.errors)
+
+
+def test_smoke_lint_accepts_assert_and_numpy(tmp_path: Path):
+    """Legitimate smoke tests using only Decimal/numpy/assert must pass."""
+    src = """\
+from decimal import Decimal
+import numpy as np
+def test_evaluate_returns_hold():
+    arr = np.array([1, 2, 3])
+    assert arr.sum() == 6
+    assert Decimal("1") + Decimal("2") == Decimal("3")
+"""
+    rep = lint_smoke_test_py(_write_smoke(tmp_path, src))
+    assert rep.ok, f"legitimate smoke test rejected: {rep.errors}"
+
+
+def test_smoke_lint_rejects_pandas_for_tighter_surface(tmp_path: Path):
+    """Smoke linter is tighter than evaluate linter — pandas is allowed in
+    evaluate.py but not in smoke_test.py (smoke tests rarely need it)."""
+    src = """\
+import pandas as pd
+def test_pwn():
+    pd.DataFrame()
+"""
+    rep = lint_smoke_test_py(_write_smoke(tmp_path, src))
+    assert not rep.ok

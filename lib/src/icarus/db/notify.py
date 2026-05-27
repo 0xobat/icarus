@@ -30,8 +30,9 @@ anything malformed.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime
 from typing import Literal
 
@@ -240,6 +241,7 @@ async def listen(
     channel: str,
     *,
     reconnect_delay_seconds: float = 1.0,
+    on_connect: Callable[[], Awaitable[None] | None] | None = None,
 ) -> AsyncIterator[_StrictBase]:
     """Async generator yielding parsed payloads from a Postgres LISTEN socket.
 
@@ -258,6 +260,13 @@ async def listen(
         channel: One of the `CHANNEL_*` constants in this module.
         reconnect_delay_seconds: Initial backoff after a disconnect.
             Exponentially doubles up to 30s.
+        on_connect: Optional async or sync callback invoked AFTER every
+            successful (re)connect + add_listener. Consumers should use
+            this to resync any state they may have missed during the
+            connection gap. Any NOTIFY emitted between the consumer's
+            last read and the new add_listener is lost — the resync is
+            how that gap is closed. Failures inside the callback are
+            logged and ignored (the listen loop continues).
 
     Yields:
         Validated pydantic payload models for `channel`.
@@ -285,6 +294,18 @@ async def listen(
             await conn.add_listener(channel, _on_notify)
             logger.info("notify.listening", channel=channel)
             backoff = reconnect_delay_seconds  # reset after successful connect
+
+            if on_connect is not None:
+                try:
+                    result = on_connect()
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception as exc:
+                    logger.warning(
+                        "notify.on_connect_failed",
+                        channel=channel,
+                        error=str(exc),
+                    )
 
             while True:
                 raw = await queue.get()

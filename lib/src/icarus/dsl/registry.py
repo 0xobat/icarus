@@ -31,7 +31,7 @@ from typing import Any
 
 import yaml
 
-from icarus.dsl.linter import LintReport, lint_evaluate_py
+from icarus.dsl.linter import LintReport, lint_evaluate_py, lint_smoke_test_py
 from icarus.dsl.manifest import TemplateManifest
 from icarus.types import Decision, MarketSnapshot, PortfolioSnapshot
 
@@ -82,6 +82,13 @@ class RegistryLoadResult:
         return not self.failed
 
 
+VerdictLookup = Callable[[str], str | None]
+"""Maps template_id → judge_verdict ("PASS" | "FLAG_FOR_OPERATOR" | "REJECT")
+or None if no verdict row exists. Used by `TemplateRegistry` to refuse
+loading of REJECT'd templates.
+"""
+
+
 class TemplateRegistry:
     """In-memory registry of loaded templates, keyed by template_id.
 
@@ -97,15 +104,31 @@ class TemplateRegistry:
       - "blocking": W4+   — smoke tests must pass or the template is rejected.
                     Default as of W4 per the blueprint's "smoke test enforcement
                     turned on in registry loader" milestone.
+
+    `verdict_lookup`:
+      Optional ``template_id → judge_verdict`` callable. When supplied,
+      templates whose verdict is "REJECT" are refused outright — the
+      LLM-as-judge plausibility check explicitly flagged them as unsafe
+      to run. Operators can still load FLAG_FOR_OPERATOR templates
+      (those represent uncertainty, not danger). The check happens
+      AFTER manifest/lint so a malformed template surfaces its real
+      error before the verdict gate.
     """
 
-    def __init__(self, root: Path, smoke_test_mode: str = "blocking") -> None:
+    def __init__(
+        self,
+        root: Path,
+        smoke_test_mode: str = "blocking",
+        *,
+        verdict_lookup: VerdictLookup | None = None,
+    ) -> None:
         if smoke_test_mode not in ("warn", "blocking"):
             raise ValueError(
                 f"smoke_test_mode must be 'warn' or 'blocking', got {smoke_test_mode!r}"
             )
         self._root = root
         self._smoke_test_mode = smoke_test_mode
+        self._verdict_lookup = verdict_lookup
         self._templates: dict[str, Template] = {}
 
     def load(self) -> RegistryLoadResult:
@@ -174,6 +197,24 @@ class TemplateRegistry:
                 lint_report=lint_report,
             )
 
+        # --- Plausibility-judge verdict gate ---
+        # The LLM-as-judge writes a verdict into `templates.judge_verdict`
+        # at extraction time. A "REJECT" verdict means the judge flagged
+        # the template as unsafe to run (math errors, capital-loss patterns,
+        # adversarial intent). Refuse to import — the static lint covers
+        # mechanical sandbox-escape attempts, but the judge catches the
+        # semantic class. PASS and FLAG_FOR_OPERATOR both proceed.
+        if self._verdict_lookup is not None:
+            verdict = self._verdict_lookup(manifest.id)
+            if verdict == "REJECT":
+                return LoadError(
+                    template_dir,
+                    "judge_verdict",
+                    f"template {manifest.id!r} has judge_verdict=REJECT; "
+                    "refusing to load. Inspect plausibility judge rationale "
+                    "in the templates table.",
+                )
+
         # --- Import evaluate.py into a synthetic module ---
         try:
             evaluate_fn = self._import_evaluate(manifest.id, evaluate_path)
@@ -183,7 +224,9 @@ class TemplateRegistry:
         # --- Smoke test (warn or blocking per mode) ---
         smoke_path = template_dir / SMOKE_TEST_NAME
         if smoke_path.exists():
-            smoke_ok, smoke_msg = self._run_smoke(manifest.id, smoke_path)
+            smoke_ok, smoke_msg = self._run_smoke(
+                manifest.id, smoke_path, evaluate_fn
+            )
             if not smoke_ok:
                 if self._smoke_test_mode == "blocking":
                     return LoadError(template_dir, "smoke", f"smoke_test failed: {smoke_msg}")
@@ -211,8 +254,36 @@ class TemplateRegistry:
         return fn  # type: ignore[return-value]
 
     @staticmethod
-    def _run_smoke(template_id: str, smoke_path: Path) -> tuple[bool, str]:
-        """Import smoke_test.py and run every `test_*` function it defines."""
+    def _run_smoke(
+        template_id: str,
+        smoke_path: Path,
+        evaluate_fn: EvaluateCallable,
+    ) -> tuple[bool, str]:
+        """Lint, import, and run every `test_*` function in smoke_test.py.
+
+        The AST lint runs BEFORE exec_module — without it, an extractor-
+        emitted smoke_test.py could carry arbitrary top-level code that
+        runs as the service UID on every load. The lint enforces the same
+        forbidden-builtin / forbidden-attr / dunder-attribute rules as
+        evaluate.py.
+
+        After exec, the already-loaded `evaluate` callable is injected
+        into the smoke-test module namespace so the tests can call
+        ``evaluate(params, market, portfolio)`` directly — no
+        ``sys.modules[...]`` bootstrap required (which would force us to
+        allow ``sys`` in the smoke linter, opening a much larger attack
+        surface than the test actually needs).
+        """
+        # Defense in depth: lint at load time even though the write-time
+        # validator should have rejected anything bad. A template installed
+        # by hand (or by a future loader path) still gets the check.
+        lint_report = lint_smoke_test_py(smoke_path)
+        if not lint_report.ok:
+            first = lint_report.errors[0]
+            return False, (
+                f"smoke_test lint failed: {first.code} L{first.line}: {first.message}"
+            )
+
         synthetic_name = f"icarus.templates.{template_id.lower().replace('-', '_')}_smoke"
         try:
             spec = importlib.util.spec_from_file_location(synthetic_name, smoke_path)
@@ -223,6 +294,10 @@ class TemplateRegistry:
             spec.loader.exec_module(module)
         except Exception as e:
             return False, f"smoke_test import failed: {e!r}"
+
+        # Inject the loaded evaluate callable so tests can reference it
+        # directly without sys.modules manipulation.
+        module.evaluate = evaluate_fn  # type: ignore[attr-defined]
 
         tests = [
             (name, fn)

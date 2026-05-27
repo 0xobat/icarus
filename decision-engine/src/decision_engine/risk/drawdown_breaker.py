@@ -124,8 +124,10 @@ class DrawdownBreaker:
         dd = self.drawdown_pct
         now = datetime.now(UTC).isoformat()
 
-        # Critical threshold — halt everything
-        if dd > self._critical_threshold and not self._trading_halted:
+        # Critical threshold — halt everything. Inclusive (>=) so a
+        # drawdown that lands exactly on the boundary trips the halt
+        # rather than only the softer warning.
+        if dd >= self._critical_threshold and not self._trading_halted:
             self._trading_halted = True
             self._entries_paused = True
             self._triggered_at = now

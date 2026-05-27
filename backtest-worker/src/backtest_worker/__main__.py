@@ -45,7 +45,9 @@ QUEUE_PENDING = "research:search:pending"
 QUEUE_INFLIGHT = "research:search:inflight"
 BLMOVE_BLOCK_SECONDS = 5
 VISIBILITY_TIMEOUT_SECONDS = 4 * 60 * 60
-PER_TEMPLATE_BUDGET_SECONDS = 2 * 60 * 60
+PER_TEMPLATE_BUDGET_SECONDS = int(
+    os.environ.get("BACKTEST_PER_TEMPLATE_BUDGET_SECONDS", str(2 * 60 * 60))
+)
 
 
 class BacktestWorker:
@@ -114,17 +116,30 @@ class BacktestWorker:
         log.info("job_claimed")
 
         try:
-            outcome = await run_one_job(
-                job,
-                registry=self._registry,
-                adapter=self._adapter,
-                db=self._db,
+            # Per-template wall-clock budget — a wide parameter grid
+            # can otherwise iterate forever and block this worker
+            # replica. Timeout surfaces as TimeoutError, logged at
+            # exception level and ACK'd; operator decides whether to
+            # requeue with a tighter grid.
+            outcome = await asyncio.wait_for(
+                run_one_job(
+                    job,
+                    registry=self._registry,
+                    adapter=self._adapter,
+                    db=self._db,
+                ),
+                timeout=PER_TEMPLATE_BUDGET_SECONDS,
             )
             log.info(
                 "job_outcome_persisted",
                 n_search_rows=outcome.n_search_rows,
                 n_top_k=outcome.n_top_k,
                 n_walk_forward_rows=outcome.n_walk_forward_rows,
+            )
+        except TimeoutError:
+            log.error(
+                "job_budget_exceeded",
+                budget_s=PER_TEMPLATE_BUDGET_SECONDS,
             )
         except Exception as e:
             log.exception("job_failed", error_class=type(e).__name__, error=str(e))
@@ -168,7 +183,7 @@ async def _amain() -> int:
     db = DatabaseManager(db_config)
     db.create_tables()
 
-    registry = build_default_registry()
+    registry = build_default_registry(db=db)
     adapter = _resolve_adapter_from_env()
 
     worker = BacktestWorker(

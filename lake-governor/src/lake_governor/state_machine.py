@@ -304,10 +304,13 @@ class CandidateStateMachine:
             now = datetime.now(UTC)
             roster.state = target
             roster.last_transition_at = now
-            # Allocation USD is sized by decision-engine each cycle from
-            # the cap; we record the cap-multiplier effect on the cap
-            # field for clarity. ``allocation_max_pct`` is the *ceiling*
-            # the allocator respects.
+            # ``allocation_max_pct`` on the row is the *baseline* cap
+            # (set in enter_paper_trade). The 0.5x live_capped
+            # invariant is applied at READ time by the decision-engine's
+            # RosterListener — we deliberately do NOT mutate the field
+            # here so the state machine can move freely between
+            # live_capped ↔ live_mature without forgetting the baseline.
+            # See decision-engine/roster_listener.py::_STATE_CAP_MULTIPLIER.
             roster.allocation_usd = Decimal("0")  # allocator will refill
             candidate.state = target
             candidate.entered_state_at = now
