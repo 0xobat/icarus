@@ -120,3 +120,55 @@ def test_resolve_swap_params_rejects_bad_slippage() -> None:
             slippage_bps=1001,
             deadline_unix=1_900_000_000,
         )
+
+
+from decision_engine.order_resolver import DEFAULT_CHAIN_ID, register_token  # noqa: E402
+
+BASE_SEPOLIA = 84532
+
+
+def test_default_chain_id_is_base_mainnet() -> None:
+    assert DEFAULT_CHAIN_ID == 8453
+
+
+def test_lookup_token_sepolia_usdc_differs_from_mainnet() -> None:
+    mainnet = lookup_token("base", "USDC")  # default 8453
+    sepolia = lookup_token("base", "USDC", chain_id=BASE_SEPOLIA)
+    assert sepolia.address != mainnet.address
+    assert sepolia.decimals == 6
+
+
+def test_lookup_token_weth_same_on_both_networks() -> None:
+    # WETH is the OP-stack predeploy — identical address on Base mainnet + Sepolia.
+    assert (
+        lookup_token("base", "WETH").address
+        == lookup_token("base", "WETH", chain_id=BASE_SEPOLIA).address
+        == "0x4200000000000000000000000000000000000006"
+    )
+
+
+def test_lookup_token_unknown_chain_id_raises() -> None:
+    with pytest.raises(KeyError, match="999999"):
+        lookup_token("base", "USDC", chain_id=999999)
+
+
+def test_register_token_overrides_address() -> None:
+    custom = "0xabc0000000000000000000000000000000000001"
+    register_token(chain_id=BASE_SEPOLIA, symbol="USDC", address=custom, decimals=6)
+    assert lookup_token("base", "USDC", chain_id=BASE_SEPOLIA).address == custom
+    # restore so test order independence holds
+    register_token(
+        chain_id=BASE_SEPOLIA, symbol="USDC",
+        address="0x036CbD53842c5426634e7929541eC2318f3dCF7e", decimals=6,
+    )
+
+
+def test_resolve_swap_params_threads_chain_id() -> None:
+    params = resolve_swap_params(
+        chain="base", token_in_symbol="USDC", token_out_symbol="WETH",
+        usd_amount=Decimal("6000"), price_in_usd=Decimal("1"),
+        price_out_usd=Decimal("3000"), recipient=_SAFE, slippage_bps=50,
+        deadline_unix=1_900_000_000, chain_id=BASE_SEPOLIA,
+    )
+    # token_in is Sepolia USDC, not mainnet USDC.
+    assert params.token_in == "0x036CbD53842c5426634e7929541eC2318f3dCF7e"

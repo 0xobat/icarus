@@ -18,7 +18,16 @@ from decimal import ROUND_DOWN, Decimal
 from icarus.envelopes.orders import OrderParams
 from icarus.types.market import Chain
 
-__all__ = ["TokenInfo", "lookup_token", "usd_to_smallest_unit", "resolve_swap_params"]
+__all__ = [
+    "TokenInfo",
+    "DEFAULT_CHAIN_ID",
+    "register_token",
+    "lookup_token",
+    "usd_to_smallest_unit",
+    "resolve_swap_params",
+]
+
+DEFAULT_CHAIN_ID = 8453  # Base mainnet
 
 
 @dataclass(frozen=True)
@@ -29,25 +38,47 @@ class TokenInfo:
     decimals: int
 
 
-# Static token registry. Real Base mainnet addresses.
-_TOKEN_REGISTRY: dict[Chain, dict[str, TokenInfo]] = {
-    "base": {
+# Per-network token addresses, keyed by EVM chain_id. The logical `Chain`
+# ("base") does not distinguish mainnet from testnet — chain_id does. WETH is
+# the OP-stack predeploy (same address on every OP chain); only USDC differs.
+# Operators can override any entry at boot via `register_token` (env-driven).
+_TOKENS_BY_CHAIN_ID: dict[int, dict[str, TokenInfo]] = {
+    8453: {  # Base mainnet
         "USDC": TokenInfo("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", 6),
+        "WETH": TokenInfo("0x4200000000000000000000000000000000000006", 18),
+    },
+    84532: {  # Base Sepolia — VERIFY before live use; override via env if stale.
+        "USDC": TokenInfo("0x036CbD53842c5426634e7929541eC2318f3dCF7e", 6),
         "WETH": TokenInfo("0x4200000000000000000000000000000000000006", 18),
     },
 }
 
 
-def lookup_token(chain: Chain, symbol: str) -> TokenInfo:
-    """Resolve (chain, symbol) → TokenInfo. Raises KeyError if unregistered."""
+def register_token(*, chain_id: int, symbol: str, address: str, decimals: int) -> None:
+    """Add or override a token entry at boot (e.g. from an env-supplied address).
+
+    Lets an operator point a network's symbol at a specific contract without a
+    code change — `__main__` calls this for any address overrides in env.
+    """
+    _TOKENS_BY_CHAIN_ID.setdefault(chain_id, {})[symbol] = TokenInfo(address, decimals)
+
+
+def lookup_token(chain: Chain, symbol: str, *, chain_id: int = DEFAULT_CHAIN_ID) -> TokenInfo:
+    """Resolve (chain, symbol) → TokenInfo for the given EVM network (chain_id).
+
+    `chain` gates the logical chain (only "base" has a registry today); `chain_id`
+    selects the network's address set. Raises KeyError if unregistered.
+    """
+    if chain != "base":
+        raise KeyError(f"no token registry for chain {chain!r}")
     try:
-        chain_tokens = _TOKEN_REGISTRY[chain]
+        network = _TOKENS_BY_CHAIN_ID[chain_id]
     except KeyError as exc:
-        raise KeyError(f"no token registry for chain {chain!r}") from exc
+        raise KeyError(f"unsupported chain_id {chain_id} for chain {chain!r}") from exc
     try:
-        return chain_tokens[symbol]
+        return network[symbol]
     except KeyError as exc:
-        raise KeyError(f"token {symbol!r} not registered on chain {chain!r}") from exc
+        raise KeyError(f"token {symbol!r} not registered on chain_id {chain_id}") from exc
 
 
 def usd_to_smallest_unit(
@@ -80,6 +111,7 @@ def resolve_swap_params(
     slippage_bps: int,
     deadline_unix: int,
     stable: bool = False,
+    chain_id: int = DEFAULT_CHAIN_ID,
 ) -> OrderParams:
     """Build executor-ready OrderParams for an Aerodrome-style swap.
 
@@ -92,8 +124,8 @@ def resolve_swap_params(
     if not 0 <= slippage_bps <= 1000:
         raise ValueError(f"slippage_bps must be in [0, 1000], got {slippage_bps}")
 
-    token_in = lookup_token(chain, token_in_symbol)
-    token_out = lookup_token(chain, token_out_symbol)
+    token_in = lookup_token(chain, token_in_symbol, chain_id=chain_id)
+    token_out = lookup_token(chain, token_out_symbol, chain_id=chain_id)
 
     amount_in = usd_to_smallest_unit(usd_amount, price_in_usd, token_in.decimals)
     expected_out = usd_to_smallest_unit(usd_amount, price_out_usd, token_out.decimals)
