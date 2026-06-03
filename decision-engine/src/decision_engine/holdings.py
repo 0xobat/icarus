@@ -19,7 +19,7 @@ import structlog
 from icarus.protocols.data import DataAdapter
 from icarus.types.market import Chain
 
-from decision_engine.order_resolver import lookup_token
+from decision_engine.order_resolver import DEFAULT_CHAIN_ID, lookup_token
 from decision_engine.pricing import price_usd
 
 logger = structlog.get_logger(service="decision-engine.holdings")
@@ -54,6 +54,7 @@ class RpcHoldingsProvider:
         crypto_symbol: str = "WETH",
         stable_symbol: str = "USDC",
         chain: Chain = "base",
+        chain_id: int = DEFAULT_CHAIN_ID,
     ) -> None:
         self._w3 = w3
         self._adapter = adapter
@@ -61,10 +62,11 @@ class RpcHoldingsProvider:
         self._crypto_symbol = crypto_symbol
         self._stable_symbol = stable_symbol
         self._chain = chain
+        self._chain_id = chain_id
 
     async def _balance_tokens(self, symbol: str) -> Decimal:
         """ERC-20 balance of `symbol` for the Safe, in whole tokens."""
-        info = lookup_token(self._chain, symbol)
+        info = lookup_token(self._chain, symbol, chain_id=self._chain_id)
         contract = self._w3.eth.contract(address=info.address, abi=_ERC20_BALANCEOF_ABI)
         raw: int = await contract.functions.balanceOf(self._safe).call()
         return Decimal(raw) / (Decimal(10) ** info.decimals)

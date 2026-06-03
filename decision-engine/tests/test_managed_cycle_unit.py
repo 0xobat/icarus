@@ -129,6 +129,34 @@ async def test_underweight_publishes_usdc_to_weth_swap() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sepolia_cycle_uses_sepolia_token_addresses() -> None:
+    """ManagedCycleConfig(chain_id=84532) resolves Sepolia addresses in published order."""
+    _SEPOLIA_USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    _WETH_ADDR = "0x4200000000000000000000000000000000000006"
+    sepolia_config = ManagedCycleConfig(
+        recipient=_SAFE, protocol="aerodrome", slippage_bps=50,
+        cost_gate_margin=Decimal("4"), gas_units=200_000, deadline_seconds=60,
+        chain_id=84532,
+    )
+    publisher = _CapturePublisher()
+    cycle = ManagedPortfolioCycle(
+        adapter=_FakeAdapter(Decimal("3000"), Decimal("1")),
+        holdings=_StubHoldings(Decimal("4000"), Decimal("6000")),  # underweight: USDC→WETH
+        target=_TARGET,
+        risk_gate=RiskGate(checkers=[]),
+        publisher=publisher,
+        config=sepolia_config,
+    )
+    result = await cycle.run_one()
+    assert result.action == "rebalance"
+    assert result.published is True
+    _, order = publisher.published[0]
+    # Sepolia USDC→WETH: token_in is Sepolia USDC address.
+    assert order.params.token_in == _SEPOLIA_USDC
+    assert order.params.token_out == _WETH_ADDR
+
+
+@pytest.mark.asyncio
 async def test_risk_gate_rejection_blocks_publish() -> None:
     from decision_engine.risk_gate import RiskContext, RiskDecision
 

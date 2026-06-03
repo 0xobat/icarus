@@ -36,6 +36,7 @@ class ManagedConfig:
     interval_seconds: int
     safe_address: str
     chain: Chain
+    chain_id: int = 8453  # Default to Base mainnet
 
     def rebalance_target(self) -> RebalanceTarget:
         return RebalanceTarget(
@@ -53,6 +54,7 @@ class ManagedConfig:
             cost_gate_margin=self.cost_gate_margin,
             gas_units=self.gas_units,
             deadline_seconds=self.deadline_seconds,
+            chain_id=self.chain_id,
         )
 
 
@@ -85,6 +87,7 @@ def load_managed_config(
     chain: Chain = env.get("CHAIN", "base")  # type: ignore[assignment]
     if chain not in ("base", "solana"):
         raise RuntimeError(f"CHAIN must be 'base' or 'solana', got {chain!r}")
+    chain_id = int(env.get("CHAIN_ID", "8453"))
 
     return ManagedConfig(
         crypto_symbol=str(alloc["crypto_symbol"]),
@@ -98,6 +101,7 @@ def load_managed_config(
         interval_seconds=int(cad["interval_seconds"]),
         safe_address=safe_address,
         chain=chain,
+        chain_id=chain_id,
     )
 
 

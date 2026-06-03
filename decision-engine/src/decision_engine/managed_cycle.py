@@ -27,7 +27,7 @@ from icarus.types import MarketSnapshot, PortfolioSnapshot
 from icarus.types.market import Chain
 
 from decision_engine.cycle import ExecutorPublisher
-from decision_engine.order_resolver import resolve_swap_params
+from decision_engine.order_resolver import DEFAULT_CHAIN_ID, resolve_swap_params
 from decision_engine.pricing import price_usd, estimate_swap_cost_usd
 from decision_engine.rebalance import RebalancePlan, RebalanceTarget, plan_rebalance
 from decision_engine.risk_gate import RiskContext, RiskGate
@@ -59,6 +59,7 @@ class ManagedCycleConfig:
     cost_gate_margin: Decimal
     gas_units: int
     deadline_seconds: int
+    chain_id: int = DEFAULT_CHAIN_ID
 
 
 @dataclass(frozen=True)
@@ -165,6 +166,7 @@ class ManagedPortfolioCycle:
             recipient=self.config.recipient,
             slippage_bps=self.config.slippage_bps,
             deadline_unix=deadline_unix,
+            chain_id=self.config.chain_id,
         )
         limits = OrderLimits(
             max_slippage_bps=self.config.slippage_bps,

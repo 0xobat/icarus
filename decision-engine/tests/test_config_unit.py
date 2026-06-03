@@ -91,3 +91,23 @@ def test_invalid_chain_fails_loud(tmp_path: Path) -> None:
             _write(tmp_path),
             env={"SAFE_ADDRESS": _ENV["SAFE_ADDRESS"], "CHAIN": "testnet"},
         )
+
+
+# ── Task 4A: chain_id threading ────────────────────────────────────────────────
+
+def test_chain_id_defaults_to_mainnet(tmp_path: Path) -> None:
+    cfg = load_managed_config(_write(tmp_path), env=_ENV)
+    assert cfg.chain_id == 8453
+
+
+def test_chain_id_from_env(tmp_path: Path) -> None:
+    env = {**_ENV, "CHAIN_ID": "84532"}
+    cfg = load_managed_config(_write(tmp_path), env=env)
+    assert cfg.chain_id == 84532
+
+
+def test_cycle_config_inherits_chain_id(tmp_path: Path) -> None:
+    env = {**_ENV, "CHAIN_ID": "84532"}
+    cfg = load_managed_config(_write(tmp_path), env=env)
+    cc = cfg.cycle_config()
+    assert cc.chain_id == 84532

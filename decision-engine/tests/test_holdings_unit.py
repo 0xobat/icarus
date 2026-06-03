@@ -87,3 +87,25 @@ async def test_zero_balances() -> None:
     crypto_usd, stable_usd = await _provider(w3).current_usd_holdings()
     assert crypto_usd == Decimal("0")
     assert stable_usd == Decimal("0")
+
+
+# ── Task 4A: chain_id threading ────────────────────────────────────────────────
+
+_USDC_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+_BASE_SEPOLIA = 84532
+
+
+@pytest.mark.asyncio
+async def test_holdings_uses_sepolia_usdc_address_when_chain_id_84532() -> None:
+    """RpcHoldingsProvider(chain_id=84532) looks up Sepolia USDC, not mainnet USDC."""
+    # The mock w3 is keyed by the Sepolia USDC address — if holdings looks up the
+    # wrong (mainnet) address the mock raises a KeyError, failing the test.
+    w3 = _make_w3({_WETH: 2_000000000000000000, _USDC_SEPOLIA: 6000_000000})
+    provider = RpcHoldingsProvider(
+        w3=w3, adapter=_FakeAdapter(Decimal("3000")), safe_address=_SAFE,
+        crypto_symbol="WETH", stable_symbol="USDC", chain="base",
+        chain_id=_BASE_SEPOLIA,
+    )
+    crypto_usd, stable_usd = await provider.current_usd_holdings()
+    assert crypto_usd == Decimal("6000")
+    assert stable_usd == Decimal("6000")
