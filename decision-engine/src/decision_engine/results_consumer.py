@@ -13,6 +13,7 @@ in P1.5c).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import structlog
@@ -33,8 +34,14 @@ _STATUS_TO_REASON: dict[str, str] = {
 class ResultsConsumer:
     """Maps execution results onto the tx-failure monitor + audit log."""
 
-    def __init__(self, *, tx_failure: TxFailureMonitor) -> None:
+    def __init__(
+        self,
+        *,
+        tx_failure: TxFailureMonitor,
+        trade_sink: Callable[[dict], None] | None = None,
+    ) -> None:
         self._tx_failure = tx_failure
+        self._trade_sink = trade_sink
 
     @staticmethod
     def parse(payload: str) -> ExecutionResult:
@@ -62,6 +69,20 @@ class ResultsConsumer:
             tx_hash=result.tx_hash,
             can_execute=self._tx_failure.can_execute(),
         )
+
+        if self._trade_sink is not None:
+            self._trade_sink(
+                {
+                    "order_id": result.order_id,
+                    "correlation_id": result.correlation_id,
+                    "chain": result.chain,
+                    "status": result.status,
+                    "tx_hash": result.tx_hash,
+                    "amount_out": str(result.amount_out) if result.amount_out is not None else None,
+                    "fill_price": str(result.fill_price) if result.fill_price is not None else None,
+                    "timestamp": result.timestamp.isoformat(),
+                }
+            )
 
     async def run(self, pubsub: Any) -> None:
         """Thin live loop: consume messages off a subscribed Redis pubsub.

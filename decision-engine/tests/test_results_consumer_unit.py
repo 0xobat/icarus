@@ -73,3 +73,21 @@ def test_rejected_by_guard_is_not_a_failure() -> None:
     consumer.handle_result(_result("rejected_by_guard"))
     assert monitor.get_failure_count() == 0
     assert monitor.can_execute() is True
+
+
+def test_handle_result_appends_a_trade_record() -> None:
+    monitor = TxFailureMonitor()
+    captured: list[dict] = []
+    consumer = ResultsConsumer(tx_failure=monitor, trade_sink=captured.append)
+    consumer.handle_result(_result("confirmed"))
+    assert len(captured) == 1
+    rec = captured[0]
+    assert rec["order_id"] == "o1"
+    assert rec["status"] == "confirmed"
+    assert rec["chain"] == "base"
+
+
+def test_trade_sink_optional() -> None:
+    # No sink → no crash (backward compatible with P1.5b tests).
+    consumer = ResultsConsumer(tx_failure=TxFailureMonitor())
+    consumer.handle_result(_result("confirmed"))  # must not raise
