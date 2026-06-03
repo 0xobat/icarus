@@ -18,6 +18,8 @@ from decimal import ROUND_DOWN, Decimal
 from icarus.envelopes.orders import OrderParams
 from icarus.types.market import Chain
 
+__all__ = ["TokenInfo", "lookup_token", "usd_to_smallest_unit", "resolve_swap_params"]
+
 
 @dataclass(frozen=True)
 class TokenInfo:
@@ -57,6 +59,8 @@ def usd_to_smallest_unit(
     floored to an integer (never emit a fractional base unit, which would be an
     invalid on-chain amount).
     """
+    if usd_amount < 0:
+        raise ValueError(f"usd_amount must be non-negative, got {usd_amount}")
     if price_usd <= 0:
         raise ValueError(f"price_usd must be positive, got {price_usd}")
     token_qty = usd_amount / price_usd

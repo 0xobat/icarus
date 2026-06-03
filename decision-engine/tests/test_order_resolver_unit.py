@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-import pytest
+from decimal import Decimal
 
-from decision_engine.order_resolver import TokenInfo, lookup_token
+import pytest
+from icarus.envelopes.orders import OrderParams
+
+from decision_engine.order_resolver import (
+    TokenInfo,
+    lookup_token,
+    resolve_swap_params,
+    usd_to_smallest_unit,
+)
 
 
 def test_lookup_usdc_base() -> None:
@@ -30,11 +38,6 @@ def test_lookup_unsupported_chain_raises() -> None:
         lookup_token("solana", "USDC")
 
 
-from decimal import Decimal
-
-from decision_engine.order_resolver import usd_to_smallest_unit
-
-
 def test_usd_to_smallest_unit_weth() -> None:
     assert usd_to_smallest_unit(
         Decimal("6000"), Decimal("3000"), 18
@@ -58,9 +61,10 @@ def test_usd_to_smallest_unit_rejects_nonpositive_price() -> None:
         usd_to_smallest_unit(Decimal("100"), Decimal("0"), 18)
 
 
-from icarus.envelopes.orders import OrderParams
+def test_usd_to_smallest_unit_rejects_negative_amount() -> None:
+    with pytest.raises(ValueError, match="usd_amount"):
+        usd_to_smallest_unit(Decimal("-100"), Decimal("3000"), 18)
 
-from decision_engine.order_resolver import resolve_swap_params
 
 _SAFE = "0x1111111111111111111111111111111111111111"
 
