@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
 from icarus.envelopes.results import ExecutionResult
 
 from decision_engine.results_consumer import ResultsConsumer
@@ -43,6 +42,13 @@ def test_reverted_records_a_failure() -> None:
     monitor = TxFailureMonitor()
     consumer = ResultsConsumer(tx_failure=monitor)
     consumer.handle_result(_result("reverted"))
+    assert monitor.get_failure_count() == 1
+
+
+def test_failed_records_a_failure() -> None:
+    monitor = TxFailureMonitor()
+    consumer = ResultsConsumer(tx_failure=monitor)
+    consumer.handle_result(_result("failed"))
     assert monitor.get_failure_count() == 1
 
 
