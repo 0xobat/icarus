@@ -19,12 +19,12 @@ from icarus.envelopes.orders import OrderParams
 from icarus.types.market import Chain
 
 __all__ = [
-    "TokenInfo",
     "DEFAULT_CHAIN_ID",
-    "register_token",
+    "TokenInfo",
     "lookup_token",
-    "usd_to_smallest_unit",
+    "register_token",
     "resolve_swap_params",
+    "usd_to_smallest_unit",
 ]
 
 DEFAULT_CHAIN_ID = 8453  # Base mainnet

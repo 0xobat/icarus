@@ -28,7 +28,7 @@ from icarus.types.market import Chain
 
 from decision_engine.cycle import ExecutorPublisher
 from decision_engine.order_resolver import DEFAULT_CHAIN_ID, resolve_swap_params
-from decision_engine.pricing import price_usd, estimate_swap_cost_usd
+from decision_engine.pricing import estimate_swap_cost_usd, price_usd
 from decision_engine.rebalance import RebalancePlan, RebalanceTarget, plan_rebalance
 from decision_engine.risk_gate import RiskContext, RiskGate
 

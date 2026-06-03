@@ -102,4 +102,4 @@ def plan_rebalance(
     )
 
 
-__all__ = ["RebalanceTarget", "RebalancePlan", "plan_rebalance"]
+__all__ = ["RebalancePlan", "RebalanceTarget", "plan_rebalance"]

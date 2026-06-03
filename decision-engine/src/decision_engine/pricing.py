@@ -14,7 +14,7 @@ from decimal import Decimal
 
 from icarus.types import MarketSnapshot
 
-__all__ = ["price_usd", "estimate_swap_cost_usd", "DEFAULT_SWAP_GAS_UNITS"]
+__all__ = ["DEFAULT_SWAP_GAS_UNITS", "estimate_swap_cost_usd", "price_usd"]
 
 # Stablecoins are pinned to $1 (depeg monitoring is a P3 concern, not pricing).
 _STABLE_SYMBOLS = frozenset({"USDC", "USDT", "DAI"})

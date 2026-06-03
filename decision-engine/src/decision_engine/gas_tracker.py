@@ -19,7 +19,10 @@ class GasAverageTracker:
         return self._avg if self._avg is not None else Decimal("0")
 
     def update(self, sample: Decimal) -> Decimal:
-        self._avg = sample if self._avg is None else self._alpha * sample + (Decimal("1") - self._alpha) * self._avg
+        if self._avg is None:
+            self._avg = sample
+        else:
+            self._avg = self._alpha * sample + (Decimal("1") - self._alpha) * self._avg
         return self._avg
 
 

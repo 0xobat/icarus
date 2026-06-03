@@ -71,6 +71,8 @@ class ResultsConsumer:
         )
 
         if self._trade_sink is not None:
+            amount_out = str(result.amount_out) if result.amount_out is not None else None
+            fill_price = str(result.fill_price) if result.fill_price is not None else None
             try:
                 self._trade_sink(
                     {
@@ -79,8 +81,8 @@ class ResultsConsumer:
                         "chain": result.chain,
                         "status": result.status,
                         "tx_hash": result.tx_hash,
-                        "amount_out": str(result.amount_out) if result.amount_out is not None else None,
-                        "fill_price": str(result.fill_price) if result.fill_price is not None else None,
+                        "amount_out": amount_out,
+                        "fill_price": fill_price,
                         "timestamp": result.timestamp.isoformat(),
                     }
                 )
@@ -100,7 +102,8 @@ class ResultsConsumer:
             try:
                 result = self.parse(message["data"])
             except Exception:
-                logger.warning("results_parse_failed", raw=str(message.get("data"))[:200], exc_info=True)
+                raw = str(message.get("data"))[:200]
+                logger.warning("results_parse_failed", raw=raw, exc_info=True)
                 continue
             self.handle_result(result)
 
