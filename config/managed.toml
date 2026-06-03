@@ -1,0 +1,21 @@
+# Managed-portfolio strategy dials. Secrets + per-deployment values (RPC URL,
+# wallet key, Safe address, chain) come from env, NOT this file.
+[allocation]
+crypto_symbol = "WETH"
+stable_symbol = "USDC"
+crypto_weight = 0.6      # strategic target fraction in crypto
+band = 0.10              # +/- absolute-weight tolerance before rebalancing
+
+[rebalance]
+slippage_bps = 50
+cost_gate_margin = 4     # rebalance only if correction >= margin * est cost
+gas_units = 200000
+deadline_seconds = 60
+
+[cadence]
+interval_seconds = 3600  # hourly read; act only on band breach
+
+# Reserved for later phases (parsed but unused in P1):
+[limits]
+lp_cap = 0.15            # P3 LP overlay cap
+per_venue_cap = 0.25     # P2 per-venue exposure cap
