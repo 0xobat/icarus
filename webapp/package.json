@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Icarus v2 Curation cluster — read-only insight sidecar (bot reasoning views)",
   "private": true,
+  "packageManager": "pnpm@11.5.1",
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",

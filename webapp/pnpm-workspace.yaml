@@ -1,0 +1,6 @@
+# pnpm 10.26+/11: build scripts are blocked by default (supply-chain defense).
+# Allow only the packages that genuinely need to compile native code.
+allowBuilds:
+  esbuild: true        # Next.js / build tooling
+  sharp: true          # Next.js image optimization
+  unrs-resolver: true  # eslint module resolver (native)

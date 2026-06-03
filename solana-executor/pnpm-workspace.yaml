@@ -1,0 +1,8 @@
+# pnpm 10.26+/11: build scripts are blocked by default (supply-chain defense).
+# Explicitly allow only the native-addon packages that genuinely need to compile.
+# Anything not listed here stays gated — that's the point.
+allowBuilds:
+  bigint-buffer: true   # fast bigint for @solana/web3.js
+  bufferutil: true      # WebSocket speedup (@solana/web3.js)
+  esbuild: true         # used by vitest / tsx
+  utf-8-validate: true  # WebSocket speedup (@solana/web3.js)

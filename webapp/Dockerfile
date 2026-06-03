@@ -7,7 +7,7 @@ WORKDIR /app
 RUN corepack enable
 
 FROM base AS deps
-COPY package.json ./
+COPY package.json pnpm-workspace.yaml ./
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --prod=false
 

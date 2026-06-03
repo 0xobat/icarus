@@ -1,0 +1,4 @@
+# pnpm 10.26+/11: build scripts are blocked by default (supply-chain defense).
+# Allow only the packages that genuinely need to compile native code.
+allowBuilds:
+  esbuild: true  # used by vitest / tsx / build tooling

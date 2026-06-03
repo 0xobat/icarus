@@ -4,6 +4,7 @@
   "description": "Icarus v2 Execution cluster — Solana chain. Squads multisig signer, BLMOVE orders consumer, Jupiter / Kamino adapters (Stream C).",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.5.1",
   "engines": {
     "node": ">=22"
   },
