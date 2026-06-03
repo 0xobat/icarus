@@ -42,3 +42,32 @@ def test_price_usd_unpriced_symbol_raises() -> None:
     market = _market({"ETH": Decimal("3000")})
     with pytest.raises(KeyError, match="SOL"):
         price_usd("SOL", market)
+
+
+from decision_engine.pricing import estimate_swap_cost_usd
+
+
+def test_estimate_swap_cost_combines_gas_and_slippage() -> None:
+    # gas_gwei=1, gas_units=200_000 → 0.0002 ETH; at $3000 → $0.60 gas.
+    # slippage: $10_000 trade at 50 bps → $50.00. total = $50.60.
+    market = _market({"ETH": Decimal("3000")}, gas_gwei=Decimal("1"))
+    cost = estimate_swap_cost_usd(
+        trade_usd=Decimal("10000"),
+        slippage_bps=50,
+        market=market,
+        eth_price_usd=Decimal("3000"),
+        gas_units=200_000,
+    )
+    assert cost == Decimal("50.60")
+
+
+def test_estimate_swap_cost_zero_gas() -> None:
+    market = _market({"ETH": Decimal("3000")}, gas_gwei=Decimal("0"))
+    cost = estimate_swap_cost_usd(
+        trade_usd=Decimal("10000"),
+        slippage_bps=50,
+        market=market,
+        eth_price_usd=Decimal("3000"),
+        gas_units=200_000,
+    )
+    assert cost == Decimal("50.00")  # slippage only
