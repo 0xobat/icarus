@@ -83,3 +83,33 @@ def test_empty_portfolio_holds() -> None:
     )
     assert plan.action == "hold"
     assert isinstance(plan, RebalancePlan)
+
+
+def test_cost_gate_suppresses_small_rebalance() -> None:
+    # crypto 0.75 of $10k → outside band (>0.70). target crypto = $6000 →
+    # correction = $1500. With est_cost=$500 and margin=4, threshold = $2000.
+    # 1500 < 2000 → cost-gated hold.
+    plan = plan_rebalance(
+        crypto_usd=Decimal("7500"),
+        stable_usd=Decimal("2500"),
+        target=_TARGET,
+        est_cost_usd=Decimal("500"),
+        cost_gate_margin=Decimal("4"),
+    )
+    assert plan.action == "hold"
+    assert "cost-gated" in plan.reason
+
+
+def test_cost_gate_allows_large_rebalance() -> None:
+    # Same drift but correction $1500 with est_cost=$100, margin=4 →
+    # threshold = $400. 1500 >= 400 → rebalance proceeds.
+    plan = plan_rebalance(
+        crypto_usd=Decimal("7500"),
+        stable_usd=Decimal("2500"),
+        target=_TARGET,
+        est_cost_usd=Decimal("100"),
+        cost_gate_margin=Decimal("4"),
+    )
+    assert plan.action == "rebalance"
+    assert plan.from_symbol == "WETH"
+    assert plan.usd_amount == Decimal("1500")
