@@ -149,7 +149,10 @@ class ManagedPortfolioCycle:
         self, plan: RebalancePlan, market: MarketSnapshot, correlation_id: str
     ) -> ExecutionOrder:
         """Resolve the plan's swap into an executor-ready ExecutionOrder."""
-        assert plan.from_symbol and plan.to_symbol and plan.usd_amount is not None
+        if not (plan.from_symbol and plan.to_symbol and plan.usd_amount is not None):
+            raise ValueError(
+                f"_build_order requires a fully-populated rebalance plan, got {plan!r}"
+            )
         now = datetime.now(UTC)
         deadline_unix = int(now.timestamp()) + self.config.deadline_seconds
         params = resolve_swap_params(

@@ -113,6 +113,22 @@ async def test_overweight_publishes_weth_to_usdc_swap() -> None:
 
 
 @pytest.mark.asyncio
+async def test_underweight_publishes_usdc_to_weth_swap() -> None:
+    # crypto 0.40 of $10k → buy $2000 USDC→WETH.
+    publisher = _CapturePublisher()
+    cycle = _cycle(_StubHoldings(Decimal("4000"), Decimal("6000")), publisher)
+    result = await cycle.run_one()
+    assert result.action == "rebalance"
+    assert result.published is True
+    chain, order = publisher.published[0]
+    # USDC→WETH: token_in is USDC, token_out is WETH.
+    assert order.params.token_in == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    assert order.params.token_out == "0x4200000000000000000000000000000000000006"
+    # $2000 of USDC at $1 = 2000e6 (6 decimals).
+    assert order.params.amount == Decimal("2000000000")
+
+
+@pytest.mark.asyncio
 async def test_risk_gate_rejection_blocks_publish() -> None:
     from decision_engine.risk_gate import RiskContext, RiskDecision
 
