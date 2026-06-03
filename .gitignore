@@ -10,9 +10,19 @@ dist/
 *.abi
 *.bin
 
-# Environment
+# Environment (catch every .env variant; keep committed examples)
 .env
-.env.local
+.env.*
+!.env.example
+!.env.*.example
+
+# Secrets / wallet keys — crypto, never commit
+*.key
+*.pem
+*.keystore
+*keypair*.json
+id.json
+*mnemonic*
 
 # Runtime
 agent-state.json
@@ -41,7 +51,6 @@ coverage/
 .next/
 out/
 next-env.d.ts
-*.tsbuildinfo
 
 # uv
 .uv/
