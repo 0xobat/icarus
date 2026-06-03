@@ -1,34 +1,16 @@
-"""decision-engine entrypoint — Execution cluster runtime cycle.
+"""decision-engine entrypoint — managed-portfolio runtime cycle.
 
-Cycle shape (one tick — implemented in `decision_engine.cycle.DecisionCycle`):
+One tick (`ManagedEngine._tick`):
+  1. Fetch a MarketSnapshot (real ETH price + gas) via RpcAdapter.
+  2. Feed the gas-spike breaker (current + EMA average) and the drawdown
+     breaker (live NAV) — closes the "breakers never fed" gap.
+  3. Read on-chain holdings; run one ManagedPortfolioCycle tick (plan →
+     resolve → risk gate → publish).
+A background task consumes execution:results:{chain} → tx-failure monitor.
 
-  1. Read lake roster from in-memory cache (kept warm by Postgres
-     LISTEN/NOTIFY → `RosterListener`).
-  2. Build MarketSnapshot via `DataAdapter` for each active chain.
-  3. Build PortfolioSnapshot from Postgres.
-  4. Classify regime (rules-based primary, fast).
-  5. For each live candidate: load evaluate.py from the TemplateRegistry,
-     call `evaluate(params, market, portfolio) → Decision`.
-  6. Allocator: candidate decisions + portfolio + regime → AllocationDecision.
-  7. Pre-trade risk gate: drop / shrink orders that violate exposure /
-     circuit-breaker state.
-  8. Emit orders to `execution:orders:<chain>` Redis channels.
-  9. Sleep until next cycle.
-
-Per blueprint Q2: the cycle NEVER blocks on the LLM advisor. The
-rules-based regime classifier is primary; the allocator's `commentary`
-field carries advisor output when it arrives in time, otherwise empty
-or an `ADVISOR_ERROR_PREFIX`-prefixed diagnosis string.
-
-Concrete impl wiring at startup:
-  * `DataAdapter`        — Streams W3 (DefiLlama + chain RPC)
-  * `RegimeClassifier`   — Stream A (rules-based, Stream D advisor parallel)
-  * `Allocator`          — Stream B (cold-start / risk-parity)
-  * `TemplateRegistry`   — already in lib.dsl.registry
-  * Risk modules         — already shipped in decision_engine/risk/
-
-This file wires the real worker loop with structlog + signal handling,
-matching the W2 extractor-worker pattern.
+The lake modules (DecisionCycle/roster/registry/allocator) remain in the tree
+but are no longer wired here; a cleanup phase removes them after the managed
+path is proven live.
 """
 
 from __future__ import annotations
@@ -39,20 +21,20 @@ import signal
 import sys
 from datetime import UTC, datetime
 from decimal import Decimal
-from pathlib import Path
 
-import numpy as np
 import redis.asyncio as redis
 import structlog
-from icarus.allocator import ComposedAllocator
-from icarus.allocator.types import RosterEntry as AllocatorRosterEntry
-from icarus.data_adapters import build_default_adapter
+from icarus.data_adapters import RpcAdapter
 from icarus.db.database import DatabaseConfig, DatabaseManager
-from icarus.dsl import build_db_verdict_lookup
-from icarus.dsl.registry import TemplateRegistry
-from icarus.regime import RulesRegimeClassifier
+from web3 import AsyncHTTPProvider, AsyncWeb3
 
-from decision_engine.cycle import DecisionCycle, RedisExecutorPublisher
+from decision_engine.config import load_managed_config
+from decision_engine.cycle import RedisExecutorPublisher
+from decision_engine.gas_tracker import GasAverageTracker
+from decision_engine.holdings import RpcHoldingsProvider
+from decision_engine.managed_cycle import ManagedPortfolioCycle
+from decision_engine.order_resolver import register_token
+from decision_engine.results_consumer import ResultsConsumer
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker
 from decision_engine.risk.exposure_limits import ExposureLimiter
 from decision_engine.risk.gas_spike_breaker import GasSpikeBreaker
@@ -66,76 +48,85 @@ from decision_engine.risk_gate import (
     RiskGate,
     TxFailureChecker,
 )
-from decision_engine.roster_listener import RosterListener
 
 logger = structlog.get_logger(service="decision-engine")
 
-CYCLE_INTERVAL_SECONDS = int(os.environ.get("DECISION_CYCLE_INTERVAL_SECONDS", "30"))
 
-
-class DecisionEngine:
-    """Worker process — owns I/O lifecycle, delegates per-tick work to DecisionCycle.
-
-    The cycle itself is stateless across ticks. This process owns:
-      * the Redis client (publish target)
-      * the database session factory
-      * the RosterListener task (background)
-      * the SIGTERM/SIGINT stop signal
-    """
+class ManagedEngine:
+    """Managed-portfolio worker. Owns the tick loop + results-consumer task."""
 
     def __init__(
         self,
         *,
-        cycle: DecisionCycle,
-        roster_listener: RosterListener,
+        cycle,
+        holdings,
+        adapter,
+        drawdown: DrawdownBreaker,
+        gas_spike: GasSpikeBreaker,
+        gas_tracker: GasAverageTracker,
+        chain: str,
+        interval_seconds: int = 3600,
+        consumer: ResultsConsumer | None = None,
+        redis_client=None,
     ) -> None:
         self._cycle = cycle
-        self._roster_listener = roster_listener
+        self._holdings = holdings
+        self._adapter = adapter
+        self._drawdown = drawdown
+        self._gas_spike = gas_spike
+        self._gas_tracker = gas_tracker
+        self._chain = chain
+        self._interval = interval_seconds
+        self._consumer = consumer
+        self._redis = redis_client
         self._stop = asyncio.Event()
 
+    async def _tick(self) -> None:
+        market = await self._adapter.fetch_live(self._chain)
+        avg = self._gas_tracker.update(market.gas_gwei)
+        self._gas_spike.update(market.gas_gwei, avg)
+        crypto_usd, stable_usd = await self._holdings.current_usd_holdings()
+        self._drawdown.update(crypto_usd + stable_usd)
+        result = await self._cycle.run_one()
+        logger.info(
+            "managed_tick",
+            action=result.action,
+            reason=result.reason,
+            published=result.published,
+            nav_usd=str(crypto_usd + stable_usd),
+            gas_gwei=str(market.gas_gwei),
+        )
+
     async def run(self) -> None:
-        logger.info("decision_engine_start", interval_s=CYCLE_INTERVAL_SECONDS)
-        await self._roster_listener.bootstrap()
-        self._roster_listener.start()
+        logger.info("managed_engine_start", interval_s=self._interval, chain=self._chain)
+        consumer_task = None
+        pubsub = None
+        if self._consumer is not None and self._redis is not None:
+            pubsub = self._redis.pubsub()
+            await pubsub.subscribe(f"execution:results:{self._chain}")
+            consumer_task = asyncio.create_task(self._consumer.run(pubsub))
         try:
             while not self._stop.is_set():
                 try:
-                    await self._cycle.run_one()
-                except NotImplementedError as exc:
-                    # Stream A/B/D stub not yet wired — log loudly and keep
-                    # ticking so the operator sees the gap without losing
-                    # the worker process.
-                    logger.warning("cycle_stub_missing", reason=str(exc))
+                    await self._tick()
                 except Exception:
-                    logger.exception("cycle_failed")
+                    logger.exception("managed_tick_failed")
                 try:
-                    await asyncio.wait_for(
-                        self._stop.wait(), timeout=CYCLE_INTERVAL_SECONDS
-                    )
+                    await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
                 except TimeoutError:
                     continue
         finally:
-            await self._roster_listener.stop()
-            logger.info("decision_engine_stop")
+            if consumer_task is not None:
+                consumer_task.cancel()
+            if pubsub is not None:
+                await pubsub.aclose()
+            logger.info("managed_engine_stop")
 
     def request_stop(self) -> None:
         self._stop.set()
 
 
-def _build_risk_gate(
-    *,
-    drawdown: DrawdownBreaker,
-    exposure: ExposureLimiter,
-    gas_spike: GasSpikeBreaker,
-    position_loss: PositionLossLimit,
-    tx_failure: TxFailureMonitor,
-) -> RiskGate:
-    """Compose checkers in cheap → expensive order.
-
-    Reads-only state checks (drawdown, tx failure, gas spike) run before
-    the exposure-limit check (which inspects current positions). Position
-    loss is last because it touches per-strategy cooldown state.
-    """
+def _build_risk_gate(*, drawdown, exposure, gas_spike, position_loss, tx_failure) -> RiskGate:
     return RiskGate(
         [
             DrawdownChecker(drawdown),
@@ -145,6 +136,20 @@ def _build_risk_gate(
             PositionLossChecker(position_loss),
         ]
     )
+
+
+def _apply_token_overrides(chain_id: int, env: dict[str, str]) -> None:
+    """Override token addresses for the active network from env, if provided.
+
+    Lets an operator point USDC/WETH at specific testnet contracts without a
+    code change: set USDC_ADDRESS / WETH_ADDRESS (+ optional *_DECIMALS).
+    """
+    for symbol, dec_default in (("USDC", 6), ("WETH", 18)):
+        addr = env.get(f"{symbol}_ADDRESS")
+        if addr:
+            decimals = int(env.get(f"{symbol}_DECIMALS", str(dec_default)))
+            register_token(chain_id=chain_id, symbol=symbol, address=addr, decimals=decimals)
+            logger.info("token_override", symbol=symbol, address=addr, chain_id=chain_id)
 
 
 async def _amain() -> int:
@@ -157,123 +162,58 @@ async def _amain() -> int:
     )
     logger.info("decision_engine_init", started_at=datetime.now(UTC).isoformat())
 
+    config = load_managed_config(
+        os.environ.get("MANAGED_CONFIG_PATH", "/app/config/managed.toml")
+    )
+    _apply_token_overrides(config.chain_id, dict(os.environ))
+
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     redis_client = redis.from_url(redis_url, decode_responses=True)
 
-    db_config = DatabaseConfig()
-    db = DatabaseManager(db_config)
+    db = DatabaseManager(DatabaseConfig())
     db.create_tables()
 
-    # TEMPLATES_DIR is the canonical name shared with extractor-worker
-    # writer and backtest-worker registry loader. TEMPLATE_ROOT is kept
-    # as a backward-compat fallback. Absolute default matches the docker
-    # WORKDIR mount in docker-compose.
-    template_root = Path(
-        os.environ.get("TEMPLATES_DIR")
-        or os.environ.get("TEMPLATE_ROOT")
-        or "/app/templates"
-    )
-    # verdict_lookup blocks REJECT-judged templates from loading. The
-    # plausibility judge persists its verdict on the templates row at
-    # extraction time; the loader must consult it before exec_module.
-    registry = TemplateRegistry(
-        template_root, verdict_lookup=build_db_verdict_lookup(db)
-    )
-    registry.load()
-
-    # Risk modules — instantiated with defaults; production config wires
-    # in env-driven thresholds via each module's `*Config` dataclass.
+    # Risk modules (kept from the lake wiring) + the capital fail-loud guard.
     drawdown = DrawdownBreaker()
-    # ExposureLimiter requires the operator-declared total capital. The
-    # check_order math divides by it, so a missing/zero value would either
-    # crash at construction or silently no-op the limit; we fail loudly
-    # on missing env so an operator never starts the engine with a
-    # silently-disabled exposure gate.
     total_capital_raw = os.environ.get("DECISION_ENGINE_TOTAL_CAPITAL_USD")
     if not total_capital_raw:
         raise RuntimeError(
-            "DECISION_ENGINE_TOTAL_CAPITAL_USD is required — the exposure "
-            "limiter divides by it to compute per-protocol / per-asset "
-            "ratios. Set it in .env to the live NAV ceiling (e.g. 10000)."
+            "DECISION_ENGINE_TOTAL_CAPITAL_USD is required — the exposure limiter "
+            "divides by it. Set it in .env to the live NAV ceiling."
         )
     exposure = ExposureLimiter(total_capital=Decimal(total_capital_raw))
     gas_spike = GasSpikeBreaker()
     position_loss = PositionLossLimit()
     tx_failure = TxFailureMonitor()
-
     risk_gate = _build_risk_gate(
-        drawdown=drawdown,
-        exposure=exposure,
-        gas_spike=gas_spike,
-        position_loss=position_loss,
-        tx_failure=tx_failure,
+        drawdown=drawdown, exposure=exposure, gas_spike=gas_spike,
+        position_loss=position_loss, tx_failure=tx_failure,
     )
 
-    # Real impl wiring (W6 review fix — superseded the stubs below).
-    # DataAdapter: W3/W4 stream A's factory picks the v1 default
-    # (DefiLlamaAdapter — public API, no key required).
-    adapter = build_default_adapter()
-    # RegimeClassifier: W6 stream A's rules-based primary classifier.
-    regime_classifier = RulesRegimeClassifier()
-
-    listener = RosterListener(db=db, connection_url=db_config.url)
-
-    # Allocator: W6 stream B's ComposedAllocator. Two integration
-    # adapters needed:
-    #   1. Bridge the two `RosterEntry` shapes — the cache's broad row
-    #      vs the allocator's narrow input. Trivial field projection.
-    #   2. The cache changes on every NOTIFY event, but ComposedAllocator
-    #      binds roster at construction. Solve with a thin wrapper that
-    #      rebuilds the allocator on every `.allocate()` call from the
-    #      live cache snapshot.
-    #
-    # `returns_lookup` returns empty — forces the composed-allocator
-    # cold-start path (equal-weight) until per-candidate return-history
-    # tracking lands (W8+). Cold-start is the blueprint default for new
-    # candidates anyway.
-    def _empty_returns_lookup(_candidate_id: str) -> np.ndarray:
-        return np.array([], dtype=np.float64)
-
-    class _LiveAllocator:
-        """Per-cycle allocator factory that consults the live roster cache.
-
-        ``ComposedAllocator`` is constructed fresh on each `allocate()` call
-        so newly-NOTIFY-promoted candidates land in the allocation set
-        without an engine restart.
-        """
-
-        name = "live-composed"
-
-        def allocate(self, candidate_decisions, portfolio, regime):
-            allocator_roster = {
-                cid: AllocatorRosterEntry(
-                    template_id=entry.template_id,
-                    allocation_max_pct=entry.allocation_max_pct,
-                )
-                for cid, entry in {
-                    e.candidate_id: e for e in listener.cache.live()
-                }.items()
-            }
-            inner = ComposedAllocator(
-                roster=allocator_roster,
-                returns_lookup=_empty_returns_lookup,
-            )
-            return inner.allocate(candidate_decisions, portfolio, regime)
-
-    allocator = _LiveAllocator()
-
-    cycle = DecisionCycle(
-        adapter=adapter,
-        registry=registry,
-        allocator=allocator,
-        regime_classifier=regime_classifier,
-        risk_gate=risk_gate,
-        executor_publisher=RedisExecutorPublisher(redis_client),
-        db=db,
-        roster_cache=listener.cache,
+    # One shared AsyncWeb3 feeds the adapter (prices/gas) and holdings (balances).
+    rpc_url = os.environ["ALCHEMY_BASE_HTTP_URL"]
+    w3 = AsyncWeb3(AsyncHTTPProvider(rpc_url))
+    adapter = RpcAdapter(w3=w3)
+    holdings = RpcHoldingsProvider(
+        w3=w3, adapter=adapter, safe_address=config.safe_address,
+        crypto_symbol=config.crypto_symbol, stable_symbol=config.stable_symbol,
+        chain=config.chain, chain_id=config.chain_id,
     )
+    cycle = ManagedPortfolioCycle(
+        adapter=adapter, holdings=holdings, target=config.rebalance_target(),
+        risk_gate=risk_gate, publisher=RedisExecutorPublisher(redis_client),
+        config=config.cycle_config(),
+    )
+    # trade_sink=None for the first observation (audit-log only); the DB-backed
+    # sink is P1.5c-4B, wired after the round-trip is proven.
+    consumer = ResultsConsumer(tx_failure=tx_failure)
 
-    engine = DecisionEngine(cycle=cycle, roster_listener=listener)
+    engine = ManagedEngine(
+        cycle=cycle, holdings=holdings, adapter=adapter, drawdown=drawdown,
+        gas_spike=gas_spike, gas_tracker=GasAverageTracker(), chain=config.chain,
+        interval_seconds=config.interval_seconds, consumer=consumer,
+        redis_client=redis_client,
+    )
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -285,44 +225,6 @@ async def _amain() -> int:
         await redis_client.aclose()
         db.close()
     return 0
-
-
-# ---------------------------------------------------------------------------
-# Stream A/B/D late-binding stubs. Each raises NotImplementedError with
-# a useful message so the cycle's late-binding catch can log + skip.
-# Replace at instantiation time when the real impl ships.
-# ---------------------------------------------------------------------------
-
-
-class _StubDataAdapter:
-    name = "stub-data-adapter"
-    historical_supported = False
-
-    async def fetch_live(self, chain):  # type: ignore[no-untyped-def]
-        raise NotImplementedError(
-            f"no DataAdapter wired (W3); chain={chain}. Replace _StubDataAdapter in __main__."
-        )
-
-    def fetch_historical(self, chain, start, end):  # type: ignore[no-untyped-def]
-        raise NotImplementedError("stub adapter has no historical")
-
-
-class _StubRegimeClassifier:
-    name = "stub-regime-classifier"
-
-    def classify(self, market):  # type: ignore[no-untyped-def]
-        raise NotImplementedError(
-            "no RegimeClassifier wired (Stream A). Replace _StubRegimeClassifier in __main__."
-        )
-
-
-class _StubAllocator:
-    name = "stub-allocator"
-
-    def allocate(self, candidate_decisions, portfolio, regime):  # type: ignore[no-untyped-def]
-        raise NotImplementedError(
-            "no Allocator wired (Stream B). Replace _StubAllocator in __main__."
-        )
 
 
 def main() -> int:
