@@ -74,7 +74,7 @@ class DatabaseManager:
 
     def _create_engine(self) -> Engine:
         """Create the SQLAlchemy engine with dialect-appropriate settings."""
-        url = self._config.url
+        url = _sync_driver_url(self._config.url)
         kwargs: dict[str, Any] = {"echo": self._config.echo}
 
         if url.startswith("sqlite"):
@@ -140,6 +140,21 @@ class DatabaseManager:
             self._engine = None
             self._session_factory = None
             _logger.info("Database engine disposed")
+
+
+def _sync_driver_url(url: str) -> str:
+    """Map an async Postgres URL to its synchronous psycopg (psycopg3) driver.
+
+    The system's canonical ``DATABASE_URL`` uses ``postgresql+asyncpg://`` so the
+    LISTEN/NOTIFY consumer (``icarus.db.notify``) can open an async connection.
+    This ``DatabaseManager`` is synchronous, so its engine needs a sync DBAPI:
+    swap ``+asyncpg`` for ``+psycopg`` (psycopg3). This mirrors ``notify``'s
+    ``_normalise_dsn`` in the opposite direction. SQLite and URLs that already
+    name a sync driver pass through unchanged.
+    """
+    if url.startswith("postgresql+asyncpg"):
+        return "postgresql+psycopg" + url[len("postgresql+asyncpg") :]
+    return url
 
 
 def _sanitize_url(url: str) -> str:
