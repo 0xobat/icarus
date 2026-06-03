@@ -91,3 +91,14 @@ def test_trade_sink_optional() -> None:
     # No sink → no crash (backward compatible with P1.5b tests).
     consumer = ResultsConsumer(tx_failure=TxFailureMonitor())
     consumer.handle_result(_result("confirmed"))  # must not raise
+
+
+def test_trade_sink_exception_is_swallowed() -> None:
+    monitor = TxFailureMonitor()
+
+    def _boom(_rec: dict) -> None:
+        raise RuntimeError("db down")
+
+    consumer = ResultsConsumer(tx_failure=monitor, trade_sink=_boom)
+    consumer.handle_result(_result("confirmed"))  # must not raise
+    assert monitor.can_execute() is True

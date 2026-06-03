@@ -83,6 +83,8 @@ def load_managed_config(
     if not safe_address:
         raise RuntimeError("SAFE_ADDRESS env var is required (the wallet receiving swap output).")
     chain: Chain = env.get("CHAIN", "base")  # type: ignore[assignment]
+    if chain not in ("base", "solana"):
+        raise RuntimeError(f"CHAIN must be 'base' or 'solana', got {chain!r}")
 
     return ManagedConfig(
         crypto_symbol=str(alloc["crypto_symbol"]),

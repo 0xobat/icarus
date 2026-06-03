@@ -77,3 +77,17 @@ def test_invalid_band_fails_loud(tmp_path: Path) -> None:
     bad = _TOML.replace("band = 0.10", "band = 0.9")
     with pytest.raises(ValueError, match="band"):
         load_managed_config(_write(tmp_path, bad), env=_ENV)
+
+
+def test_invalid_slippage_fails_loud(tmp_path: Path) -> None:
+    bad = _TOML.replace("slippage_bps = 50", "slippage_bps = 1001")
+    with pytest.raises(ValueError, match="slippage_bps"):
+        load_managed_config(_write(tmp_path, bad), env=_ENV)
+
+
+def test_invalid_chain_fails_loud(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="CHAIN"):
+        load_managed_config(
+            _write(tmp_path),
+            env={"SAFE_ADDRESS": _ENV["SAFE_ADDRESS"], "CHAIN": "testnet"},
+        )

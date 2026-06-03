@@ -71,18 +71,21 @@ class ResultsConsumer:
         )
 
         if self._trade_sink is not None:
-            self._trade_sink(
-                {
-                    "order_id": result.order_id,
-                    "correlation_id": result.correlation_id,
-                    "chain": result.chain,
-                    "status": result.status,
-                    "tx_hash": result.tx_hash,
-                    "amount_out": str(result.amount_out) if result.amount_out is not None else None,
-                    "fill_price": str(result.fill_price) if result.fill_price is not None else None,
-                    "timestamp": result.timestamp.isoformat(),
-                }
-            )
+            try:
+                self._trade_sink(
+                    {
+                        "order_id": result.order_id,
+                        "correlation_id": result.correlation_id,
+                        "chain": result.chain,
+                        "status": result.status,
+                        "tx_hash": result.tx_hash,
+                        "amount_out": str(result.amount_out) if result.amount_out is not None else None,
+                        "fill_price": str(result.fill_price) if result.fill_price is not None else None,
+                        "timestamp": result.timestamp.isoformat(),
+                    }
+                )
+            except Exception:
+                logger.warning("trade_sink_failed", order_id=result.order_id, exc_info=True)
 
     async def run(self, pubsub: Any) -> None:
         """Thin live loop: consume messages off a subscribed Redis pubsub.
