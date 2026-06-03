@@ -105,6 +105,7 @@ class ManagedEngine:
             pubsub = self._redis.pubsub()
             await pubsub.subscribe(f"execution:results:{self._chain}")
             consumer_task = asyncio.create_task(self._consumer.run(pubsub))
+            consumer_task.add_done_callback(self._on_consumer_done)
         try:
             while not self._stop.is_set():
                 try:
@@ -121,6 +122,16 @@ class ManagedEngine:
             if pubsub is not None:
                 await pubsub.aclose()
             logger.info("managed_engine_stop")
+
+    def _on_consumer_done(self, task: asyncio.Task) -> None:
+        """Fail-closed: if the results consumer dies (not a clean cancel), the
+        tx-failure breaker is no longer fed — halt trading and alert loudly."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("consumer_task_died", error=str(exc), exc_info=exc)
+            self.request_stop()
 
     def request_stop(self) -> None:
         self._stop.set()

@@ -59,3 +59,28 @@ async def test_tick_feeds_breakers_and_runs_cycle() -> None:
     assert gas_spike.current_gas == Decimal("2")
     # The cycle ran exactly once.
     assert cycle.calls == 1
+
+
+class _DeadTask:
+    def __init__(self, *, cancelled: bool, exc: Exception | None) -> None:
+        self._cancelled, self._exc = cancelled, exc
+    def cancelled(self) -> bool: return self._cancelled
+    def exception(self) -> Exception | None: return self._exc
+
+def test_consumer_death_halts_engine() -> None:
+    engine = ManagedEngine(
+        cycle=_FakeCycle(), holdings=_StubHoldings(), adapter=_FakeAdapter(),
+        drawdown=DrawdownBreaker(), gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base",
+    )
+    engine._on_consumer_done(_DeadTask(cancelled=False, exc=RuntimeError("redis down")))
+    assert engine._stop.is_set()  # fail-closed: trading halted
+
+def test_clean_cancel_does_not_halt() -> None:
+    engine = ManagedEngine(
+        cycle=_FakeCycle(), holdings=_StubHoldings(), adapter=_FakeAdapter(),
+        drawdown=DrawdownBreaker(), gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base",
+    )
+    engine._on_consumer_done(_DeadTask(cancelled=True, exc=None))
+    assert not engine._stop.is_set()  # normal shutdown, no alarm
