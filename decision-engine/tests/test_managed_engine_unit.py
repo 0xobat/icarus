@@ -6,14 +6,13 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from icarus.types import MarketSnapshot
-from icarus.types.market import Chain
-
 from decision_engine.__main__ import ManagedEngine
+from decision_engine.gas_tracker import GasAverageTracker
 from decision_engine.managed_cycle import ManagedCycleResult
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker
 from decision_engine.risk.gas_spike_breaker import GasSpikeBreaker
-from decision_engine.gas_tracker import GasAverageTracker
+from icarus.types import MarketSnapshot
+from icarus.types.market import Chain
 
 
 class _FakeAdapter:

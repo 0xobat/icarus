@@ -6,7 +6,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-
 from decision_engine.config import ManagedConfig, load_managed_config
 
 _TOML = """

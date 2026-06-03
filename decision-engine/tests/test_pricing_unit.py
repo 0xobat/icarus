@@ -6,9 +6,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from decision_engine.pricing import estimate_swap_cost_usd, price_usd
 from icarus.types import MarketSnapshot
-
-from decision_engine.pricing import price_usd
 
 
 def _market(prices: dict[str, Decimal], gas_gwei: Decimal = Decimal("0.05")) -> MarketSnapshot:
@@ -42,10 +41,6 @@ def test_price_usd_unpriced_symbol_raises() -> None:
     market = _market({"ETH": Decimal("3000")})
     with pytest.raises(KeyError, match="SOL"):
         price_usd("SOL", market)
-
-
-from decision_engine.pricing import estimate_swap_cost_usd
-
 
 def test_estimate_swap_cost_combines_gas_and_slippage() -> None:
     # gas_gwei=1, gas_units=200_000 → 0.0002 ETH; at $3000 → $0.60 gas.

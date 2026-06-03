@@ -8,11 +8,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from icarus.types import MarketSnapshot
-from icarus.types.market import Chain
-
 from decision_engine.holdings import RpcHoldingsProvider
 from decision_engine.managed_cycle import HoldingsProvider
+from icarus.types import MarketSnapshot
+from icarus.types.market import Chain
 
 _SAFE = "0x1111111111111111111111111111111111111111"
 _USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"

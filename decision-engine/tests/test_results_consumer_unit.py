@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from icarus.envelopes.results import ExecutionResult
-
 from decision_engine.results_consumer import ResultsConsumer
 from decision_engine.risk.tx_failure_monitor import TxFailureMonitor
+from icarus.envelopes.results import ExecutionResult
 
 
 def _result(status: str, order_id: str = "o1") -> ExecutionResult:

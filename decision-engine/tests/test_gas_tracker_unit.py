@@ -3,7 +3,6 @@
 from decimal import Decimal
 
 import pytest
-
 from decision_engine.gas_tracker import GasAverageTracker
 
 

@@ -5,14 +5,13 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from icarus.envelopes.orders import OrderParams
-
 from decision_engine.order_resolver import (
     TokenInfo,
     lookup_token,
     resolve_swap_params,
     usd_to_smallest_unit,
 )
+from icarus.envelopes.orders import OrderParams
 
 
 def test_lookup_usdc_base() -> None:

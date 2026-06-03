@@ -6,10 +6,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from icarus.envelopes.orders import ExecutionOrder
-from icarus.types import MarketSnapshot
-from icarus.types.market import Chain
-
 from decision_engine.cycle import ExecutorPublisher
 from decision_engine.managed_cycle import (
     HoldingsProvider,
@@ -18,6 +14,9 @@ from decision_engine.managed_cycle import (
 )
 from decision_engine.rebalance import RebalanceTarget
 from decision_engine.risk_gate import RiskGate
+from icarus.envelopes.orders import ExecutionOrder
+from icarus.types import MarketSnapshot
+from icarus.types.market import Chain
 
 _SAFE = "0x1111111111111111111111111111111111111111"
 _TARGET = RebalanceTarget(
@@ -120,7 +119,7 @@ async def test_underweight_publishes_usdc_to_weth_swap() -> None:
     result = await cycle.run_one()
     assert result.action == "rebalance"
     assert result.published is True
-    chain, order = publisher.published[0]
+    _, order = publisher.published[0]
     # USDC→WETH: token_in is USDC, token_out is WETH.
     assert order.params.token_in == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
     assert order.params.token_out == "0x4200000000000000000000000000000000000006"
@@ -131,8 +130,8 @@ async def test_underweight_publishes_usdc_to_weth_swap() -> None:
 @pytest.mark.asyncio
 async def test_sepolia_cycle_uses_sepolia_token_addresses() -> None:
     """ManagedCycleConfig(chain_id=84532) resolves Sepolia addresses in published order."""
-    _SEPOLIA_USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
-    _WETH_ADDR = "0x4200000000000000000000000000000000000006"
+    sepolia_usdc = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    weth_addr = "0x4200000000000000000000000000000000000006"
     sepolia_config = ManagedCycleConfig(
         recipient=_SAFE, protocol="aerodrome", slippage_bps=50,
         cost_gate_margin=Decimal("4"), gas_units=200_000, deadline_seconds=60,
@@ -152,8 +151,8 @@ async def test_sepolia_cycle_uses_sepolia_token_addresses() -> None:
     assert result.published is True
     _, order = publisher.published[0]
     # Sepolia USDC→WETH: token_in is Sepolia USDC address.
-    assert order.params.token_in == _SEPOLIA_USDC
-    assert order.params.token_out == _WETH_ADDR
+    assert order.params.token_in == sepolia_usdc
+    assert order.params.token_out == weth_addr
 
 
 @pytest.mark.asyncio
