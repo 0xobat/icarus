@@ -26,7 +26,7 @@ import redis.asyncio as redis
 import structlog
 from icarus.data_adapters import RpcAdapter
 from icarus.db.database import DatabaseConfig, DatabaseManager
-from web3 import AsyncHTTPProvider, AsyncWeb3
+from web3 import AsyncHTTPProvider, AsyncWeb3, Web3
 
 from decision_engine.config import load_managed_config
 from decision_engine.cycle import RedisExecutorPublisher
@@ -226,7 +226,15 @@ async def _amain() -> int:
     # One shared AsyncWeb3 feeds the adapter (prices/gas) and holdings (balances).
     rpc_url = os.environ["ALCHEMY_BASE_HTTP_URL"]
     w3 = AsyncWeb3(AsyncHTTPProvider(rpc_url))
-    adapter = RpcAdapter(w3=w3)
+    # The Chainlink ETH/USD feed is network-specific. RpcAdapter defaults to the
+    # Base MAINNET feed; on a testnet (e.g. Base Sepolia) that address reverts, so
+    # let the operator point it at the right feed via env. Unset → mainnet default.
+    adapter_kwargs: dict[str, str] = {}
+    eth_usd_feed = os.environ.get("CHAINLINK_ETH_USD_ADDRESS")
+    if eth_usd_feed:
+        adapter_kwargs["chainlink_eth_usd_address"] = Web3.to_checksum_address(eth_usd_feed)
+        logger.info("chainlink_feed_override", address=adapter_kwargs["chainlink_eth_usd_address"])
+    adapter = RpcAdapter(w3=w3, **adapter_kwargs)
     holdings = RpcHoldingsProvider(
         w3=w3, adapter=adapter, safe_address=config.safe_address,
         crypto_symbol=config.crypto_symbol, stable_symbol=config.stable_symbol,
