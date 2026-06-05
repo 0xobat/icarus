@@ -6,11 +6,10 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from decision_engine.trade_log import make_db_trade_sink, record_pending_trade
 from icarus.db.database import DatabaseConfig, DatabaseManager
 from icarus.db.models import Trade
 from sqlalchemy import select
-
-from decision_engine.trade_log import make_db_trade_sink, record_pending_trade
 
 
 @pytest.fixture

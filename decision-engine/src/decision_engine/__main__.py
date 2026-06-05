@@ -48,6 +48,7 @@ from decision_engine.risk_gate import (
     RiskGate,
     TxFailureChecker,
 )
+from decision_engine.trade_log import make_db_trade_sink
 
 logger = structlog.get_logger(service="decision-engine")
 
@@ -68,6 +69,7 @@ class ManagedEngine:
         interval_seconds: int = 3600,
         consumer: ResultsConsumer | None = None,
         redis_client=None,
+        pending_trade_recorder=None,
     ) -> None:
         self._cycle = cycle
         self._holdings = holdings
@@ -79,6 +81,7 @@ class ManagedEngine:
         self._interval = interval_seconds
         self._consumer = consumer
         self._redis = redis_client
+        self._pending_trade_recorder = pending_trade_recorder
         self._stop = asyncio.Event()
 
     async def _tick(self) -> None:
@@ -88,6 +91,13 @@ class ManagedEngine:
         crypto_usd, stable_usd = await self._holdings.current_usd_holdings()
         self._drawdown.update(crypto_usd + stable_usd)
         result = await self._cycle.run_one()
+        if result.published and self._pending_trade_recorder is not None:
+            try:
+                self._pending_trade_recorder(result)
+            except Exception:
+                logger.warning(
+                    "pending_trade_record_failed", order_id=result.order_id, exc_info=True
+                )
         logger.info(
             "managed_tick",
             action=result.action,
@@ -163,6 +173,20 @@ def _apply_token_overrides(chain_id: int, env: dict[str, str]) -> None:
             logger.info("token_override", symbol=symbol, address=addr, chain_id=chain_id)
 
 
+def _make_pending_recorder(db, *, chain: str, protocol: str, slippage_bps: int):
+    from decision_engine.trade_log import record_pending_trade
+
+    def _record(result) -> None:
+        record_pending_trade(
+            db, order_id=result.order_id, correlation_id=result.correlation_id,
+            chain=chain, protocol=protocol, from_symbol=result.from_symbol,
+            to_symbol=result.to_symbol, usd_amount=result.usd_amount,
+            slippage_bps=slippage_bps,
+        )
+
+    return _record
+
+
 async def _amain() -> int:
     structlog.configure(
         processors=[
@@ -215,15 +239,17 @@ async def _amain() -> int:
         risk_gate=risk_gate, publisher=RedisExecutorPublisher(redis_client),
         config=config.cycle_config(),
     )
-    # trade_sink=None for the first observation (audit-log only); the DB-backed
-    # sink is P1.5c-4B, wired after the round-trip is proven.
-    consumer = ResultsConsumer(tx_failure=tx_failure)
+    trade_sink = make_db_trade_sink(db)
+    consumer = ResultsConsumer(tx_failure=tx_failure, trade_sink=trade_sink)
+    pending_recorder = _make_pending_recorder(
+        db, chain=config.chain, protocol="aerodrome", slippage_bps=config.slippage_bps
+    )
 
     engine = ManagedEngine(
         cycle=cycle, holdings=holdings, adapter=adapter, drawdown=drawdown,
         gas_spike=gas_spike, gas_tracker=GasAverageTracker(), chain=config.chain,
         interval_seconds=config.interval_seconds, consumer=consumer,
-        redis_client=redis_client,
+        redis_client=redis_client, pending_trade_recorder=pending_recorder,
     )
 
     loop = asyncio.get_running_loop()

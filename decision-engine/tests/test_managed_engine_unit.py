@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
-from decision_engine.__main__ import ManagedEngine
+from decision_engine.__main__ import ManagedEngine, _make_pending_recorder
 from decision_engine.gas_tracker import GasAverageTracker
 from decision_engine.managed_cycle import ManagedCycleResult
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker
 from decision_engine.risk.gas_spike_breaker import GasSpikeBreaker
+from icarus.db.database import DatabaseConfig, DatabaseManager
+from icarus.db.models import Trade
 from icarus.types import MarketSnapshot
 from icarus.types.market import Chain
+from sqlalchemy import select
 
 
 class _FakeAdapter:
@@ -63,8 +67,13 @@ async def test_tick_feeds_breakers_and_runs_cycle() -> None:
 class _DeadTask:
     def __init__(self, *, cancelled: bool, exc: Exception | None) -> None:
         self._cancelled, self._exc = cancelled, exc
-    def cancelled(self) -> bool: return self._cancelled
-    def exception(self) -> Exception | None: return self._exc
+
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    def exception(self) -> Exception | None:
+        return self._exc
+
 
 def test_consumer_death_halts_engine() -> None:
     engine = ManagedEngine(
@@ -75,6 +84,7 @@ def test_consumer_death_halts_engine() -> None:
     engine._on_consumer_done(_DeadTask(cancelled=False, exc=RuntimeError("redis down")))
     assert engine._stop.is_set()  # fail-closed: trading halted
 
+
 def test_clean_cancel_does_not_halt() -> None:
     engine = ManagedEngine(
         cycle=_FakeCycle(), holdings=_StubHoldings(), adapter=_FakeAdapter(),
@@ -83,3 +93,30 @@ def test_clean_cancel_does_not_halt() -> None:
     )
     engine._on_consumer_done(_DeadTask(cancelled=True, exc=None))
     assert not engine._stop.is_set()  # normal shutdown, no alarm
+
+
+class _PublishingCycle:
+    async def run_one(self) -> ManagedCycleResult:
+        return ManagedCycleResult(
+            action="rebalance", reason="t", published=True, correlation_id="c",
+            order_id="ord9", from_symbol="WETH", to_symbol="USDC",
+            usd_amount=Decimal("2000"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_tick_records_pending_trade_on_publish(tmp_path: Path) -> None:
+    db = DatabaseManager(DatabaseConfig(url=f"sqlite:///{tmp_path}/e.db"))
+    db.create_tables()
+    engine = ManagedEngine(
+        cycle=_PublishingCycle(), holdings=_StubHoldings(), adapter=_FakeAdapter(),
+        drawdown=DrawdownBreaker(), gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base",
+        pending_trade_recorder=_make_pending_recorder(
+            db, chain="base", protocol="aerodrome", slippage_bps=50
+        ),
+    )
+    await engine._tick()
+    with db.get_session() as s:
+        rows = s.execute(select(Trade)).scalars().all()
+    assert len(rows) == 1 and rows[0].trade_id == "ord9" and rows[0].status == "pending"
