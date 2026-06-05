@@ -30,6 +30,10 @@ COPY decision-engine/pyproject.toml decision-engine/
 COPY lib/src lib/src/
 COPY decision-engine/src decision-engine/src/
 
+# Managed-portfolio strategy dials — load_managed_config reads /app/config/managed.toml
+# at boot. Baked in so prod works without a mount; dev overlays via a compose volume.
+COPY config config/
+
 FROM base AS prod
 RUN uv sync --frozen --package decision-engine --no-dev
 CMD ["python", "-m", "decision_engine"]

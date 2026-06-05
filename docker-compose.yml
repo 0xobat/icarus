@@ -158,6 +158,9 @@ services:
       - ./lib/src:/app/lib/src
       - ./decision-engine/src:/app/decision-engine/src
       - ./templates:/app/templates
+      # Managed-portfolio strategy dials — read at boot by load_managed_config
+      # (MANAGED_CONFIG_PATH, default /app/config/managed.toml). Read-only.
+      - ./config:/app/config:ro
 
   ts-executor:
     # Base chain executor — Node, Safe multisig wallet, Aave/Aerodrome adapters.
