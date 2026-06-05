@@ -133,19 +133,27 @@ The decision-engine **refuses to boot** without `SAFE_ADDRESS` / `DECISION_ENGIN
 
 ---
 
-## 4. Deploy & run (Base Sepolia)
+## 4. Deploy & run
 
+The two §0 options map to two different stacks. **Do not co-run ts-executor on `CHAIN_ID=84532`** — it isn't mapped to Base Sepolia and will throw `Unsupported CHAIN_ID` at boot.
+
+**Exp 1 — Base Sepolia dry observation (`CHAIN_ID=84532`, decision-engine only):**
 ```bash
-# 1. Bring up infra + the managed decision-engine + ts-executor
-docker compose up -d --wait postgres redis ts-executor decision-engine
-
-# 2. Watch the decision-engine logs (structured JSON)
+# ts-executor is intentionally excluded — it can't target Base Sepolia, and
+# Aerodrome isn't there, so there is no fill to execute.
+docker compose up -d --wait postgres redis decision-engine
 docker compose logs -f decision-engine
 ```
 
-To **force a rebalance** for the first observation, set the wallet's WETH:USDC split deliberately **outside** the 50–70% band (e.g. fund it ~80% WETH / 20% USDC) so the first tick must act.
+**Exp 2 — Base mainnet fork, full stack, real fill (`CHAIN_ID=8453`):**
+```bash
+# Point ALCHEMY_BASE_HTTP_URL at your fork (Anvil/Tenderly), fund the forked
+# Safe, and ensure AERODROME_ROUTER is set. Both services agree on 8453.
+docker compose up -d --wait postgres redis ts-executor decision-engine
+docker compose logs -f decision-engine ts-executor
+```
 
-> For a **real fill** rather than dry observation, run against a Base **mainnet fork** with `CHAIN_ID=8453` and a forked-funded Safe + Aerodrome router (§0 option b).
+To **force a rebalance** for the first observation, set the wallet's WETH:USDC split deliberately **outside** the 50–70% band (e.g. fund it ~80% WETH / 20% USDC) so the first tick must act.
 
 ---
 
