@@ -48,7 +48,7 @@ from decision_engine.risk_gate import (
     RiskGate,
     TxFailureChecker,
 )
-from decision_engine.trade_log import make_db_trade_sink
+from decision_engine.trade_log import make_db_trade_sink, record_pending_trade
 
 logger = structlog.get_logger(service="decision-engine")
 
@@ -174,8 +174,6 @@ def _apply_token_overrides(chain_id: int, env: dict[str, str]) -> None:
 
 
 def _make_pending_recorder(db, *, chain: str, protocol: str, slippage_bps: int):
-    from decision_engine.trade_log import record_pending_trade
-
     def _record(result) -> None:
         record_pending_trade(
             db, order_id=result.order_id, correlation_id=result.correlation_id,

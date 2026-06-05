@@ -8,8 +8,9 @@ swallows sink exceptions).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
-from typing import Any, Callable
+from typing import Any
 
 import structlog
 from icarus.db.database import DatabaseManager
@@ -78,4 +79,4 @@ def make_db_trade_sink(db: DatabaseManager) -> Callable[[dict[str, Any]], None]:
     return _sink
 
 
-__all__ = ["record_pending_trade", "make_db_trade_sink"]
+__all__ = ["make_db_trade_sink", "record_pending_trade"]
