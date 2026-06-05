@@ -156,6 +156,29 @@ async def test_sepolia_cycle_uses_sepolia_token_addresses() -> None:
 
 
 @pytest.mark.asyncio
+async def test_result_carries_order_details_on_rebalance() -> None:
+    publisher = _CapturePublisher()
+    cycle = _cycle(_StubHoldings(Decimal("8000"), Decimal("2000")), publisher)
+    result = await cycle.run_one()
+    assert result.published is True
+    assert result.order_id is not None and len(result.order_id) >= 8
+    assert result.from_symbol == "WETH"
+    assert result.to_symbol == "USDC"
+    assert result.usd_amount == Decimal("2000")
+
+
+@pytest.mark.asyncio
+async def test_hold_result_has_no_order_details() -> None:
+    publisher = _CapturePublisher()
+    cycle = _cycle(_StubHoldings(Decimal("6500"), Decimal("3500")), publisher)
+    result = await cycle.run_one()
+    assert result.action == "hold"
+    assert result.order_id is None
+    assert result.from_symbol is None
+    assert result.usd_amount is None
+
+
+@pytest.mark.asyncio
 async def test_risk_gate_rejection_blocks_publish() -> None:
     from decision_engine.risk_gate import RiskContext, RiskDecision
 

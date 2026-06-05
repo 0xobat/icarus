@@ -70,6 +70,10 @@ class ManagedCycleResult:
     reason: str
     published: bool
     correlation_id: str
+    order_id: str | None = None
+    from_symbol: str | None = None
+    to_symbol: str | None = None
+    usd_amount: Decimal | None = None
 
 
 @dataclass
@@ -143,7 +147,9 @@ class ManagedPortfolioCycle:
         )
         return ManagedCycleResult(
             action="rebalance", reason=plan.reason, published=True,
-            correlation_id=correlation_id,
+            correlation_id=correlation_id, order_id=order.order_id,
+            from_symbol=plan.from_symbol, to_symbol=plan.to_symbol,
+            usd_amount=plan.usd_amount,
         )
 
     def _build_order(
