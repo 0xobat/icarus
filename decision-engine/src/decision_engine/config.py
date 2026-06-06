@@ -3,7 +3,7 @@
 Managed-portfolio P1.5c. Strategy dials come from a versioned TOML file;
 secrets + per-deployment values (Safe address, chain) come from env. Loaded
 into a frozen, validated dataclass at boot — fails loud on missing/invalid
-values, matching the DECISION_ENGINE_TOTAL_CAPITAL_USD guard.
+values (SAFE_ADDRESS, CHAIN, and the weight/band/slippage ranges).
 """
 
 from __future__ import annotations

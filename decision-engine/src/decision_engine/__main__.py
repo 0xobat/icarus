@@ -20,7 +20,6 @@ import os
 import signal
 import sys
 from datetime import UTC, datetime
-from decimal import Decimal
 
 import redis.asyncio as redis
 import structlog
@@ -36,15 +35,11 @@ from decision_engine.managed_cycle import ManagedPortfolioCycle
 from decision_engine.order_resolver import register_token
 from decision_engine.results_consumer import ResultsConsumer
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker
-from decision_engine.risk.exposure_limits import ExposureLimiter
 from decision_engine.risk.gas_spike_breaker import GasSpikeBreaker
-from decision_engine.risk.position_loss_limit import PositionLossLimit
 from decision_engine.risk.tx_failure_monitor import TxFailureMonitor
 from decision_engine.risk_gate import (
     DrawdownChecker,
-    ExposureChecker,
     GasSpikeChecker,
-    PositionLossChecker,
     RiskGate,
     TxFailureChecker,
 )
@@ -147,14 +142,22 @@ class ManagedEngine:
         self._stop.set()
 
 
-def _build_risk_gate(*, drawdown, exposure, gas_spike, position_loss, tx_failure) -> RiskGate:
+def _build_risk_gate(*, drawdown, gas_spike, tx_failure) -> RiskGate:
+    """The managed gate: NAV/market-level breakers only.
+
+    The lake-era ExposureChecker and PositionLossChecker are intentionally
+    omitted — in the managed model the allocation target + bands ARE the
+    concentration policy, the per-protocol exposure cap is a category error
+    (we hold spot in the Safe, not deployed in a venue), and the per-strategy
+    loss cooldown would freeze all rebalancing on one loss (every order is
+    REBAL:base). A depeg breaker joins these next phase. See
+    docs/superpowers/plans/2026-06-05-managed-gate-rightsizing.md.
+    """
     return RiskGate(
         [
             DrawdownChecker(drawdown),
             TxFailureChecker(tx_failure),
             GasSpikeChecker(gas_spike),
-            ExposureChecker(exposure),
-            PositionLossChecker(position_loss),
         ]
     )
 
@@ -206,21 +209,15 @@ async def _amain() -> int:
     db = DatabaseManager(DatabaseConfig())
     db.create_tables()
 
-    # Risk modules (kept from the lake wiring) + the capital fail-loud guard.
+    # Managed risk gate: NAV/market-level breakers only (drawdown, gas-spike,
+    # tx-failure). The lake-era exposure limiter and position-loss cooldown are
+    # not wired here — the allocation target + bands are the concentration
+    # policy. A depeg breaker joins these next phase.
     drawdown = DrawdownBreaker()
-    total_capital_raw = os.environ.get("DECISION_ENGINE_TOTAL_CAPITAL_USD")
-    if not total_capital_raw:
-        raise RuntimeError(
-            "DECISION_ENGINE_TOTAL_CAPITAL_USD is required — the exposure limiter "
-            "divides by it. Set it in .env to the live NAV ceiling."
-        )
-    exposure = ExposureLimiter(total_capital=Decimal(total_capital_raw))
     gas_spike = GasSpikeBreaker()
-    position_loss = PositionLossLimit()
     tx_failure = TxFailureMonitor()
     risk_gate = _build_risk_gate(
-        drawdown=drawdown, exposure=exposure, gas_spike=gas_spike,
-        position_loss=position_loss, tx_failure=tx_failure,
+        drawdown=drawdown, gas_spike=gas_spike, tx_failure=tx_failure,
     )
 
     # One shared AsyncWeb3 feeds the adapter (prices/gas) and holdings (balances).

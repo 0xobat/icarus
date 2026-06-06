@@ -130,8 +130,6 @@ class ManagedPortfolioCycle:
                 drawdown_from_peak=Decimal("0"), last_rebalance=datetime.now(UTC),
             ),
             market=market,
-            # USD notional the exposure checker must use — params.amount is wei.
-            order_value_usd=plan.usd_amount,
         )
         verdict = self.risk_gate.check(order, ctx)
         if not verdict.passed:
