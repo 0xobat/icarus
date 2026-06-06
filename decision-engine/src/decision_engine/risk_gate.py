@@ -37,6 +37,7 @@ for that tick.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
@@ -73,6 +74,12 @@ class RiskContext:
     portfolio: PortfolioSnapshot
     market: MarketSnapshot
     order_value_usd: Decimal | None = None
+    # Prospective per-asset USD holdings AFTER this order settles, and the venue
+    # each asset sits in. Threaded by the managed cycle for the P2.5 exposure
+    # checker (real per-tick positions). None on legacy/unpriced paths → the
+    # exposure checker passes through.
+    prospective_holdings: Mapping[str, Decimal] | None = None
+    venue_by_asset: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)

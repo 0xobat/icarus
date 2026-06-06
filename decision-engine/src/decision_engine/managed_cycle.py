@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
@@ -67,6 +67,9 @@ class ManagedCycleConfig:
     gas_units: int
     deadline_seconds: int
     chain_id: int = DEFAULT_CHAIN_ID
+    # Which venue each asset sits in (USDC/cbBTC → "aave_v3"; WETH/wstETH →
+    # "wallet"). Threaded to the P2.5 exposure checker via RiskContext.
+    venue_by_asset: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -137,12 +140,25 @@ class ManagedPortfolioCycle:
             )
 
         order = self._build_order(plan, market, correlation_id)
+        # Prospective post-trade holdings: the swap moves usd_amount from the
+        # `from` asset into the `to` asset. Threaded to the exposure checker so
+        # it caps concentration on the state this order WOULD produce (P2.5).
+        prospective = dict(holdings)
+        prospective[plan.from_symbol] = (
+            prospective.get(plan.from_symbol, Decimal("0")) - plan.usd_amount
+        )
+        prospective[plan.to_symbol] = (
+            prospective.get(plan.to_symbol, Decimal("0")) + plan.usd_amount
+        )
         ctx = RiskContext(
             portfolio=PortfolioSnapshot(
                 nav_usd=nav, positions={}, cash_usd=holdings.get(self.target.hub, Decimal("0")),
                 drawdown_from_peak=Decimal("0"), last_rebalance=datetime.now(UTC),
             ),
             market=market,
+            order_value_usd=plan.usd_amount,
+            prospective_holdings=prospective,
+            venue_by_asset=self.config.venue_by_asset,
         )
         verdict = self.risk_gate.check(order, ctx)
         if not verdict.passed:

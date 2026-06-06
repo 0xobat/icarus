@@ -23,6 +23,14 @@ from decision_engine.rebalance import MultiAssetTarget
 
 _PROTOCOL = "aerodrome"  # P1 swap venue on Base
 
+# Assets lent on Aave (the rest are held in the wallet/Safe). Used to build the
+# venue-by-asset map the P2.5 exposure checker consults. wstETH/WETH are held.
+_LENT_ASSETS = frozenset({"USDC", "USDT", "DAI", "cbBTC"})
+
+
+def _venue_for(symbol: str) -> str:
+    return "aave_v3" if symbol in _LENT_ASSETS else "wallet"
+
 
 @dataclass(frozen=True)
 class ManagedConfig:
@@ -38,6 +46,10 @@ class ManagedConfig:
     chain: Chain
     chain_id: int = 8453  # Default to Base mainnet
     depeg_threshold_bps: int = 100  # USDC depeg breaker trips above this deviation
+    # P2.5 exposure caps (NAV fractions). max_asset_pct is a safety net >= the
+    # largest upper band; max_venue_pct caps overlay venues (LP, P3).
+    max_asset_pct: Decimal = Decimal("0.60")
+    max_venue_pct: Decimal = Decimal("0.25")
     # Operator funding addresses for the PnL deposit-tracker (reporting only).
     # Deposits = inbound to the Safe FROM one of these; withdrawals = outbound
     # TO one of these. Empty → tracker disabled (PnL not computed).
@@ -45,6 +57,10 @@ class ManagedConfig:
 
     def multi_asset_target(self) -> MultiAssetTarget:
         return MultiAssetTarget(weights=dict(self.weights), band=self.band, hub=self.hub)
+
+    def venue_by_asset(self) -> dict[str, str]:
+        """Map each target asset to its venue (lent on Aave vs held)."""
+        return {sym: _venue_for(sym) for sym in self.weights}
 
     def cycle_config(self) -> ManagedCycleConfig:
         return ManagedCycleConfig(
@@ -55,6 +71,7 @@ class ManagedConfig:
             gas_units=self.gas_units,
             deadline_seconds=self.deadline_seconds,
             chain_id=self.chain_id,
+            venue_by_asset=self.venue_by_asset(),
         )
 
 
@@ -70,6 +87,7 @@ def load_managed_config(
     reb = data["rebalance"]
     cad = data["cadence"]
     risk = data.get("risk", {})
+    limits = data.get("limits", {})
 
     weights = {sym: Decimal(str(w)) for sym, w in alloc["weights"].items()}
     hub = str(alloc["hub"])
@@ -120,6 +138,8 @@ def load_managed_config(
         chain_id=chain_id,
         depeg_threshold_bps=depeg_threshold_bps,
         operator_funding_addresses=operator_funding_addresses,
+        max_asset_pct=Decimal(str(limits.get("max_asset_pct", "0.60"))),
+        max_venue_pct=Decimal(str(limits.get("per_venue_cap", "0.25"))),
     )
 
 

@@ -39,6 +39,10 @@ from decision_engine.results_consumer import ResultsConsumer
 from decision_engine.risk.depeg_breaker import DepegBreaker
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker
 from decision_engine.risk.gas_spike_breaker import GasSpikeBreaker
+from decision_engine.risk.managed_exposure import (
+    ManagedExposureChecker,
+    ManagedExposureConfig,
+)
 from decision_engine.risk.tx_failure_monitor import TxFailureMonitor
 from decision_engine.risk_gate import (
     DepegChecker,
@@ -206,18 +210,19 @@ class ManagedEngine:
         self._stop.set()
 
 
-def _build_risk_gate(*, drawdown, gas_spike, tx_failure, depeg) -> RiskGate:
-    """The managed gate: NAV/market-level breakers only.
+def _build_risk_gate(*, drawdown, gas_spike, tx_failure, depeg, exposure) -> RiskGate:
+    """The managed gate: NAV/market-level breakers + the P2.5 exposure cap.
 
-    The lake-era ExposureChecker and PositionLossChecker are intentionally
-    omitted — in the managed model the allocation target + bands ARE the
-    concentration policy, the per-protocol exposure cap is a category error
-    (we hold spot in the Safe, not deployed in a venue), and the per-strategy
-    loss cooldown would freeze all rebalancing on one loss (every order is
-    REBAL:base). See docs/superpowers/plans/2026-06-05-managed-gate-rightsizing.md.
+    The lake-era ExposureChecker and PositionLossChecker remain omitted — the
+    per-protocol exposure cap was a category error and the per-strategy loss
+    cooldown would freeze all rebalancing (every order is REBAL:base). The P2.5
+    `ManagedExposureChecker` replaces them with a position-aware per-asset cap
+    (a safety net above the allocation band) + an overlay per-venue cap, fed real
+    per-tick holdings via RiskContext. See the P2.5 plan + the right-sizing plan.
 
     The DepegChecker (capital protection) halts all rebalancing while USDC is
-    off-peg; ordered among the cheap state-reads, after GasSpike.
+    off-peg; ordered among the cheap state-reads, after GasSpike. The exposure
+    cap runs last (it consults the prospective holdings the cycle threaded in).
     """
     return RiskGate(
         [
@@ -225,6 +230,7 @@ def _build_risk_gate(*, drawdown, gas_spike, tx_failure, depeg) -> RiskGate:
             TxFailureChecker(tx_failure),
             GasSpikeChecker(gas_spike),
             DepegChecker(depeg),
+            exposure,
         ]
     )
 
@@ -287,8 +293,17 @@ async def _amain() -> int:
     gas_spike = GasSpikeBreaker()
     tx_failure = TxFailureMonitor()
     depeg = DepegBreaker(threshold_bps=config.depeg_threshold_bps)
+    # P2.5 exposure cap: per-asset (safety net) + per-venue (overlay venues only;
+    # capped_venues empty until P3 wires the LP overlay — core Aave lending of
+    # the allocation assets is governed by the bands, not this cap).
+    exposure = ManagedExposureChecker(
+        ManagedExposureConfig(
+            max_asset_pct=config.max_asset_pct, max_venue_pct=config.max_venue_pct,
+        ),
+    )
     risk_gate = _build_risk_gate(
         drawdown=drawdown, gas_spike=gas_spike, tx_failure=tx_failure, depeg=depeg,
+        exposure=exposure,
     )
 
     # One shared AsyncWeb3 feeds the adapter (prices/gas) and holdings (balances).

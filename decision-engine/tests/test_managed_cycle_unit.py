@@ -192,6 +192,33 @@ async def test_hold_result_has_no_order_details() -> None:
 
 
 @pytest.mark.asyncio
+async def test_exposure_checker_blocks_over_cap_rebalance() -> None:
+    # P2.5: the cycle threads prospective post-trade holdings to the exposure
+    # checker. Sell WETH 0.80→0.60 leaves WETH at 0.60 of NAV; with a 0.50 cap
+    # the checker rejects (proves real-position wiring end-to-end).
+    from decision_engine.risk.managed_exposure import (
+        ManagedExposureChecker,
+        ManagedExposureConfig,
+    )
+
+    checker = ManagedExposureChecker(ManagedExposureConfig(max_asset_pct=Decimal("0.50")))
+    publisher = _CapturePublisher()
+    cycle = ManagedPortfolioCycle(
+        adapter=_FakeAdapter(Decimal("3000"), Decimal("1")),
+        holdings=_StubHoldings({"WETH": Decimal("8000"), "USDC": Decimal("2000")}),
+        target=_TARGET,
+        risk_gate=RiskGate(checkers=[checker]),
+        publisher=publisher,
+        config=_CONFIG,
+    )
+    result = await cycle.run_one()
+    assert result.action == "rebalance"
+    assert result.published is False
+    assert "managed_exposure" in result.reason
+    assert publisher.published == []
+
+
+@pytest.mark.asyncio
 async def test_risk_gate_rejection_blocks_publish() -> None:
     from decision_engine.risk_gate import RiskContext, RiskDecision
 

@@ -26,7 +26,12 @@ interval_seconds = 300  # hourly read; act only on band breach
 # (otherwise USDC stays pinned to $1 and the breaker never trips). Range (0,2000].
 depeg_threshold_bps = 100
 
-# Reserved for later phases (parsed but unused in P1):
 [limits]
+# P2.5 exposure caps (NAV fractions). max_asset_pct is a safety net ABOVE the
+# allocation band the planner enforces — set >= the largest upper band (USDC
+# 0.40 + band 0.10 = 0.50) so it never blocks a legitimate rebalance, only a
+# bug / extreme drift. per_venue_cap applies to overlay venues (the LP overlay,
+# P3); core Aave lending of the allocation assets is governed by the bands.
+max_asset_pct = 0.60
+per_venue_cap = 0.25
 lp_cap = 0.15            # P3 LP overlay cap
-per_venue_cap = 0.25     # P2 per-venue exposure cap

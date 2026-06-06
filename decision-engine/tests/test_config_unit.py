@@ -62,6 +62,27 @@ def test_derives_multi_asset_target_and_cycle_config(tmp_path: Path) -> None:
     assert cc.gas_units == 200000
 
 
+def test_exposure_caps_and_venue_map(tmp_path: Path) -> None:
+    # [limits] max_asset_pct + per_venue_cap → ManagedConfig caps; venue map
+    # marks USDC lent (aave_v3) and WETH held (wallet).
+    cfg = load_managed_config(_write(tmp_path), env=_ENV)
+    assert cfg.max_asset_pct == Decimal("0.60")
+    assert cfg.max_venue_pct == Decimal("0.25")
+    assert cfg.venue_by_asset() == {"USDC": "aave_v3", "WETH": "wallet"}
+    assert cfg.cycle_config().venue_by_asset == {"USDC": "aave_v3", "WETH": "wallet"}
+
+
+def test_exposure_caps_default_when_limits_absent(tmp_path: Path) -> None:
+    # The base _TOML carries [limits]; a config without it falls back to defaults.
+    body = "\n".join(
+        line for line in _TOML.splitlines()
+        if not line.startswith(("[limits]", "lp_cap", "per_venue_cap", "max_asset_pct"))
+    )
+    cfg = load_managed_config(_write(tmp_path, body), env=_ENV)
+    assert cfg.max_asset_pct == Decimal("0.60")
+    assert cfg.max_venue_pct == Decimal("0.25")
+
+
 def test_three_asset_target(tmp_path: Path) -> None:
     body = """
 [allocation]
