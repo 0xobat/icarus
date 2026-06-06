@@ -136,3 +136,33 @@ def test_depeg_threshold_rejects_too_large(tmp_path: Path) -> None:
     body = _TOML + "\n[risk]\ndepeg_threshold_bps = 2001\n"
     with pytest.raises(ValueError, match="depeg_threshold_bps"):
         load_managed_config(_write(tmp_path, body), env=_ENV)
+
+
+# ── Operator funding addresses (PnL deposit-tracker) ─────────────────────────
+
+_ADDR_A = "0x000000000000000000000000000000000000dEaD"
+_ADDR_B = "0x52908400098527886E0F7030069857D2E4169EE7"
+
+
+def test_funding_addresses_empty_when_unset(tmp_path: Path) -> None:
+    cfg = load_managed_config(_write(tmp_path), env=_ENV)
+    assert cfg.operator_funding_addresses == frozenset()
+
+
+def test_funding_addresses_parsed_and_checksummed(tmp_path: Path) -> None:
+    # Pass lowercase input → expect checksummed in the frozenset.
+    env = {**_ENV, "OPERATOR_FUNDING_ADDRESSES": f"{_ADDR_A.lower()},{_ADDR_B.lower()}"}
+    cfg = load_managed_config(_write(tmp_path), env=env)
+    assert cfg.operator_funding_addresses == frozenset({_ADDR_A, _ADDR_B})
+
+
+def test_funding_addresses_tolerate_whitespace_and_blanks(tmp_path: Path) -> None:
+    env = {**_ENV, "OPERATOR_FUNDING_ADDRESSES": f"  {_ADDR_A} , , {_ADDR_B}  "}
+    cfg = load_managed_config(_write(tmp_path), env=env)
+    assert cfg.operator_funding_addresses == frozenset({_ADDR_A, _ADDR_B})
+
+
+def test_funding_addresses_reject_invalid(tmp_path: Path) -> None:
+    env = {**_ENV, "OPERATOR_FUNDING_ADDRESSES": "not-an-address"}
+    with pytest.raises(ValueError):
+        load_managed_config(_write(tmp_path), env=env)

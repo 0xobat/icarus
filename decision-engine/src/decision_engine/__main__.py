@@ -20,6 +20,7 @@ import os
 import signal
 import sys
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import redis.asyncio as redis
 import structlog
@@ -32,7 +33,8 @@ from decision_engine.cycle import RedisExecutorPublisher
 from decision_engine.gas_tracker import GasAverageTracker
 from decision_engine.holdings import RpcHoldingsProvider
 from decision_engine.managed_cycle import ManagedPortfolioCycle
-from decision_engine.order_resolver import register_token
+from decision_engine.order_resolver import lookup_token, register_token
+from decision_engine.pnl import ContributedCapitalTracker
 from decision_engine.results_consumer import ResultsConsumer
 from decision_engine.risk.depeg_breaker import DepegBreaker
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker
@@ -68,6 +70,8 @@ class ManagedEngine:
         consumer: ResultsConsumer | None = None,
         redis_client=None,
         pending_trade_recorder=None,
+        pnl_tracker=None,
+        pnl_refresh_every: int = 24,
     ) -> None:
         self._cycle = cycle
         self._holdings = holdings
@@ -81,9 +85,55 @@ class ManagedEngine:
         self._consumer = consumer
         self._redis = redis_client
         self._pending_trade_recorder = pending_trade_recorder
+        # PnL deposit-tracker (reporting only, best-effort). Refreshed on a slow
+        # cadence (deposits change rarely); contributed_usd is read each tick.
+        self._pnl_tracker = pnl_tracker
+        self._pnl_refresh_every = max(1, pnl_refresh_every)
+        self._tick_count = 0
         self._stop = asyncio.Event()
 
+    @staticmethod
+    def _compute_pnl(nav_usd: Decimal, contributed_usd: Decimal) -> tuple[Decimal, Decimal]:
+        """PnL in USD and percent of contributed capital.
+
+        pnl_usd = nav - contributed; pnl_pct = pnl_usd / contributed * 100
+        (0 when contributed is 0, avoiding division by zero).
+        """
+        pnl_usd = nav_usd - contributed_usd
+        pnl_pct = (
+            (pnl_usd / contributed_usd * Decimal(100))
+            if contributed_usd != 0
+            else Decimal(0)
+        )
+        return pnl_usd, pnl_pct
+
+    async def _record_portfolio_pnl(self, nav_usd: Decimal) -> None:
+        """Best-effort PnL surfacing. Refreshes contributed capital on a slow
+        cadence and logs a `portfolio_pnl` event. A REPORTING concern: any
+        failure logs and returns — it never touches the cycle or the breakers.
+        """
+        if self._pnl_tracker is None:
+            return
+        try:
+            if (self._tick_count - 1) % self._pnl_refresh_every == 0:
+                await self._pnl_tracker.refresh()
+            contributed = self._pnl_tracker.contributed_usd
+            if contributed is None:
+                logger.info("portfolio_pnl_unavailable", nav_usd=str(nav_usd))
+                return
+            pnl_usd, pnl_pct = self._compute_pnl(nav_usd, contributed)
+            logger.info(
+                "portfolio_pnl",
+                nav_usd=str(nav_usd),
+                contributed_usd=str(contributed),
+                pnl_usd=str(pnl_usd),
+                pnl_pct=str(pnl_pct),
+            )
+        except Exception:
+            logger.warning("portfolio_pnl_failed", exc_info=True)
+
     async def _tick(self) -> None:
+        self._tick_count += 1
         market = await self._adapter.fetch_live(self._chain)
         avg = self._gas_tracker.update(market.gas_gwei)
         self._gas_spike.update(market.gas_gwei, avg)
@@ -112,6 +162,8 @@ class ManagedEngine:
             nav_usd=str(crypto_usd + stable_usd),
             gas_gwei=str(market.gas_gwei),
         )
+        # Reporting only — surfaced AFTER the cycle, fully isolated from it.
+        await self._record_portfolio_pnl(crypto_usd + stable_usd)
 
     async def run(self) -> None:
         logger.info("managed_engine_start", interval_s=self._interval, chain=self._chain)
@@ -273,6 +325,34 @@ async def _amain() -> int:
         risk_gate=risk_gate, publisher=RedisExecutorPublisher(redis_client),
         config=config.cycle_config(),
     )
+    # PnL deposit-tracker (reporting only, best-effort). Built only when operator
+    # funding addresses are configured; otherwise PnL tracking is disabled and we
+    # warn at boot (the engine then runs + trades exactly as before).
+    pnl_tracker = None
+    if config.operator_funding_addresses:
+        usdc_info = lookup_token(config.chain, "USDC", chain_id=config.chain_id)
+        weth_info = lookup_token(config.chain, "WETH", chain_id=config.chain_id)
+        pnl_tracker = ContributedCapitalTracker(
+            w3=w3,
+            safe_address=config.safe_address,
+            funding_addresses=config.operator_funding_addresses,
+            eth_price_at_block=adapter.eth_price_at_block,
+            usdc_address=usdc_info.address,
+            weth_address=weth_info.address,
+        )
+        logger.info(
+            "pnl_tracker_enabled",
+            funding_addresses=sorted(config.operator_funding_addresses),
+        )
+    else:
+        logger.warning(
+            "pnl_disabled",
+            note=(
+                "OPERATOR_FUNDING_ADDRESSES unset → contributed-capital/PnL "
+                "tracking disabled (reporting only; trading unaffected)"
+            ),
+        )
+
     trade_sink = make_db_trade_sink(db)
     consumer = ResultsConsumer(tx_failure=tx_failure, trade_sink=trade_sink)
     pending_recorder = _make_pending_recorder(
@@ -284,6 +364,7 @@ async def _amain() -> int:
         gas_spike=gas_spike, gas_tracker=GasAverageTracker(), chain=config.chain,
         depeg=depeg, interval_seconds=config.interval_seconds, consumer=consumer,
         redis_client=redis_client, pending_trade_recorder=pending_recorder,
+        pnl_tracker=pnl_tracker,
     )
 
     loop = asyncio.get_running_loop()

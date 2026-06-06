@@ -187,6 +187,28 @@ class RpcAdapter:
             )
         return Decimal(answer) / (Decimal(10) ** decimals)
 
+    async def eth_price_at_block(self, block_no: int) -> Decimal:
+        """ETH/USD from Chainlink evaluated at a historical block.
+
+        Mirrors `_eth_price_usd` but reads `latestRoundData` at `block_no` via
+        `block_identifier=` (archive read). Same decimals scaling and the same
+        non-positive guard — a misconfigured/zero feed answer raises rather
+        than silently yielding a bad cost basis. Used by the PnL tracker to
+        price ETH/WETH deposits at their deposit block.
+        """
+        contract = self._eth_usd()
+        decimals: int = await contract.functions.decimals().call()
+        round_data = await contract.functions.latestRoundData().call(
+            block_identifier=block_no
+        )
+        answer: int = round_data[1]
+        if answer <= 0:
+            raise RuntimeError(
+                f"Chainlink ETH/USD returned non-positive answer={answer} "
+                f"at block {block_no}"
+            )
+        return Decimal(answer) / (Decimal(10) ** decimals)
+
     async def _usdc_price_usd(self) -> Decimal:
         """Read USDC/USD from Chainlink, normalised to a Decimal in USD.
 

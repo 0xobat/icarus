@@ -16,6 +16,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from icarus.types.market import Chain
+from web3 import Web3
 
 from decision_engine.managed_cycle import ManagedCycleConfig
 from decision_engine.rebalance import RebalanceTarget
@@ -38,6 +39,10 @@ class ManagedConfig:
     chain: Chain
     chain_id: int = 8453  # Default to Base mainnet
     depeg_threshold_bps: int = 100  # USDC depeg breaker trips above this deviation
+    # Operator funding addresses for the PnL deposit-tracker (reporting only).
+    # Deposits = inbound to the Safe FROM one of these; withdrawals = outbound
+    # TO one of these. Empty → tracker disabled (PnL not computed).
+    operator_funding_addresses: frozenset[str] = frozenset()
 
     def rebalance_target(self) -> RebalanceTarget:
         return RebalanceTarget(
@@ -97,6 +102,16 @@ def load_managed_config(
         raise RuntimeError(f"CHAIN must be 'base' or 'solana', got {chain!r}")
     chain_id = int(env.get("CHAIN_ID", "8453"))
 
+    # Optional operator funding addresses (PnL deposit-tracker). Comma-separated;
+    # parsed into a frozenset of checksummed addresses. Empty/unset → tracker
+    # disabled. An invalid address fails loud (a typo would silently mis-track).
+    funding_raw = env.get("OPERATOR_FUNDING_ADDRESSES", "")
+    operator_funding_addresses = frozenset(
+        Web3.to_checksum_address(part.strip())
+        for part in funding_raw.split(",")
+        if part.strip()
+    )
+
     return ManagedConfig(
         crypto_symbol=str(alloc["crypto_symbol"]),
         stable_symbol=str(alloc["stable_symbol"]),
@@ -111,6 +126,7 @@ def load_managed_config(
         chain=chain,
         chain_id=chain_id,
         depeg_threshold_bps=depeg_threshold_bps,
+        operator_funding_addresses=operator_funding_addresses,
     )
 
 

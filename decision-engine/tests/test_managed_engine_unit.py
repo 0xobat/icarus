@@ -155,6 +155,142 @@ class _PublishingCycle:
         )
 
 
+# ── PnL deposit-tracker isolation (reporting, best-effort) ───────────────────
+
+
+class _StubTracker:
+    """A tracker with a fixed contributed value; records refresh() calls."""
+
+    def __init__(self, contributed: Decimal | None) -> None:
+        self._contributed = contributed
+        self.refreshes = 0
+
+    @property
+    def contributed_usd(self) -> Decimal | None:
+        return self._contributed
+
+    async def refresh(self) -> None:
+        self.refreshes += 1
+
+
+class _RaisingTracker:
+    """A tracker whose every method raises — the engine must isolate it."""
+
+    @property
+    def contributed_usd(self) -> Decimal | None:
+        raise RuntimeError("boom on read")
+
+    async def refresh(self) -> None:
+        raise RuntimeError("boom on refresh")
+
+
+@pytest.mark.asyncio
+async def test_tick_logs_portfolio_pnl() -> None:
+    """With a tracker returning contributed=4000 and nav=10000, the tick logs a
+    `portfolio_pnl` event carrying the correct structured values."""
+    from structlog.testing import capture_logs
+
+    tracker = _StubTracker(Decimal("4000"))
+    engine = ManagedEngine(
+        cycle=_FakeCycle(), holdings=_StubHoldings(), adapter=_FakeAdapter(),
+        drawdown=DrawdownBreaker(), gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base",
+        pnl_tracker=tracker, pnl_refresh_every=1,
+    )
+    with capture_logs() as logs:
+        await engine._tick()
+    pnl_events = [e for e in logs if e.get("event") == "portfolio_pnl"]
+    assert len(pnl_events) == 1
+    event = pnl_events[0]
+    # nav 10000 (8000 + 2000), contributed 4000 → pnl 6000, pct 150.
+    assert event["nav_usd"] == "10000"
+    assert event["contributed_usd"] == "4000"
+    assert event["pnl_usd"] == "6000"
+    # Decimal division keeps a trailing zero (150.0); value is numerically 150.
+    assert Decimal(event["pnl_pct"]) == Decimal("150")
+    # Tracker was refreshed on the cadence.
+    assert tracker.refreshes == 1
+
+
+@pytest.mark.asyncio
+async def test_tick_pnl_math() -> None:
+    """Directly verify pnl_usd / pnl_pct via the engine's helper."""
+    tracker = _StubTracker(Decimal("4000"))
+    engine = ManagedEngine(
+        cycle=_FakeCycle(), holdings=_StubHoldings(), adapter=_FakeAdapter(),
+        drawdown=DrawdownBreaker(), gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base", pnl_tracker=tracker,
+    )
+    pnl_usd, pnl_pct = engine._compute_pnl(Decimal("10000"), Decimal("4000"))
+    assert pnl_usd == Decimal("6000")
+    assert pnl_pct == Decimal("150")
+
+
+def test_compute_pnl_zero_nav_positive_contributed() -> None:
+    """NAV=0, contributed>0 → total loss: pnl -4000, pct -100 (no div-by-zero)."""
+    pnl_usd, pnl_pct = ManagedEngine._compute_pnl(Decimal("0"), Decimal("4000"))
+    assert pnl_usd == Decimal("-4000")
+    assert pnl_pct == Decimal("-100")
+
+
+def test_compute_pnl_negative_contributed() -> None:
+    """Withdrawals > deposits -> contributed negative; NAV - (negative) adds.
+
+    nav 1000, contributed -200 → pnl 1200; pct = 1200 / -200 * 100 = -600.
+    """
+    pnl_usd, pnl_pct = ManagedEngine._compute_pnl(Decimal("1000"), Decimal("-200"))
+    assert pnl_usd == Decimal("1200")
+    assert pnl_pct == Decimal("-600")
+
+
+@pytest.mark.asyncio
+async def test_tick_with_raising_tracker_still_runs_cycle() -> None:
+    """A tracker that raises on refresh/read must NOT break the tick or trading."""
+    cycle = _FakeCycle()
+    drawdown = DrawdownBreaker()
+    engine = ManagedEngine(
+        cycle=cycle, holdings=_StubHoldings(), adapter=_FakeAdapter(),
+        drawdown=drawdown, gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base",
+        pnl_tracker=_RaisingTracker(), pnl_refresh_every=1,
+    )
+    await engine._tick()  # must NOT raise
+    # The cycle still ran and breakers were still fed — trading unaffected.
+    assert cycle.calls == 1
+    assert drawdown.current_value == Decimal("10000")
+    # A PnL (reporting) failure must NEVER halt trading.
+    assert not engine._stop.is_set()
+
+
+@pytest.mark.asyncio
+async def test_tick_no_tracker_runs_normally() -> None:
+    """No tracker (PnL disabled) → tick runs the cycle normally, no error."""
+    cycle = _FakeCycle()
+    engine = ManagedEngine(
+        cycle=cycle, holdings=_StubHoldings(), adapter=_FakeAdapter(),
+        drawdown=DrawdownBreaker(), gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base",
+    )
+    await engine._tick()
+    assert cycle.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_tick_refresh_cadence_only_every_nth() -> None:
+    """The tracker refreshes on a slow cadence, not every tick."""
+    tracker = _StubTracker(Decimal("4000"))
+    engine = ManagedEngine(
+        cycle=_FakeCycle(), holdings=_StubHoldings(), adapter=_FakeAdapter(),
+        drawdown=DrawdownBreaker(), gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base",
+        pnl_tracker=tracker, pnl_refresh_every=3,
+    )
+    for _ in range(7):
+        await engine._tick()
+    # Refreshed on ticks 1 and 4 and 7 → 3 refreshes (refresh on (n-1)%every==0).
+    assert tracker.refreshes == 3
+
+
 @pytest.mark.asyncio
 async def test_tick_records_pending_trade_on_publish(tmp_path: Path) -> None:
     db = DatabaseManager(DatabaseConfig(url=f"sqlite:///{tmp_path}/e.db"))

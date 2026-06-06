@@ -435,3 +435,39 @@ async def test_fetch_historical_omits_usdc_when_no_feed() -> None:
     # The USDC feed address was never used to build a contract.
     addresses = {c.kwargs.get("address") for c in w3.eth.contract.call_args_list}
     assert _USDC_FEED_ADDR not in addresses
+
+
+# ---------------------------------------------------------------------------
+# eth_price_at_block — historical ETH/USD at a specific block (PnL cost basis)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_eth_price_at_block_returns_scaled_price() -> None:
+    """Reads latestRoundData at the given block and scales by decimals."""
+    contract = _make_contract(decimals=8, eth_price_scaled=2500_00000000)
+    w3 = _make_w3(contract=contract)
+    adapter = RpcAdapter(w3=w3)
+    price = await adapter.eth_price_at_block(12_345)
+    assert price == Decimal(2500)
+
+
+@pytest.mark.asyncio
+async def test_eth_price_at_block_forwards_block_identifier() -> None:
+    """The historical read must pass block_identifier=<block> to the call."""
+    contract = _make_contract(decimals=8, eth_price_scaled=2500_00000000)
+    w3 = _make_w3(contract=contract)
+    adapter = RpcAdapter(w3=w3)
+    await adapter.eth_price_at_block(777)
+    call = contract.functions.latestRoundData.return_value.call
+    call.assert_awaited_with(block_identifier=777)
+
+
+@pytest.mark.asyncio
+async def test_eth_price_at_block_raises_on_non_positive() -> None:
+    """Same non-positive guard as the live read — a misconfigured feed raises."""
+    contract = _make_contract(eth_price_scaled=0)
+    w3 = _make_w3(contract=contract)
+    adapter = RpcAdapter(w3=w3)
+    with pytest.raises(RuntimeError, match="non-positive"):
+        await adapter.eth_price_at_block(100)
