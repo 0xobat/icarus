@@ -73,6 +73,24 @@ def test_price_usd_wsteth_missing_rate_raises() -> None:
     with pytest.raises(KeyError, match="wstETH"):
         price_usd("wstETH", market)
 
+
+def test_price_usd_sol_from_snapshot() -> None:
+    market = _market({"ETH": Decimal("3000"), "SOL": Decimal("150")})
+    assert price_usd("SOL", market) == Decimal("150")
+
+
+def test_price_usd_jitosol_via_exchange_rate() -> None:
+    # jitoSOL (P2.6) priced like wstETH: jitoSOL/SOL rate * SOL/USD.
+    # rate 1.12, SOL $150 → jitoSOL $168.
+    market = _market({"SOL": Decimal("150"), "jitoSOL/SOL": Decimal("1.12")})
+    assert price_usd("jitoSOL", market) == Decimal("168.00")
+
+
+def test_price_usd_jitosol_missing_rate_raises() -> None:
+    market = _market({"SOL": Decimal("150")})  # no jitoSOL/SOL rate
+    with pytest.raises(KeyError, match="jitoSOL"):
+        price_usd("jitoSOL", market)
+
 def test_estimate_swap_cost_combines_gas_and_slippage() -> None:
     # gas_gwei=1, gas_units=200_000 → 0.0002 ETH; at $3000 → $0.60 gas.
     # slippage: $10_000 trade at 50 bps → $50.00. total = $50.60.

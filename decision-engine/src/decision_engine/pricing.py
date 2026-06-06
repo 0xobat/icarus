@@ -29,8 +29,8 @@ _PRICE_KEY_ALIASES = {"WETH": "ETH", "cbBTC": "BTC"}
 # rewards accrue. Price = exchange_rate (from the snapshot) * underlying USD
 # price. The adapter sources the rate (a wstETH/ETH feed or the contract's
 # stEthPerToken); pricing stays pure (P2.4).
-_LST_RATE_KEY = {"wstETH": "wstETH/ETH"}
-_LST_UNDERLYING = {"wstETH": "ETH"}
+_LST_RATE_KEY = {"wstETH": "wstETH/ETH", "jitoSOL": "jitoSOL/SOL"}
+_LST_UNDERLYING = {"wstETH": "ETH", "jitoSOL": "SOL"}
 
 
 def price_usd(symbol: str, market: MarketSnapshot) -> Decimal:
