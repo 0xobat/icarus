@@ -144,8 +144,9 @@ class ManagedEngine:
             usdc_price = market.prices.get("USDC")
             if usdc_price is not None:
                 self._depeg.update(usdc_price)
-        crypto_usd, stable_usd = await self._holdings.current_usd_holdings()
-        self._drawdown.update(crypto_usd + stable_usd)
+        holdings = await self._holdings.current_usd_by_asset()
+        nav_usd = sum(holdings.values(), Decimal("0"))
+        self._drawdown.update(nav_usd)
         result = await self._cycle.run_one()
         if result.published and self._pending_trade_recorder is not None:
             try:
@@ -159,11 +160,11 @@ class ManagedEngine:
             action=result.action,
             reason=result.reason,
             published=result.published,
-            nav_usd=str(crypto_usd + stable_usd),
+            nav_usd=str(nav_usd),
             gas_gwei=str(market.gas_gwei),
         )
         # Reporting only — surfaced AFTER the cycle, fully isolated from it.
-        await self._record_portfolio_pnl(crypto_usd + stable_usd)
+        await self._record_portfolio_pnl(nav_usd)
 
     async def run(self) -> None:
         logger.info("managed_engine_start", interval_s=self._interval, chain=self._chain)
@@ -317,11 +318,10 @@ async def _amain() -> int:
     adapter = RpcAdapter(w3=w3, **adapter_kwargs)
     holdings = RpcHoldingsProvider(
         w3=w3, adapter=adapter, safe_address=config.safe_address,
-        crypto_symbol=config.crypto_symbol, stable_symbol=config.stable_symbol,
-        chain=config.chain, chain_id=config.chain_id,
+        symbols=list(config.weights), chain=config.chain, chain_id=config.chain_id,
     )
     cycle = ManagedPortfolioCycle(
-        adapter=adapter, holdings=holdings, target=config.rebalance_target(),
+        adapter=adapter, holdings=holdings, target=config.multi_asset_target(),
         risk_gate=risk_gate, publisher=RedisExecutorPublisher(redis_client),
         config=config.cycle_config(),
     )

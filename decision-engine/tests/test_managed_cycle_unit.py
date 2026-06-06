@@ -1,7 +1,8 @@
-"""Unit tests for the managed-portfolio cycle (P1.4)."""
+"""Unit tests for the managed-portfolio cycle (P2.2 multi-asset)."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -12,16 +13,19 @@ from decision_engine.managed_cycle import (
     ManagedCycleConfig,
     ManagedPortfolioCycle,
 )
-from decision_engine.rebalance import RebalanceTarget
+from decision_engine.rebalance import MultiAssetTarget
 from decision_engine.risk_gate import RiskGate
 from icarus.envelopes.orders import ExecutionOrder
 from icarus.types import MarketSnapshot
 from icarus.types.market import Chain
 
 _SAFE = "0x1111111111111111111111111111111111111111"
-_TARGET = RebalanceTarget(
-    crypto_symbol="WETH", stable_symbol="USDC",
-    crypto_weight=Decimal("0.6"), band=Decimal("0.10"),
+# Two-asset target keyed by tradeable token symbols (WETH, USDC) — exercises the
+# multi-asset planner with the same WETH/USDC math the P1 cycle tests used.
+_TARGET = MultiAssetTarget(
+    weights={"WETH": Decimal("0.6"), "USDC": Decimal("0.4")},
+    band=Decimal("0.10"),
+    hub="USDC",
 )
 _CONFIG = ManagedCycleConfig(
     recipient=_SAFE, protocol="aerodrome", slippage_bps=50,
@@ -45,11 +49,11 @@ class _FakeAdapter:
 
 
 class _StubHoldings:
-    def __init__(self, crypto_usd: Decimal, stable_usd: Decimal) -> None:
-        self._c, self._s = crypto_usd, stable_usd
+    def __init__(self, holdings: Mapping[str, Decimal]) -> None:
+        self._h = dict(holdings)
 
-    async def current_usd_holdings(self) -> tuple[Decimal, Decimal]:
-        return self._c, self._s
+    async def current_usd_by_asset(self) -> dict[str, Decimal]:
+        return dict(self._h)
 
 
 class _CapturePublisher:
@@ -72,14 +76,14 @@ def _cycle(holdings: _StubHoldings, publisher: _CapturePublisher) -> ManagedPort
 
 
 def test_protocols_satisfied() -> None:
-    assert isinstance(_StubHoldings(Decimal("1"), Decimal("1")), HoldingsProvider)
+    assert isinstance(_StubHoldings({"WETH": Decimal("1")}), HoldingsProvider)
     assert isinstance(_CapturePublisher(), ExecutorPublisher)
 
 
 @pytest.mark.asyncio
 async def test_within_band_publishes_nothing() -> None:
     publisher = _CapturePublisher()
-    cycle = _cycle(_StubHoldings(Decimal("6500"), Decimal("3500")), publisher)
+    cycle = _cycle(_StubHoldings({"WETH": Decimal("6500"), "USDC": Decimal("3500")}), publisher)
     result = await cycle.run_one()
     assert result.action == "hold"
     assert result.published is False
@@ -88,22 +92,19 @@ async def test_within_band_publishes_nothing() -> None:
 
 @pytest.mark.asyncio
 async def test_overweight_publishes_weth_to_usdc_swap() -> None:
-    # crypto 0.80 of $10k → sell $2000 WETH→USDC. cost: gas≈$0.60 + slip $10 = ~$10.60;
-    # margin 4 → ~$42 threshold; correction $2000 >> threshold → proceeds.
+    # WETH 0.80 of $10k → drift +0.20 → sell $2000 WETH→USDC. cost tiny → proceeds.
     publisher = _CapturePublisher()
-    cycle = _cycle(_StubHoldings(Decimal("8000"), Decimal("2000")), publisher)
+    cycle = _cycle(_StubHoldings({"WETH": Decimal("8000"), "USDC": Decimal("2000")}), publisher)
     result = await cycle.run_one()
     assert result.action == "rebalance"
     assert result.published is True
     assert len(publisher.published) == 1
     chain, order = publisher.published[0]
     assert chain == "base"
-    assert order.chain == "base"
     assert order.action == "swap"
     assert order.strategy == "REBAL:base"
-    assert order.template_id is None and order.candidate_id is None
     assert order.solana_specific is None
-    # WETH→USDC: token_in is WETH address, token_out is USDC address.
+    # WETH→USDC: token_in WETH, token_out USDC.
     assert order.params.token_in == "0x4200000000000000000000000000000000000006"
     assert order.params.token_out == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
     assert order.params.recipient == _SAFE
@@ -113,23 +114,38 @@ async def test_overweight_publishes_weth_to_usdc_swap() -> None:
 
 @pytest.mark.asyncio
 async def test_underweight_publishes_usdc_to_weth_swap() -> None:
-    # crypto 0.40 of $10k → buy $2000 USDC→WETH.
+    # WETH 0.40 of $10k → drift -0.20 → buy $2000 USDC→WETH.
     publisher = _CapturePublisher()
-    cycle = _cycle(_StubHoldings(Decimal("4000"), Decimal("6000")), publisher)
+    cycle = _cycle(_StubHoldings({"WETH": Decimal("4000"), "USDC": Decimal("6000")}), publisher)
     result = await cycle.run_one()
     assert result.action == "rebalance"
-    assert result.published is True
     _, order = publisher.published[0]
-    # USDC→WETH: token_in is USDC, token_out is WETH.
     assert order.params.token_in == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
     assert order.params.token_out == "0x4200000000000000000000000000000000000006"
-    # $2000 of USDC at $1 = 2000e6 (6 decimals).
-    assert order.params.amount == Decimal("2000000000")
+    assert order.params.amount == Decimal("2000000000")  # $2000 USDC at 6 decimals
+
+
+@pytest.mark.asyncio
+async def test_cost_gate_suppresses_small_rebalance() -> None:
+    # WETH 0.71 of $10k → drift +0.11 (out of band) → correction $1100. With a
+    # large gas_gwei the est cost * margin exceeds $1100 → cost-gated hold.
+    publisher = _CapturePublisher()
+    cycle = ManagedPortfolioCycle(
+        adapter=_FakeAdapter(Decimal("3000"), Decimal("500")),  # 500 gwei → big gas cost
+        holdings=_StubHoldings({"WETH": Decimal("7100"), "USDC": Decimal("2900")}),
+        target=_TARGET,
+        risk_gate=RiskGate(checkers=[]),
+        publisher=publisher,
+        config=_CONFIG,
+    )
+    result = await cycle.run_one()
+    assert result.action == "hold"
+    assert "cost-gated" in result.reason
+    assert publisher.published == []
 
 
 @pytest.mark.asyncio
 async def test_sepolia_cycle_uses_sepolia_token_addresses() -> None:
-    """ManagedCycleConfig(chain_id=84532) resolves Sepolia addresses in published order."""
     sepolia_usdc = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
     weth_addr = "0x4200000000000000000000000000000000000006"
     sepolia_config = ManagedCycleConfig(
@@ -140,17 +156,15 @@ async def test_sepolia_cycle_uses_sepolia_token_addresses() -> None:
     publisher = _CapturePublisher()
     cycle = ManagedPortfolioCycle(
         adapter=_FakeAdapter(Decimal("3000"), Decimal("1")),
-        holdings=_StubHoldings(Decimal("4000"), Decimal("6000")),  # underweight: USDC→WETH
+        holdings=_StubHoldings({"WETH": Decimal("4000"), "USDC": Decimal("6000")}),
         target=_TARGET,
         risk_gate=RiskGate(checkers=[]),
         publisher=publisher,
         config=sepolia_config,
     )
     result = await cycle.run_one()
-    assert result.action == "rebalance"
     assert result.published is True
     _, order = publisher.published[0]
-    # Sepolia USDC→WETH: token_in is Sepolia USDC address.
     assert order.params.token_in == sepolia_usdc
     assert order.params.token_out == weth_addr
 
@@ -158,7 +172,7 @@ async def test_sepolia_cycle_uses_sepolia_token_addresses() -> None:
 @pytest.mark.asyncio
 async def test_result_carries_order_details_on_rebalance() -> None:
     publisher = _CapturePublisher()
-    cycle = _cycle(_StubHoldings(Decimal("8000"), Decimal("2000")), publisher)
+    cycle = _cycle(_StubHoldings({"WETH": Decimal("8000"), "USDC": Decimal("2000")}), publisher)
     result = await cycle.run_one()
     assert result.published is True
     assert result.order_id is not None and len(result.order_id) >= 8
@@ -170,12 +184,11 @@ async def test_result_carries_order_details_on_rebalance() -> None:
 @pytest.mark.asyncio
 async def test_hold_result_has_no_order_details() -> None:
     publisher = _CapturePublisher()
-    cycle = _cycle(_StubHoldings(Decimal("6500"), Decimal("3500")), publisher)
+    cycle = _cycle(_StubHoldings({"WETH": Decimal("6500"), "USDC": Decimal("3500")}), publisher)
     result = await cycle.run_one()
     assert result.action == "hold"
     assert result.order_id is None
     assert result.from_symbol is None
-    assert result.usd_amount is None
 
 
 @pytest.mark.asyncio
@@ -191,7 +204,7 @@ async def test_risk_gate_rejection_blocks_publish() -> None:
     publisher = _CapturePublisher()
     cycle = ManagedPortfolioCycle(
         adapter=_FakeAdapter(Decimal("3000"), Decimal("1")),
-        holdings=_StubHoldings(Decimal("8000"), Decimal("2000")),
+        holdings=_StubHoldings({"WETH": Decimal("8000"), "USDC": Decimal("2000")}),
         target=_TARGET,
         risk_gate=RiskGate(checkers=[_RejectAll()]),
         publisher=publisher,

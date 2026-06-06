@@ -1,10 +1,15 @@
 # Managed-portfolio strategy dials. Secrets + per-deployment values (RPC URL,
 # wallet key, Safe address, chain) come from env, NOT this file.
+# Multi-asset target (P2). Weights are fractions of NAV, must sum to 1.0; every
+# corrective trade routes through `hub`. Starts 2-asset (USDC/WETH) — WBTC (cbBTC)
+# joins at P2.3 with its token-registry entry + cbBTC/USD pricing, and the full
+# Base-first split becomes USDC 0.40 / WETH 0.32 / WBTC 0.28.
 [allocation]
-crypto_symbol = "WETH"
-stable_symbol = "USDC"
-crypto_weight = 0.6      # strategic target fraction in crypto
+hub = "USDC"             # stable funding asset; every rebalance leg is asset<->hub
 band = 0.10              # +/- absolute-weight tolerance before rebalancing
+[allocation.weights]
+USDC = 0.40
+WETH = 0.60
 
 [rebalance]
 slippage_bps = 50

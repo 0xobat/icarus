@@ -32,8 +32,8 @@ class _FakeAdapter:
 
 
 class _StubHoldings:
-    async def current_usd_holdings(self) -> tuple[Decimal, Decimal]:
-        return Decimal("8000"), Decimal("2000")  # nav 10000
+    async def current_usd_by_asset(self) -> dict[str, Decimal]:
+        return {"WETH": Decimal("8000"), "USDC": Decimal("2000")}  # nav 10000
 
 
 class _FakeCycle:

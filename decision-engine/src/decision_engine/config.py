@@ -19,16 +19,15 @@ from icarus.types.market import Chain
 from web3 import Web3
 
 from decision_engine.managed_cycle import ManagedCycleConfig
-from decision_engine.rebalance import RebalanceTarget
+from decision_engine.rebalance import MultiAssetTarget
 
 _PROTOCOL = "aerodrome"  # P1 swap venue on Base
 
 
 @dataclass(frozen=True)
 class ManagedConfig:
-    crypto_symbol: str
-    stable_symbol: str
-    crypto_weight: Decimal
+    weights: Mapping[str, Decimal]  # asset symbol → target NAV fraction (sum≈1)
+    hub: str  # stable funding asset; all corrective trades route through it
     band: Decimal
     slippage_bps: int
     cost_gate_margin: Decimal
@@ -44,13 +43,8 @@ class ManagedConfig:
     # TO one of these. Empty → tracker disabled (PnL not computed).
     operator_funding_addresses: frozenset[str] = frozenset()
 
-    def rebalance_target(self) -> RebalanceTarget:
-        return RebalanceTarget(
-            crypto_symbol=self.crypto_symbol,
-            stable_symbol=self.stable_symbol,
-            crypto_weight=self.crypto_weight,
-            band=self.band,
-        )
+    def multi_asset_target(self) -> MultiAssetTarget:
+        return MultiAssetTarget(weights=dict(self.weights), band=self.band, hub=self.hub)
 
     def cycle_config(self) -> ManagedCycleConfig:
         return ManagedCycleConfig(
@@ -77,16 +71,16 @@ def load_managed_config(
     cad = data["cadence"]
     risk = data.get("risk", {})
 
-    crypto_weight = Decimal(str(alloc["crypto_weight"]))
+    weights = {sym: Decimal(str(w)) for sym, w in alloc["weights"].items()}
+    hub = str(alloc["hub"])
     band = Decimal(str(alloc["band"]))
     slippage_bps = int(reb["slippage_bps"])
     # Default 100 bps when [risk] / the key is absent → backward compatible.
     depeg_threshold_bps = int(risk.get("depeg_threshold_bps", 100))
 
-    if not (Decimal("0") < crypto_weight < Decimal("1")):
-        raise ValueError(f"crypto_weight must be in (0,1), got {crypto_weight}")
-    if not (Decimal("0") <= band <= Decimal("0.5")):
-        raise ValueError(f"band must be in [0,0.5], got {band}")
+    # Validate the allocation by constructing the target now (fail loud at boot
+    # on bad weights/hub/band rather than at the first tick).
+    MultiAssetTarget(weights=weights, band=band, hub=hub)
     if not (0 <= slippage_bps <= 1000):
         raise ValueError(f"slippage_bps must be in [0,1000], got {slippage_bps}")
     if not (0 < depeg_threshold_bps <= 2000):
@@ -113,9 +107,8 @@ def load_managed_config(
     )
 
     return ManagedConfig(
-        crypto_symbol=str(alloc["crypto_symbol"]),
-        stable_symbol=str(alloc["stable_symbol"]),
-        crypto_weight=crypto_weight,
+        weights=weights,
+        hub=hub,
         band=band,
         slippage_bps=slippage_bps,
         cost_gate_margin=Decimal(str(reb["cost_gate_margin"])),

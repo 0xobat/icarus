@@ -1,4 +1,4 @@
-"""Unit tests for ManagedConfig (managed-portfolio P1.5c)."""
+"""Unit tests for ManagedConfig (managed-portfolio P2.2 multi-asset)."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from decision_engine.config import ManagedConfig, load_managed_config
 
 _TOML = """
 [allocation]
-crypto_symbol = "WETH"
-stable_symbol = "USDC"
-crypto_weight = 0.6
+hub = "USDC"
 band = 0.10
+[allocation.weights]
+USDC = 0.40
+WETH = 0.60
 [rebalance]
 slippage_bps = 50
 cost_gate_margin = 4
@@ -38,8 +39,9 @@ def _write(tmp_path: Path, body: str = _TOML) -> Path:
 def test_load_builds_validated_config(tmp_path: Path) -> None:
     cfg = load_managed_config(_write(tmp_path), env=_ENV)
     assert isinstance(cfg, ManagedConfig)
-    assert cfg.crypto_weight == Decimal("0.6")
     assert cfg.band == Decimal("0.10")
+    assert cfg.hub == "USDC"
+    assert cfg.weights == {"USDC": Decimal("0.40"), "WETH": Decimal("0.60")}
     assert cfg.slippage_bps == 50
     assert cfg.cost_gate_margin == Decimal("4")
     assert cfg.interval_seconds == 3600
@@ -47,13 +49,12 @@ def test_load_builds_validated_config(tmp_path: Path) -> None:
     assert cfg.chain == "base"
 
 
-def test_derives_rebalance_target_and_cycle_config(tmp_path: Path) -> None:
+def test_derives_multi_asset_target_and_cycle_config(tmp_path: Path) -> None:
     cfg = load_managed_config(_write(tmp_path), env=_ENV)
-    target = cfg.rebalance_target()
-    assert target.crypto_symbol == "WETH"
-    assert target.stable_symbol == "USDC"
-    assert target.crypto_weight == Decimal("0.6")
+    target = cfg.multi_asset_target()
+    assert target.hub == "USDC"
     assert target.band == Decimal("0.10")
+    assert target.weights == {"USDC": Decimal("0.40"), "WETH": Decimal("0.60")}
     cc = cfg.cycle_config()
     assert cc.recipient == _ENV["SAFE_ADDRESS"]
     assert cc.protocol == "aerodrome"
@@ -61,14 +62,43 @@ def test_derives_rebalance_target_and_cycle_config(tmp_path: Path) -> None:
     assert cc.gas_units == 200000
 
 
+def test_three_asset_target(tmp_path: Path) -> None:
+    body = """
+[allocation]
+hub = "USDC"
+band = 0.10
+[allocation.weights]
+USDC = 0.40
+WETH = 0.32
+WBTC = 0.28
+[rebalance]
+slippage_bps = 50
+cost_gate_margin = 4
+gas_units = 200000
+deadline_seconds = 60
+[cadence]
+interval_seconds = 3600
+"""
+    cfg = load_managed_config(_write(tmp_path, body), env=_ENV)
+    target = cfg.multi_asset_target()
+    assert set(target.weights) == {"USDC", "WETH", "WBTC"}
+    assert target.weights["WBTC"] == Decimal("0.28")
+
+
 def test_missing_safe_address_fails_loud(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="SAFE_ADDRESS"):
         load_managed_config(_write(tmp_path), env={"CHAIN": "base"})
 
 
-def test_invalid_weight_fails_loud(tmp_path: Path) -> None:
-    bad = _TOML.replace("crypto_weight = 0.6", "crypto_weight = 1.5")
-    with pytest.raises(ValueError, match="crypto_weight"):
+def test_weights_not_summing_to_one_fails_loud(tmp_path: Path) -> None:
+    bad = _TOML.replace("WETH = 0.60", "WETH = 0.80")  # sum 1.20
+    with pytest.raises(ValueError, match="sum"):
+        load_managed_config(_write(tmp_path, bad), env=_ENV)
+
+
+def test_hub_not_in_weights_fails_loud(tmp_path: Path) -> None:
+    bad = _TOML.replace('hub = "USDC"', 'hub = "DAI"')
+    with pytest.raises(ValueError, match="hub"):
         load_managed_config(_write(tmp_path, bad), env=_ENV)
 
 
@@ -92,7 +122,7 @@ def test_invalid_chain_fails_loud(tmp_path: Path) -> None:
         )
 
 
-# ── Task 4A: chain_id threading ────────────────────────────────────────────────
+# ── chain_id threading ───────────────────────────────────────────────────────
 
 def test_chain_id_defaults_to_mainnet(tmp_path: Path) -> None:
     cfg = load_managed_config(_write(tmp_path), env=_ENV)
@@ -115,7 +145,6 @@ def test_cycle_config_inherits_chain_id(tmp_path: Path) -> None:
 # ── Depeg threshold ─────────────────────────────────────────────────────────
 
 def test_depeg_threshold_defaults_to_100_when_absent(tmp_path: Path) -> None:
-    # The base _TOML has no [risk] section → backward-compatible default.
     cfg = load_managed_config(_write(tmp_path), env=_ENV)
     assert cfg.depeg_threshold_bps == 100
 
@@ -150,7 +179,6 @@ def test_funding_addresses_empty_when_unset(tmp_path: Path) -> None:
 
 
 def test_funding_addresses_parsed_and_checksummed(tmp_path: Path) -> None:
-    # Pass lowercase input → expect checksummed in the frozenset.
     env = {**_ENV, "OPERATOR_FUNDING_ADDRESSES": f"{_ADDR_A.lower()},{_ADDR_B.lower()}"}
     cfg = load_managed_config(_write(tmp_path), env=env)
     assert cfg.operator_funding_addresses == frozenset({_ADDR_A, _ADDR_B})

@@ -1,20 +1,23 @@
 """ManagedPortfolioCycle — one rebalance tick for the managed-portfolio brain.
 
-Managed-portfolio P1.4. Composes the three P1 cores (rebalance planner, order
-resolver, pricing) with the risk gate and the executor publisher. Additive: the
-existing lake `DecisionCycle` is untouched; P1.5 swaps `__main__` over to this.
+Managed-portfolio P2.2 (multi-asset). Composes the P1/P2 cores (multi-asset
+rebalance planner, order resolver, pricing) with the risk gate and the executor
+publisher.
 
 One tick (`run_one`):
   a. Pull a MarketSnapshot (prices + gas) from the injected DataAdapter.
-  b. Read current crypto/stable USD holdings from the HoldingsProvider.
-  c. Estimate swap cost for the prospective correction.
-  d. plan_rebalance(...) → hold or a sized corrective swap.
+  b. Read per-asset USD holdings ({symbol: usd}) from the HoldingsProvider.
+  c. Two-pass cost gate: size the prospective trade, estimate its cost, then
+     let plan_multi_rebalance's own gate decide hold-vs-go.
+  d. plan_multi_rebalance(...) → hold or one sized corrective swap (most-out-of-
+     band asset, routed through the hub).
   e. If rebalance: resolve params → build ExecutionOrder → risk gate → publish.
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -29,7 +32,11 @@ from icarus.types.market import Chain
 from decision_engine.cycle import ExecutorPublisher
 from decision_engine.order_resolver import DEFAULT_CHAIN_ID, resolve_swap_params
 from decision_engine.pricing import estimate_swap_cost_usd, price_usd
-from decision_engine.rebalance import RebalancePlan, RebalanceTarget, plan_rebalance
+from decision_engine.rebalance import (
+    MultiAssetTarget,
+    RebalancePlan,
+    plan_multi_rebalance,
+)
 from decision_engine.risk_gate import RiskContext, RiskGate
 
 logger = structlog.get_logger(service="decision-engine.managed_cycle")
@@ -39,13 +46,13 @@ _CHAIN: Chain = "base"
 
 @runtime_checkable
 class HoldingsProvider(Protocol):
-    """Source of current portfolio holdings, valued in USD.
+    """Source of current portfolio holdings, valued in USD per asset.
 
-    P1.4 uses stubs; P1.5 ships an on-chain balance reader that prices
-    balances via the same pricing slice."""
+    P2.2 reads on-chain balances for the N target assets and prices them via the
+    pricing slice into a {symbol: usd} dict."""
 
-    async def current_usd_holdings(self) -> tuple[Decimal, Decimal]:
-        """Return (crypto_usd, stable_usd) for the target's two assets."""
+    async def current_usd_by_asset(self) -> Mapping[str, Decimal]:
+        """Return {symbol: usd} for each target asset."""
         ...
 
 
@@ -82,7 +89,7 @@ class ManagedPortfolioCycle:
 
     adapter: DataAdapter
     holdings: HoldingsProvider
-    target: RebalanceTarget
+    target: MultiAssetTarget
     risk_gate: RiskGate
     publisher: ExecutorPublisher
     config: ManagedCycleConfig
@@ -92,28 +99,34 @@ class ManagedPortfolioCycle:
         log = logger.bind(correlation_id=correlation_id)
 
         market = await self.adapter.fetch_live(_CHAIN)
-        crypto_usd, stable_usd = await self.holdings.current_usd_holdings()
-        nav = crypto_usd + stable_usd
+        holdings = dict(await self.holdings.current_usd_by_asset())
+        nav = sum(holdings.values(), Decimal("0"))
 
-        # Estimate cost on the prospective correction so the cost gate has a
-        # size-aware figure. Mirrors plan_rebalance's correction formula.
-        target_crypto_usd = self.target.crypto_weight * nav
-        prospective_correction = abs(crypto_usd - target_crypto_usd)
-        eth_price = price_usd("ETH", market)
+        # The N-asset correction size is whatever the planner selects, but the
+        # cost gate needs that size. Two-pass: first price the prospective trade
+        # with no cost gate, estimate its cost, then let the planner's own gate
+        # decide hold-vs-go on the second pass. Both passes are pure + cheap.
+        prospective = plan_multi_rebalance(
+            holdings=holdings, target=self.target,
+            est_cost_usd=Decimal("0"), cost_gate_margin=self.config.cost_gate_margin,
+        )
+        if prospective.action == "hold":
+            log.info("managed_hold", reason=prospective.reason, nav_usd=str(nav))
+            return ManagedCycleResult(
+                action="hold", reason=prospective.reason, published=False,
+                correlation_id=correlation_id,
+            )
+
         est_cost = estimate_swap_cost_usd(
-            trade_usd=prospective_correction,
+            trade_usd=prospective.usd_amount,
             slippage_bps=self.config.slippage_bps,
             market=market,
-            eth_price_usd=eth_price,
+            eth_price_usd=price_usd("ETH", market),
             gas_units=self.config.gas_units,
         )
-
-        plan = plan_rebalance(
-            crypto_usd=crypto_usd,
-            stable_usd=stable_usd,
-            target=self.target,
-            est_cost_usd=est_cost,
-            cost_gate_margin=self.config.cost_gate_margin,
+        plan = plan_multi_rebalance(
+            holdings=holdings, target=self.target,
+            est_cost_usd=est_cost, cost_gate_margin=self.config.cost_gate_margin,
         )
 
         if plan.action == "hold":
@@ -126,7 +139,7 @@ class ManagedPortfolioCycle:
         order = self._build_order(plan, market, correlation_id)
         ctx = RiskContext(
             portfolio=PortfolioSnapshot(
-                nav_usd=nav, positions={}, cash_usd=stable_usd,
+                nav_usd=nav, positions={}, cash_usd=holdings.get(self.target.hub, Decimal("0")),
                 drawdown_from_peak=Decimal("0"), last_rebalance=datetime.now(UTC),
             ),
             market=market,
