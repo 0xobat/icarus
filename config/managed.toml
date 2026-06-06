@@ -28,10 +28,12 @@ depeg_threshold_bps = 100
 
 [limits]
 # P2.5 exposure caps (NAV fractions). max_asset_pct is a safety net ABOVE the
-# allocation band the planner enforces — set >= the largest upper band (USDC
-# 0.40 + band 0.10 = 0.50) so it never blocks a legitimate rebalance, only a
-# bug / extreme drift. per_venue_cap applies to overlay venues (the LP overlay,
-# P3); core Aave lending of the allocation assets is governed by the bands.
-max_asset_pct = 0.60
+# allocation band the planner enforces — it MUST be >= the largest (target
+# weight + band) or it would block a legitimate rebalance. This interim 2-asset
+# target has WETH 0.60 + band 0.10 = 0.70 upper, so 0.75 here. When the full
+# Base target lands (max weight USDC 0.40 → 0.50 upper) this can drop to 0.60.
+# per_venue_cap applies to overlay venues (the LP overlay, P3); core Aave lending
+# of the allocation assets is governed by the bands.
+max_asset_pct = 0.75
 per_venue_cap = 0.25
 lp_cap = 0.15            # P3 LP overlay cap
