@@ -32,7 +32,7 @@ __all__ = ["ManagedExposureChecker", "ManagedExposureConfig"]
 class ManagedExposureConfig:
     """Concentration caps as NAV fractions."""
 
-    max_asset_pct: Decimal = Decimal("0.60")  # >= the largest upper band (safety net)
+    max_asset_pct: Decimal = Decimal("0.80")  # >= the largest upper band (safety net)
     max_venue_pct: Decimal = Decimal("0.25")  # default cap for capped (overlay) venues
     # Per-venue cap overrides (e.g. the LP overlay's tighter 0.15). A capped
     # venue without an entry falls back to max_venue_pct.

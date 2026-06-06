@@ -247,7 +247,6 @@ def resolve_mint_lp_params(
     usd_amount_b: Decimal,
     price_a: Decimal,
     price_b: Decimal,
-    expected_lp_out: Decimal,
     recipient: str,
     slippage_bps: int,
     pool_id: str,
@@ -256,14 +255,15 @@ def resolve_mint_lp_params(
 ) -> OrderParams:
     """Build executor-ready params for adding liquidity to a pair (LP overlay).
 
-    `amount` is token_a's smallest unit; `extra["amount_b"]` token_b's;
-    `extra["amount_lp_min"]` the slippage-bounded minimum LP shares (from a real
-    `expected_lp_out` quote — never zero)."""
+    `amount` is token_a's desired smallest unit (amountADesired); `extra`
+    carries token_b's desired (`amount_b`) and the slippage-bounded MINIMUM token
+    amounts (`amount_a_min`/`amount_b_min`) — the keys the Aerodrome executor
+    reads. Aerodrome `addLiquidity` protects on the two token amounts (not LP
+    shares), and both mins are strictly positive (no naked minOut=0)."""
     token_a = lookup_token(chain, token_a_symbol, chain_id=chain_id)
     token_b = lookup_token(chain, token_b_symbol, chain_id=chain_id)
     amount_a = usd_to_smallest_unit(usd_amount_a, price_a, token_a.decimals)
     amount_b = usd_to_smallest_unit(usd_amount_b, price_b, token_b.decimals)
-    lp_min = slippage_bounded_min_out(expected_lp_out, slippage_bps)
     return OrderParams(
         token_in=token_a.address,
         token_out=token_b.address,
@@ -271,7 +271,11 @@ def resolve_mint_lp_params(
         recipient=recipient,
         pool_id=pool_id,
         venue=venue,
-        extra={"amount_b": str(amount_b), "amount_lp_min": str(lp_min)},
+        extra={
+            "amount_b": str(amount_b),
+            "amount_a_min": str(slippage_bounded_min_out(amount_a, slippage_bps)),
+            "amount_b_min": str(slippage_bounded_min_out(amount_b, slippage_bps)),
+        },
     )
 
 

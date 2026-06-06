@@ -18,7 +18,7 @@ gas_units = 200000
 deadline_seconds = 60
 
 [cadence]
-interval_seconds = 300  # hourly read; act only on band breach
+interval_seconds = 300  # read every 5 min; act only on band breach
 
 [risk]
 # USDC depeg breaker: halt rebalancing when USDC drifts off-peg by more than

@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from types import MappingProxyType
 from typing import Literal
 
 # Tolerance for the "weights sum to 1.0" construction check (Decimal-exact inputs
@@ -63,6 +64,10 @@ class MultiAssetTarget:
             raise ValueError(f"hub {self.hub!r} not in weights")
         if not (Decimal("0") <= self.band <= Decimal("0.5")):
             raise ValueError(f"band must be in [0, 0.5] (got {self.band})")
+        # Freeze the mapping: a frozen dataclass still shares the caller's dict by
+        # reference, so an external mutation would silently change this target's
+        # weights. Store a read-only copy to make the immutability real.
+        object.__setattr__(self, "weights", MappingProxyType(dict(self.weights)))
 
 
 def plan_multi_rebalance(
@@ -119,7 +124,9 @@ def plan_multi_rebalance(
             )
             counter_imbalance = -drifts[counter] * nav
             usd_amount = min(hub_imbalance, counter_imbalance)
-            from_symbol, to_symbol, side = target.hub, counter, "overweight"
+            # The reason describes the corrected (counter) asset: it is underweight
+            # (drift < 0), which is why we buy it. `side`/`drift` stay consistent.
+            from_symbol, to_symbol, side = target.hub, counter, "underweight"
             asset, drift = counter, drifts[counter]
         else:
             # Hub underweight → crypto overweight overall; sell the most-positive.
@@ -129,7 +136,8 @@ def plan_multi_rebalance(
             )
             counter_imbalance = drifts[counter] * nav
             usd_amount = min(hub_imbalance, counter_imbalance)
-            from_symbol, to_symbol, side = counter, target.hub, "underweight"
+            # The corrected (counter) asset is overweight (drift > 0) → we sell it.
+            from_symbol, to_symbol, side = counter, target.hub, "overweight"
             asset, drift = counter, drifts[counter]
 
     if usd_amount < cost_gate_margin * est_cost_usd:

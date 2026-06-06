@@ -244,16 +244,20 @@ def test_resolve_mint_lp_params_usdc_weth() -> None:
         chain="base", token_a_symbol="USDC", token_b_symbol="WETH",
         usd_amount_a=Decimal("1000"), usd_amount_b=Decimal("1000"),
         price_a=Decimal("1"), price_b=Decimal("3000"),
-        expected_lp_out=Decimal("1000000000000000000"),  # 1 LP token (18 dec)
         recipient=_SAFE, slippage_bps=50, pool_id="base:aerodrome:usdc-weth",
     )
     assert isinstance(params, OrderParams)
     assert params.token_in == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC
     assert params.token_out == "0x4200000000000000000000000000000000000006"  # WETH
-    assert params.amount == Decimal("1000000000")  # 1000 USDC at 6 dec
-    assert params.extra["amount_b"] == "333333333333333333"  # ~0.333 WETH at $3000
-    # minOut floored with slippage, strictly positive (no naked zero).
-    assert params.extra["amount_lp_min"] == "995000000000000000"
+    assert params.amount == Decimal("1000000000")  # 1000 USDC at 6 dec (amountADesired)
+    assert params.extra["amount_b"] == "333333333333333333"  # ~0.333 WETH (amountBDesired)
+    # Per-token slippage-bounded mins, strictly positive (no naked minOut=0).
+    assert params.extra["amount_a_min"] == "995000000"  # 1000e6 * 0.995
+    assert params.extra["amount_b_min"] == "331666666666666666"  # floored
+    # Contract pin: the emitted extra keys are EXACTLY what the Aerodrome
+    # executor's mint_lp branch reads (amount_b / amount_a_min / amount_b_min).
+    # Guards against producer/consumer key drift (the old amount_lp_min bug).
+    assert set(params.extra) == {"amount_b", "amount_a_min", "amount_b_min"}
     assert params.pool_id == "base:aerodrome:usdc-weth"
     assert params.venue == "aerodrome"
     assert params.recipient == _SAFE

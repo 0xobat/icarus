@@ -14,18 +14,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from decision_engine.holdings import RpcHoldingsProvider
 from decision_engine.managed_cycle import HoldingsProvider
-from decision_engine.order_resolver import register_token
 from icarus.types import MarketSnapshot
 from icarus.types.market import Chain
 
 _SAFE = "0x1111111111111111111111111111111111111111"
 _USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 _WETH = "0x4200000000000000000000000000000000000006"
-_WBTC = "0x2222222222222222222222222222222222222222"  # synthetic, registered in tests
-
-# Register a synthetic WBTC (8 decimals) so the N-asset reader has a third leg
-# without committing to a real cbBTC mainnet address (that lands with P2.3).
-register_token(chain_id=8453, symbol="WBTC", address=_WBTC, decimals=8)
+# cbBTC — the real Base-mainnet registry entry (8 decimals), priced via the BTC
+# alias. Uses the production symbol set (WETH/USDC/cbBTC), not a synthetic stand-in.
+_CBBTC = "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf"
 
 
 class _FakeAdapter:
@@ -64,7 +61,7 @@ def _make_w3(balances_by_address: dict[str, int]) -> MagicMock:
 def _provider(
     w3: MagicMock,
     prices: dict[str, Decimal],
-    symbols: tuple[str, ...] = ("WETH", "USDC", "WBTC"),
+    symbols: tuple[str, ...] = ("WETH", "USDC", "cbBTC"),
     chain_id: int = 8453,
 ) -> RpcHoldingsProvider:
     return RpcHoldingsProvider(
@@ -75,7 +72,7 @@ def _provider(
 
 def test_satisfies_holdings_protocol() -> None:
     assert isinstance(
-        _provider(_make_w3({_WETH: 0, _USDC: 0, _WBTC: 0}), {"ETH": Decimal("3000")}),
+        _provider(_make_w3({_WETH: 0, _USDC: 0, _CBBTC: 0}), {"ETH": Decimal("3000")}),
         HoldingsProvider,
     )
 
@@ -83,25 +80,25 @@ def test_satisfies_holdings_protocol() -> None:
 @pytest.mark.asyncio
 async def test_reads_and_prices_all_legs() -> None:
     # WETH 2e18 @ $3000 = $6000; USDC 4000e6 @ $1 = $4000;
-    # WBTC 0.05e8 @ $60000 = $3000.
-    w3 = _make_w3({_WETH: 2_000000000000000000, _USDC: 4000_000000, _WBTC: 5_000000})
+    # cbBTC 0.05e8 @ $60000 (via BTC alias) = $3000.
+    w3 = _make_w3({_WETH: 2_000000000000000000, _USDC: 4000_000000, _CBBTC: 5_000000})
     holdings = await _provider(
-        w3, {"ETH": Decimal("3000"), "WBTC": Decimal("60000")}
+        w3, {"ETH": Decimal("3000"), "BTC": Decimal("60000")}
     ).current_usd_by_asset()
     assert holdings == {
         "WETH": Decimal("6000"),
         "USDC": Decimal("4000"),
-        "WBTC": Decimal("3000"),
+        "cbBTC": Decimal("3000"),
     }
 
 
 @pytest.mark.asyncio
 async def test_zero_balances() -> None:
-    w3 = _make_w3({_WETH: 0, _USDC: 0, _WBTC: 0})
+    w3 = _make_w3({_WETH: 0, _USDC: 0, _CBBTC: 0})
     holdings = await _provider(
-        w3, {"ETH": Decimal("3000"), "WBTC": Decimal("60000")}
+        w3, {"ETH": Decimal("3000"), "BTC": Decimal("60000")}
     ).current_usd_by_asset()
-    assert holdings == {"WETH": Decimal("0"), "USDC": Decimal("0"), "WBTC": Decimal("0")}
+    assert holdings == {"WETH": Decimal("0"), "USDC": Decimal("0"), "cbBTC": Decimal("0")}
 
 
 @pytest.mark.asyncio

@@ -46,10 +46,12 @@ class ManagedConfig:
     chain: Chain
     chain_id: int = 8453  # Default to Base mainnet
     depeg_threshold_bps: int = 100  # USDC depeg breaker trips above this deviation
-    # P2.5 exposure caps (NAV fractions). max_asset_pct is a safety net >= the
-    # largest upper band; max_venue_pct caps overlay venues; lp_cap is the LP
-    # overlay's tighter cap (P3.3).
-    max_asset_pct: Decimal = Decimal("0.60")
+    # P2.5 exposure caps (NAV fractions). max_asset_pct is a safety net that MUST
+    # stay >= the largest (target weight + band) or it blocks legitimate
+    # rebalances; default 0.80 keeps real margin above the interim WETH 0.70 upper
+    # band (load_managed_config asserts the invariant). max_venue_pct caps overlay
+    # venues; lp_cap is the LP overlay's tighter cap (P3.3).
+    max_asset_pct: Decimal = Decimal("0.80")
     max_venue_pct: Decimal = Decimal("0.25")
     lp_cap: Decimal = Decimal("0.15")
     # Operator funding addresses for the PnL deposit-tracker (reporting only).
@@ -108,6 +110,18 @@ def load_managed_config(
             f"depeg_threshold_bps must be in (0,2000], got {depeg_threshold_bps}"
         )
 
+    # The per-asset exposure cap is a safety net ABOVE the allocation band. It
+    # MUST be >= the largest (target weight + band) or the exposure checker would
+    # reject a legitimate rebalance that brings an asset to its band edge. Fail
+    # loud at boot rather than silently freezing rebalancing later.
+    max_asset_pct = Decimal(str(limits.get("max_asset_pct", "0.80")))
+    largest_upper = max(weights.values()) + band
+    if max_asset_pct < largest_upper:
+        raise ValueError(
+            f"max_asset_pct ({max_asset_pct}) must be >= the largest target "
+            f"weight + band ({largest_upper}) or it blocks legitimate rebalances"
+        )
+
     safe_address = env.get("SAFE_ADDRESS")
     if not safe_address:
         raise RuntimeError("SAFE_ADDRESS env var is required (the wallet receiving swap output).")
@@ -140,7 +154,7 @@ def load_managed_config(
         chain_id=chain_id,
         depeg_threshold_bps=depeg_threshold_bps,
         operator_funding_addresses=operator_funding_addresses,
-        max_asset_pct=Decimal(str(limits.get("max_asset_pct", "0.60"))),
+        max_asset_pct=max_asset_pct,
         max_venue_pct=Decimal(str(limits.get("per_venue_cap", "0.25"))),
         lp_cap=Decimal(str(limits.get("lp_cap", "0.15"))),
     )

@@ -106,22 +106,23 @@ class ManagedPortfolioCycle:
         nav = sum(holdings.values(), Decimal("0"))
 
         # The N-asset correction size is whatever the planner selects, but the
-        # cost gate needs that size. Two-pass: first price the prospective trade
-        # with no cost gate, estimate its cost, then let the planner's own gate
-        # decide hold-vs-go on the second pass. Both passes are pure + cheap.
-        prospective = plan_multi_rebalance(
+        # cost gate needs that size. Two-pass: a first `probe` pass with no cost
+        # gate prices the prospective trade; we estimate its cost, then let the
+        # planner's own gate decide hold-vs-go on the second pass. Selection never
+        # depends on est_cost, so both passes pick the same leg. Pure + cheap.
+        probe = plan_multi_rebalance(
             holdings=holdings, target=self.target,
             est_cost_usd=Decimal("0"), cost_gate_margin=self.config.cost_gate_margin,
         )
-        if prospective.action == "hold":
-            log.info("managed_hold", reason=prospective.reason, nav_usd=str(nav))
+        if probe.action == "hold":
+            log.info("managed_hold", reason=probe.reason, nav_usd=str(nav))
             return ManagedCycleResult(
-                action="hold", reason=prospective.reason, published=False,
+                action="hold", reason=probe.reason, published=False,
                 correlation_id=correlation_id,
             )
 
         est_cost = estimate_swap_cost_usd(
-            trade_usd=prospective.usd_amount,
+            trade_usd=probe.usd_amount,
             slippage_bps=self.config.slippage_bps,
             market=market,
             eth_price_usd=price_usd("ETH", market),
