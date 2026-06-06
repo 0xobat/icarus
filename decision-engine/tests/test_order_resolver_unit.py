@@ -184,6 +184,12 @@ def test_lookup_cbbtc_base_mainnet() -> None:
     assert info.decimals == 8
 
 
+def test_lookup_wsteth_base_mainnet() -> None:
+    info = lookup_token("base", "wstETH")
+    assert info.address == "0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452"
+    assert info.decimals == 18
+
+
 def test_resolve_supply_params_usdc_aave() -> None:
     params = resolve_supply_params(
         chain="base", asset_symbol="USDC", usd_amount=Decimal("4000"),

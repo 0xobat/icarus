@@ -237,7 +237,7 @@ def _apply_token_overrides(chain_id: int, env: dict[str, str]) -> None:
     *_DECIMALS). cbBTC has no canonical Base-Sepolia deploy, so a testnet run
     that includes the wBTC sleeve must supply CBBTC_ADDRESS.
     """
-    for symbol, dec_default in (("USDC", 6), ("WETH", 18), ("cbBTC", 8)):
+    for symbol, dec_default in (("USDC", 6), ("WETH", 18), ("cbBTC", 8), ("wstETH", 18)):
         env_key = symbol.upper()  # cbBTC → CBBTC_ADDRESS; env vars are uppercase
         addr = env.get(f"{env_key}_ADDRESS")
         if addr:

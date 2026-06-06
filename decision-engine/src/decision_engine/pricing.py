@@ -25,6 +25,13 @@ _STABLE_SYMBOLS = frozenset({"USDC", "USDT", "DAI"})
 # BTC (P2.3); wstETH is priced via its ETH exchange rate, not an alias (P2.4).
 _PRICE_KEY_ALIASES = {"WETH": "ETH", "cbBTC": "BTC"}
 
+# Liquid-staking tokens are NOT 1:1 with their underlying — they appreciate as
+# rewards accrue. Price = exchange_rate (from the snapshot) * underlying USD
+# price. The adapter sources the rate (a wstETH/ETH feed or the contract's
+# stEthPerToken); pricing stays pure (P2.4).
+_LST_RATE_KEY = {"wstETH": "wstETH/ETH"}
+_LST_UNDERLYING = {"wstETH": "ETH"}
+
 
 def price_usd(symbol: str, market: MarketSnapshot) -> Decimal:
     """USD price for an asset symbol from a market snapshot.
@@ -37,6 +44,15 @@ def price_usd(symbol: str, market: MarketSnapshot) -> Decimal:
     if symbol in _STABLE_SYMBOLS:
         live = market.prices.get(symbol)
         return live if live is not None else Decimal("1")
+    if symbol in _LST_RATE_KEY:
+        rate_key = _LST_RATE_KEY[symbol]
+        try:
+            rate = market.prices[rate_key]
+        except KeyError as exc:
+            raise KeyError(
+                f"no exchange rate for {symbol!r} (key {rate_key!r}) in snapshot"
+            ) from exc
+        return rate * price_usd(_LST_UNDERLYING[symbol], market)
     price_key = _PRICE_KEY_ALIASES.get(symbol, symbol)
     try:
         return market.prices[price_key]

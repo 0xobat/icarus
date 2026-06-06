@@ -52,6 +52,8 @@ _TOKENS_BY_CHAIN_ID: dict[int, dict[str, TokenInfo]] = {
         "WETH": TokenInfo("0x4200000000000000000000000000000000000006", 18),
         # cbBTC (Coinbase Wrapped BTC) — the prevalent BTC on Base; 8 decimals.
         "cbBTC": TokenInfo("0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", 8),
+        # wstETH (Lido wrapped staked ETH) on Base — the ETH sleeve (P2.4).
+        "wstETH": TokenInfo("0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452", 18),
     },
     84532: {  # Base Sepolia — VERIFY before live use; override via env if stale.
         "USDC": TokenInfo("0x036CbD53842c5426634e7929541eC2318f3dCF7e", 6),

@@ -60,6 +60,19 @@ def test_price_usd_cbbtc_aliases_to_btc() -> None:
     market = _market({"ETH": Decimal("3000"), "BTC": Decimal("60000")})
     assert price_usd("cbBTC", market) == Decimal("60000")
 
+
+def test_price_usd_wsteth_via_exchange_rate() -> None:
+    # wstETH (P2.4) is priced by its ETH exchange rate * ETH/USD, not 1:1.
+    # rate 1.18, ETH $3000 → wstETH $3540.
+    market = _market({"ETH": Decimal("3000"), "wstETH/ETH": Decimal("1.18")})
+    assert price_usd("wstETH", market) == Decimal("3540.00")
+
+
+def test_price_usd_wsteth_missing_rate_raises() -> None:
+    market = _market({"ETH": Decimal("3000")})  # no wstETH/ETH rate
+    with pytest.raises(KeyError, match="wstETH"):
+        price_usd("wstETH", market)
+
 def test_estimate_swap_cost_combines_gas_and_slippage() -> None:
     # gas_gwei=1, gas_units=200_000 → 0.0002 ETH; at $3000 → $0.60 gas.
     # slippage: $10_000 trade at 50 bps → $50.00. total = $50.60.
