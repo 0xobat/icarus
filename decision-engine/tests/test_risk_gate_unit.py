@@ -157,25 +157,6 @@ def test_gate_fails_closed_when_checker_raises():
     assert "KeyError" in verdict.reason
 
 
-def test_exposure_checker_uses_value_usd_key_not_amount_usd():
-    """W12 review #2 root cause: ExposureChecker previously wrote
-    `amount_usd` while ExposureLimiter.check_order reads `value_usd`,
-    raising KeyError and silently bypassing the gate via the cycle's
-    outer except. Pin the exact key so a future rename trips here loudly.
-    """
-    from decision_engine.risk.exposure_limits import ExposureLimiter
-    from decision_engine.risk_gate import ExposureChecker
-
-    limiter = ExposureLimiter(total_capital=Decimal("10000"))
-    checker = ExposureChecker(limiter)
-    # Should NOT raise KeyError. With $100 order against $10k capital
-    # the proportion is 1%, well under default 40% protocol limit.
-    verdict = checker.check(_order(), _ctx())
-    assert verdict.passed is True, (
-        f"exposure gate must allow a 1% order; got reject: {verdict.reason}"
-    )
-
-
 def test_depeg_checker_rejects_when_breaker_tripped():
     """A tripped depeg breaker halts every rebalance; the reason mentions the
     depeg, the deviation in bps, and the threshold."""
@@ -215,53 +196,3 @@ def test_depeg_checker_passes_before_any_update():
     checker = DepegChecker(DepegBreaker())
     verdict = checker.check(_order(), _ctx())
     assert verdict.passed is True
-
-
-def test_exposure_checker_uses_ctx_usd_notional_not_wei_amount():
-    """Regression (testnet rebalance): `params.amount` is the token quantity in
-    SMALLEST UNITS (wei), not USD. A 0.0365 WETH sell is 3.65e16 wei but only
-    ~$57 of notional. The checker must value it via ctx.order_value_usd; using
-    the wei amount as value_usd reads as $3.65e16 and trips the 40% protocol cap
-    on every rebalance.
-    """
-    from decision_engine.risk.exposure_limits import ExposureLimiter
-    from decision_engine.risk_gate import ExposureChecker
-
-    limiter = ExposureLimiter(total_capital=Decimal("10000"))
-    checker = ExposureChecker(limiter)
-
-    order = ExecutionOrder(
-        order_id=uuid.uuid4().hex,
-        correlation_id="test-corr",
-        timestamp=datetime.now(UTC),
-        chain="base",
-        protocol="aerodrome",
-        action="swap",
-        strategy="REBAL:base",
-        params=OrderParams(
-            token_in="0x4200000000000000000000000000000000000006",  # WETH
-            token_out="0x036CbD53842c5426634e7929541eC2318f3dCF7e",  # USDC
-            amount=Decimal("36527250765241030"),  # 0.0365 WETH in wei
-        ),
-        limits=OrderLimits(max_slippage_bps=50, deadline_unix=99999999999),
-    )
-    # True USD notional ~$57 → 0.57% of $10k capital → well under the 40% cap.
-    ctx = RiskContext(
-        portfolio=PortfolioSnapshot(
-            nav_usd=Decimal("218"),
-            positions={},
-            cash_usd=Decimal("30"),
-            drawdown_from_peak=Decimal("0"),
-            last_rebalance=datetime.now(UTC),
-        ),
-        market=MarketSnapshot(
-            timestamp=datetime.now(UTC), chain="base",
-            prices={}, apys={}, pool_state={}, gas_gwei=Decimal("0"), metadata={},
-        ),
-        order_value_usd=Decimal("57"),
-    )
-    verdict = checker.check(order, ctx)
-    assert verdict.passed is True, (
-        f"exposure gate must value the order at $57, not 3.65e16 wei; "
-        f"got reject: {verdict.reason}"
-    )

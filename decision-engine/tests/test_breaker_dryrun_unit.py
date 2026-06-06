@@ -53,36 +53,11 @@ def test_drawdown_breaker_dryrun() -> None:
     assert "drawdown_breaker[solana]" in names
 
 
-def test_position_loss_limit_dryrun() -> None:
-    """Position loss limit closes the -12% position and validates envelopes."""
-    results = breaker_dryrun.run_position_loss_limit()
-    _assert_all_pass(results, "position_loss_limit")
-    names = {r.name for r in results}
-    assert "position_loss_limit[base]" in names
-    assert "position_loss_limit[solana]" in names
-
-
-def test_tvl_monitor_dryrun() -> None:
-    """TVL monitor fires at -70% TVL drop and emits CB:tvl_drop envelopes."""
-    results = breaker_dryrun.run_tvl_monitor()
-    _assert_all_pass(results, "tvl_monitor")
-    names = {r.name for r in results}
-    assert "tvl_monitor[base]" in names
-    assert "tvl_monitor[solana]" in names
-
-
 def test_gas_spike_breaker_dryrun() -> None:
     """Gas spike breaker activates at 16x average; urgent ops exempt."""
     results = breaker_dryrun.run_gas_spike_breaker()
     _assert_all_pass(results, "gas_spike_breaker")
     assert any(r.name == "gas_spike_breaker" for r in results)
-
-
-def test_oracle_guard_dryrun() -> None:
-    """Oracle guard rejects 4.9% USDC deviation (>2% threshold)."""
-    results = breaker_dryrun.run_oracle_guard()
-    _assert_all_pass(results, "oracle_guard")
-    assert any(r.name == "oracle_guard" for r in results)
 
 
 def test_tx_failure_monitor_dryrun() -> None:
@@ -103,16 +78,13 @@ def test_main_exits_zero_with_synthetic_state() -> None:
     assert rc == 0, f"breaker_dryrun.main() returned {rc} (expected 0)"
 
 
-def test_run_all_covers_six_breakers() -> None:
-    """run_all() exercises exactly the 6 capital-protecting breakers."""
-    assert len(breaker_dryrun.BREAKER_CHECKS) == 6
+def test_run_all_covers_managed_breakers() -> None:
+    """run_all() exercises exactly the managed capital-protecting breakers."""
+    assert len(breaker_dryrun.BREAKER_CHECKS) == 3
     names = {n for n, _ in breaker_dryrun.BREAKER_CHECKS}
     assert names == {
         "drawdown_breaker",
-        "position_loss_limit",
-        "tvl_monitor",
         "gas_spike_breaker",
-        "oracle_guard",
         "tx_failure_monitor",
     }
 

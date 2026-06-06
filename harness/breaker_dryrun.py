@@ -1,36 +1,27 @@
-"""Circuit-breaker dry-run exercise (W11) — fire each of the 6 capital-
-protecting risk breakers end-to-end with synthetic state, assert the
-trigger semantics, and (where applicable) validate emitted ExecutionOrder
-envelopes against the pydantic contract on both Base and Solana.
+"""Circuit-breaker dry-run exercise — fire the managed capital-protecting risk
+breakers end-to-end with synthetic state, assert the trigger semantics, and
+(where applicable) validate emitted ExecutionOrder envelopes against the pydantic
+contract on both Base and Solana.
 
-The 6 breakers exercised (from ``decision_engine.risk``):
+The breakers exercised (from ``decision_engine.risk``):
 
-  1. DrawdownBreaker        — emits CB:drawdown unwind orders
-  2. PositionLossLimit      — emits CB:position_loss close orders
-  3. TVLMonitor             — emits CB:tvl_drop withdrawal orders
-  4. GasSpikeBreaker        — gate (pauses non-urgent ops); no order emission
-  5. OracleGuard            — gate (rejects unsafe price reads); no order emission
-  6. TxFailureMonitor       — gate (pauses execution after threshold); no order emission
+  1. DrawdownBreaker     — emits CB:drawdown unwind orders
+  2. GasSpikeBreaker     — gate (pauses non-urgent ops); no order emission
+  3. TxFailureMonitor    — gate (pauses execution after threshold); no order emission
 
-For the 3 envelope-emitting breakers, we run two cases per breaker:
+(The lake-era PositionLossLimit / TVLMonitor / OracleGuard breakers were removed
+in the managed-portfolio cleanup; `.archive/` retains them.)
 
-  a) Base path  — invoke the breaker directly with synthetic positions;
-                  the breaker emits chain="base" orders. We validate each
-                  emitted dict against ``ExecutionOrder`` pydantic and
-                  assert ``chain == "base"`` + no ``solana_specific``.
+For the envelope-emitting breaker (drawdown) we run two cases:
 
-  b) Solana path — construct the matching ExecutionOrder envelope directly
-                  with chain="solana" + ``SolanaSpecificOrder``. This proves
-                  the envelope contract is valid on both chains. (The
-                  breaker modules themselves hardcode chain="base" per the
-                  W3 TODO — per-position chain awareness lands W12+. The
-                  Solana case here exercises the *envelope*, not the
-                  breaker's choice of chain.)
+  a) Base path  — invoke the breaker directly with synthetic positions; the
+                  breaker emits chain="base" orders, validated against
+                  ``ExecutionOrder`` pydantic (chain == "base", no solana_specific).
+  b) Solana path — construct the matching chain="solana" envelope directly to
+                  prove the contract is valid on both chains.
 
-For the 3 gate-style breakers we assert:
-  - The gate fires exactly when expected given the synthetic input.
-  - The state-snapshot (``get_state()``/``OracleCheckResult``) reflects
-    the trigger.
+For the gate-style breakers we assert the gate fires exactly when expected and
+the state snapshot reflects the trigger.
 
 Exit codes:
   0 = every breaker check PASSED
@@ -47,7 +38,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock
 
 import structlog
 
@@ -64,11 +54,7 @@ for _rel in ("lib/src", "decision-engine/src"):
 
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker  # noqa: E402
 from decision_engine.risk.gas_spike_breaker import GasSpikeBreaker  # noqa: E402
-from decision_engine.risk.oracle_guard import OracleGuard  # noqa: E402
-from decision_engine.risk.position_loss_limit import PositionLossLimit  # noqa: E402
-from decision_engine.risk.tvl_monitor import TVLMonitor  # noqa: E402
 from decision_engine.risk.tx_failure_monitor import TxFailureMonitor  # noqa: E402
-from icarus.data.price_feed import PriceFeedManager, PriceResult  # noqa: E402
 from icarus.envelopes import (  # noqa: E402
     ExecutionOrder,
     OrderLimits,
@@ -238,163 +224,7 @@ def run_drawdown_breaker() -> list[CheckResult]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Breaker 2 — PositionLossLimit (RISK-002)
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def run_position_loss_limit() -> list[CheckResult]:
-    """One position at -12% (above the 10% limit) → CB:position_loss order."""
-    results: list[CheckResult] = []
-    name_base = "position_loss_limit[base]"
-    name_solana = "position_loss_limit[solana]"
-
-    limit = PositionLossLimit()
-    positions = [
-        {
-            "id": "pos-001",
-            "asset": "WETH",
-            "protocol": "aave_v3",
-            "strategy_id": "LEND-001",
-            "entry_price": "3000",
-            "entry_time": datetime.now(UTC).isoformat(),
-            "current_value": "26400",  # 12% loss on 30k
-        },
-        {
-            "id": "pos-002",
-            "asset": "USDC",
-            "protocol": "aave_v3",
-            "strategy_id": "LEND-001-stable",
-            "entry_price": "1.00",
-            "entry_time": datetime.now(UTC).isoformat(),
-            "current_value": "10000",  # 1% loss — below limit
-        },
-    ]
-    price_map = {"WETH": Decimal("2640"), "USDC": Decimal("0.99")}
-
-    orders = limit.generate_close_orders(
-        positions=positions, price_map=price_map, correlation_id="dryrun-pl-001",
-    )
-    if len(orders) != 1:
-        results.append(
-            _fail(name_base, f"expected 1 order (only WETH at -12% breaches), got {len(orders)}"),
-        )
-        return results
-    err = _validate_envelope(orders[0], expected_chain="base")
-    if err:
-        results.append(_fail(name_base, err))
-        return results
-    if orders[0].get("strategy") != "CB:position_loss":
-        results.append(
-            _fail(name_base, f"strategy != CB:position_loss ({orders[0].get('strategy')!r})"),
-        )
-        return results
-    if not limit.is_strategy_in_cooldown("LEND-001"):
-        results.append(_fail(name_base, "strategy LEND-001 should be in cooldown post-trigger"))
-        return results
-    results.append(
-        _ok(
-            name_base,
-            "WETH closed (-12%), LEND-001 cooldown active, CB:position_loss valid on base",
-        ),
-    )
-
-    sol_order = _build_solana_unwind_order(
-        strategy="CB:position_loss",
-        asset="SOL",
-        amount=Decimal("100"),
-        protocol="drift",
-        correlation_id="dryrun-pl-sol-001",
-    )
-    err = _validate_envelope(sol_order, expected_chain="solana")
-    if err:
-        results.append(_fail(name_solana, err))
-        return results
-    results.append(_ok(name_solana, "CB:position_loss envelope valid on solana"))
-    return results
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Breaker 3 — TVLMonitor (RISK-005)
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def run_tvl_monitor() -> list[CheckResult]:
-    """Pool TVL crashes 70% (peak 100M → current 30M) → critical → withdraw."""
-    results: list[CheckResult] = []
-    name_base = "tvl_monitor[base]"
-    name_solana = "tvl_monitor[solana]"
-
-    monitor = TVLMonitor()
-    monitor.record_tvl("aerodrome", "base", Decimal("100000000"), "defillama")
-    monitor.record_tvl("aerodrome", "base", Decimal("30000000"), "defillama")  # -70%
-
-    if not monitor.should_withdraw("aerodrome", "base"):
-        results.append(_fail(name_base, "monitor should signal withdraw at 70% drop"))
-        return results
-
-    positions = [
-        {
-            "protocol": "aerodrome",
-            "asset": "USDC",
-            "current_value": "25000",
-        },
-        {
-            "protocol": "aerodrome",
-            "asset": "WETH",
-            "current_value": "20000",
-        },
-        {
-            # Should NOT be unwound — unaffected protocol.
-            "protocol": "aave_v3",
-            "asset": "USDC",
-            "current_value": "10000",
-        },
-    ]
-    orders = monitor.generate_withdrawal_orders(positions, correlation_id="dryrun-tvl-001")
-    if len(orders) != 2:
-        results.append(
-            _fail(name_base, f"expected 2 orders (only aerodrome positions), got {len(orders)}"),
-        )
-        return results
-    for i, o in enumerate(orders):
-        err = _validate_envelope(o, expected_chain="base")
-        if err:
-            results.append(_fail(name_base, f"order[{i}]: {err}"))
-            return results
-        if o.get("strategy") != "CB:tvl_drop":
-            results.append(
-                _fail(name_base, f"order[{i}].strategy != CB:tvl_drop ({o.get('strategy')!r})"),
-            )
-            return results
-        if o.get("protocol") != "aerodrome":
-            results.append(
-                _fail(name_base, f"order[{i}].protocol != aerodrome ({o.get('protocol')!r})"),
-            )
-            return results
-    results.append(
-        _ok(
-            name_base,
-            "aerodrome -70% TVL → 2 CB:tvl_drop orders on base, aave_v3 unaffected",
-        ),
-    )
-
-    sol_order = _build_solana_unwind_order(
-        strategy="CB:tvl_drop",
-        asset="USDC",
-        amount=Decimal("25000"),
-        protocol="kamino",
-        correlation_id="dryrun-tvl-sol-001",
-    )
-    err = _validate_envelope(sol_order, expected_chain="solana")
-    if err:
-        results.append(_fail(name_solana, err))
-        return results
-    results.append(_ok(name_solana, "CB:tvl_drop envelope valid on solana"))
-    return results
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Breaker 4 — GasSpikeBreaker (RISK-003) — gate-only
+# Breaker 2 — GasSpikeBreaker (RISK-003) — gate-only
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -421,43 +251,7 @@ def run_gas_spike_breaker() -> list[CheckResult]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Breaker 5 — OracleGuard (RISK-007) — gate-only
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def run_oracle_guard() -> list[CheckResult]:
-    """USDC price disagreement (1.00 vs 1.05 ≈ 4.9%) breaches 2% threshold."""
-    results: list[CheckResult] = []
-    name = "oracle_guard"
-
-    mock_redis = MagicMock()
-    pf = PriceFeedManager(
-        redis=mock_redis,
-        deviation_threshold=0.02,
-        fetch_fn=MagicMock(),
-    )
-    pf.is_any_stale = MagicMock(return_value=False)
-    guard = OracleGuard(pf, deviation_threshold=0.02)
-
-    alchemy = {"USDC": PriceResult("USDC", 1.00, "alchemy", "2026-05-25T00:00:00Z")}
-    defillama = {"USDC": PriceResult("USDC", 1.05, "defillama", "2026-05-25T00:00:00Z")}
-    result = guard.validate_prices(alchemy, defillama)
-
-    if result.safe:
-        results.append(_fail(name, f"guard should reject 4.9% deviation: {result.reason}"))
-        return results
-    if not any(d.exceeded for d in result.deviations):
-        results.append(_fail(name, "no deviation marked exceeded"))
-        return results
-    if "USDC" not in result.reason:
-        results.append(_fail(name, f"reason should mention USDC: {result.reason!r}"))
-        return results
-    results.append(_ok(name, f"rejected: {result.reason}"))
-    return results
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Breaker 6 — TxFailureMonitor (RISK-004) — gate-only
+# Breaker 3 — TxFailureMonitor (RISK-004) — gate-only
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -499,10 +293,7 @@ def run_tx_failure_monitor() -> list[CheckResult]:
 
 BREAKER_CHECKS = [
     ("drawdown_breaker", run_drawdown_breaker),
-    ("position_loss_limit", run_position_loss_limit),
-    ("tvl_monitor", run_tvl_monitor),
     ("gas_spike_breaker", run_gas_spike_breaker),
-    ("oracle_guard", run_oracle_guard),
     ("tx_failure_monitor", run_tx_failure_monitor),
 ]
 

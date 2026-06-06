@@ -8,9 +8,11 @@ One tick (`ManagedEngine._tick`):
      resolve → risk gate → publish).
 A background task consumes execution:results:{chain} → tx-failure monitor.
 
-The lake modules (DecisionCycle/roster/registry/allocator) remain in the tree
-but are no longer wired here; a cleanup phase removes them after the managed
-path is proven live.
+The lake-era discovery machinery (extractor/backtest workers, lake-governor,
+the `DecisionCycle`/roster path) is parked, not wired here — it remains in the
+tree (and is exercised by `harness/e2e_smoke.py`) per the "discovery deferred,
+not deleted" pivot. The managed-portfolio cleanup removed only the genuinely
+unused v4.2 risk breakers (exposure/position-loss/tvl/oracle/post-action advisor).
 """
 
 from __future__ import annotations
@@ -239,10 +241,10 @@ class ManagedEngine:
 def _build_risk_gate(*, drawdown, gas_spike, tx_failure, depeg, exposure) -> RiskGate:
     """The managed gate: NAV/market-level breakers + the P2.5 exposure cap.
 
-    The lake-era ExposureChecker and PositionLossChecker remain omitted — the
+    The lake-era ExposureChecker + PositionLossChecker were removed (the
     per-protocol exposure cap was a category error and the per-strategy loss
-    cooldown would freeze all rebalancing (every order is REBAL:base). The P2.5
-    `ManagedExposureChecker` replaces them with a position-aware per-asset cap
+    cooldown would freeze all rebalancing — every order is REBAL:base). The P2.5
+    `ManagedExposureChecker` is the replacement: a position-aware per-asset cap
     (a safety net above the allocation band) + an overlay per-venue cap, fed real
     per-tick holdings via RiskContext. See the P2.5 plan + the right-sizing plan.
 

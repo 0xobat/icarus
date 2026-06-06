@@ -2,10 +2,10 @@
 
 Per blueprint §"Verification gate non-negotiable": every order published
 to a chain executor MUST clear the deterministic pre-trade gate first.
-This module is the gate. It composes the existing per-concern checkers
-under `decision_engine.risk.*` (drawdown breaker, exposure limits, gas
-spike breaker, oracle guard, position loss limit, TVL monitor, tx
-failure monitor) behind a single, uniform interface:
+This module is the gate. It composes the managed per-concern checkers
+under `decision_engine.risk.*` (drawdown breaker, gas-spike breaker, USDC
+depeg breaker, tx-failure monitor) plus the managed exposure cap, behind a
+single, uniform interface:
 
     result = gate.check(order)
     if not result.passed:
@@ -30,7 +30,7 @@ Design notes:
 
 A `RiskContext` carries everything the adapters might need to consult
 beyond the order itself: current portfolio NAV, current gas, the
-inflight chain. Built once per cycle by the DecisionCycle and threaded
+inflight chain. Built once per cycle by `ManagedPortfolioCycle` and threaded
 through every gate call so the adapters are pure(-ish) and deterministic
 for that tick.
 """
@@ -48,9 +48,7 @@ from icarus.types import MarketSnapshot, PortfolioSnapshot
 
 from decision_engine.risk.depeg_breaker import DepegBreaker
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker
-from decision_engine.risk.exposure_limits import ExposureLimiter
 from decision_engine.risk.gas_spike_breaker import GasSpikeBreaker
-from decision_engine.risk.position_loss_limit import PositionLossLimit
 from decision_engine.risk.tx_failure_monitor import TxFailureMonitor
 
 logger = structlog.get_logger(service="decision-engine.risk_gate")
@@ -65,11 +63,9 @@ class RiskContext:
     round-trip through float.
 
     `order_value_usd` is the USD notional of the order under evaluation,
-    supplied by the cycle that already priced it. The exposure checker
-    needs it because `order.params.amount` is the token quantity in
-    SMALLEST UNITS (wei/lamports), not dollars — there is no way to derive
-    dollars from the order alone without re-pricing. None when the caller
-    did not price the order (legacy/unpriced paths)."""
+    supplied by the cycle that already priced it (`order.params.amount` is the
+    token quantity in SMALLEST UNITS, not dollars). None when the caller did not
+    price the order. Carried for breakers that want the order's dollar size."""
 
     portfolio: PortfolioSnapshot
     market: MarketSnapshot
@@ -166,52 +162,6 @@ class DrawdownChecker:
         return RiskDecision(passed=True, checker=self.name)
 
 
-class ExposureChecker:
-    """Delegates to `ExposureLimiter.check_order`.
-
-    The legacy limiter expects a `dict` order shape; we project the
-    fields it actually reads from the v2 ExecutionOrder envelope. Any
-    field the limiter wants and we don't have yet falls back to a
-    conservative default that the limiter treats as "no info, evaluate
-    against limits anyway".
-    """
-
-    name = "exposure_limits"
-
-    def __init__(self, limiter: ExposureLimiter) -> None:
-        self._limiter = limiter
-
-    def check(self, order: ExecutionOrder, ctx: RiskContext) -> RiskDecision:
-        # The limiter's check_order accepts a loose dict; translate from
-        # the typed envelope. The legacy keys it reads (per
-        # ExposureLimiter.check_order docstring) are
-        # value_usd / protocol / asset.
-        # USD notional. Prefer the value the cycle priced and threaded through
-        # the context: `order.params.amount` is the token quantity in SMALLEST
-        # UNITS (wei/lamports), NOT dollars — feeding it as `value_usd` overstates
-        # exposure by ~1e18 and rejects every order against the protocol cap.
-        # Fall back to the raw amount only for legacy/unpriced callers that did
-        # not set order_value_usd.
-        if ctx.order_value_usd is not None:
-            value_usd = float(ctx.order_value_usd)
-        else:
-            value_usd = float(order.params.amount or Decimal("0"))
-        legacy = {
-            "strategy": order.strategy,
-            "protocol": order.protocol,
-            "chain": order.chain,
-            "action": order.action,
-            "asset": order.params.token_in or order.params.token_out or "",
-            "value_usd": value_usd,
-        }
-        result = self._limiter.check_order(legacy)
-        # ExposureCheckResult has .allowed/.reason fields; older variants
-        # exposed `.passes`. Guard against both via getattr for safety.
-        passed = getattr(result, "allowed", getattr(result, "passes", True))
-        reason = getattr(result, "reason", "") or ""
-        return RiskDecision(passed=bool(passed), checker=self.name, reason=reason)
-
-
 class GasSpikeChecker:
     """Blocks non-urgent EVM orders while the gas-spike breaker is active."""
 
@@ -265,29 +215,6 @@ class DepegChecker:
                 f"{self._breaker.threshold_bps}bps)"
             ),
         )
-
-
-class PositionLossChecker:
-    """Blocks new `enter`-style orders for strategies in cooldown."""
-
-    name = "position_loss_limit"
-    _ENTRY_ACTIONS = DrawdownChecker._ENTRY_ACTIONS
-
-    def __init__(self, limiter: PositionLossLimit) -> None:
-        self._limiter = limiter
-
-    def check(self, order: ExecutionOrder, ctx: RiskContext) -> RiskDecision:
-        if order.action not in self._ENTRY_ACTIONS:
-            return RiskDecision(passed=True, checker=self.name)
-        # `can_open_position` returns (bool, reason) per v4.2 contract.
-        result = self._limiter.can_open_position(order.strategy)
-        if isinstance(result, tuple):
-            allowed, reason = result
-        else:
-            allowed, reason = bool(result), ""
-        if allowed:
-            return RiskDecision(passed=True, checker=self.name)
-        return RiskDecision(passed=False, checker=self.name, reason=reason or "in cooldown")
 
 
 class TxFailureChecker:
@@ -380,9 +307,7 @@ class RiskGate:
 __all__ = [
     "DepegChecker",
     "DrawdownChecker",
-    "ExposureChecker",
     "GasSpikeChecker",
-    "PositionLossChecker",
     "RiskChecker",
     "RiskContext",
     "RiskDecision",
