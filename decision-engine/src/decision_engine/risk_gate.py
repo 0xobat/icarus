@@ -58,12 +58,20 @@ logger = structlog.get_logger(service="decision-engine.risk_gate")
 class RiskContext:
     """Per-tick inputs shared by every adapter.
 
-    Built by `DecisionCycle.run_one()` once it has fetched the
-    snapshots, so adapters do not re-query anything. Decimal everywhere
-    for amounts so we never round-trip through float."""
+    Built by the cycle once it has fetched the snapshots, so adapters do
+    not re-query anything. Decimal everywhere for amounts so we never
+    round-trip through float.
+
+    `order_value_usd` is the USD notional of the order under evaluation,
+    supplied by the cycle that already priced it. The exposure checker
+    needs it because `order.params.amount` is the token quantity in
+    SMALLEST UNITS (wei/lamports), not dollars — there is no way to derive
+    dollars from the order alone without re-pricing. None when the caller
+    did not price the order (legacy/unpriced paths)."""
 
     portfolio: PortfolioSnapshot
     market: MarketSnapshot
+    order_value_usd: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -170,17 +178,23 @@ class ExposureChecker:
         # the typed envelope. The legacy keys it reads (per
         # ExposureLimiter.check_order docstring) are
         # value_usd / protocol / asset.
+        # USD notional. Prefer the value the cycle priced and threaded through
+        # the context: `order.params.amount` is the token quantity in SMALLEST
+        # UNITS (wei/lamports), NOT dollars — feeding it as `value_usd` overstates
+        # exposure by ~1e18 and rejects every order against the protocol cap.
+        # Fall back to the raw amount only for legacy/unpriced callers that did
+        # not set order_value_usd.
+        if ctx.order_value_usd is not None:
+            value_usd = float(ctx.order_value_usd)
+        else:
+            value_usd = float(order.params.amount or Decimal("0"))
         legacy = {
             "strategy": order.strategy,
             "protocol": order.protocol,
             "chain": order.chain,
             "action": order.action,
             "asset": order.params.token_in or order.params.token_out or "",
-            # Best-effort USD: amount field is denominated per-action, and
-            # for the gate we conservatively treat it as USD. The allocator
-            # already converted to dollar targets before constructing the
-            # order, so this is the closest available proxy.
-            "value_usd": float(order.params.amount or Decimal("0")),
+            "value_usd": value_usd,
         }
         result = self._limiter.check_order(legacy)
         # ExposureCheckResult has .allowed/.reason fields; older variants
