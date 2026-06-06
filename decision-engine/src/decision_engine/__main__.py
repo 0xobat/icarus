@@ -232,13 +232,16 @@ def _build_risk_gate(*, drawdown, gas_spike, tx_failure, depeg) -> RiskGate:
 def _apply_token_overrides(chain_id: int, env: dict[str, str]) -> None:
     """Override token addresses for the active network from env, if provided.
 
-    Lets an operator point USDC/WETH at specific testnet contracts without a
-    code change: set USDC_ADDRESS / WETH_ADDRESS (+ optional *_DECIMALS).
+    Lets an operator point USDC/WETH/cbBTC at specific testnet contracts without
+    a code change: set USDC_ADDRESS / WETH_ADDRESS / CBBTC_ADDRESS (+ optional
+    *_DECIMALS). cbBTC has no canonical Base-Sepolia deploy, so a testnet run
+    that includes the wBTC sleeve must supply CBBTC_ADDRESS.
     """
-    for symbol, dec_default in (("USDC", 6), ("WETH", 18)):
-        addr = env.get(f"{symbol}_ADDRESS")
+    for symbol, dec_default in (("USDC", 6), ("WETH", 18), ("cbBTC", 8)):
+        env_key = symbol.upper()  # cbBTC → CBBTC_ADDRESS; env vars are uppercase
+        addr = env.get(f"{env_key}_ADDRESS")
         if addr:
-            decimals = int(env.get(f"{symbol}_DECIMALS", str(dec_default)))
+            decimals = int(env.get(f"{env_key}_DECIMALS", str(dec_default)))
             register_token(chain_id=chain_id, symbol=symbol, address=addr, decimals=decimals)
             logger.info("token_override", symbol=symbol, address=addr, chain_id=chain_id)
 

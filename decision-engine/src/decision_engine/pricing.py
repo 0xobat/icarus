@@ -21,8 +21,9 @@ __all__ = ["DEFAULT_SWAP_GAS_UNITS", "estimate_swap_cost_usd", "price_usd"]
 # decides whether an off-peg price should halt trading.
 _STABLE_SYMBOLS = frozenset({"USDC", "USDT", "DAI"})
 
-# Wrapped assets price off their underlying's snapshot key.
-_PRICE_KEY_ALIASES = {"WETH": "ETH"}
+# Wrapped assets price off their underlying's snapshot key. cbBTC pegs ~1:1 to
+# BTC (P2.3); wstETH is priced via its ETH exchange rate, not an alias (P2.4).
+_PRICE_KEY_ALIASES = {"WETH": "ETH", "cbBTC": "BTC"}
 
 
 def price_usd(symbol: str, market: MarketSnapshot) -> Decimal:

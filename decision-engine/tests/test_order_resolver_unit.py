@@ -8,7 +8,9 @@ import pytest
 from decision_engine.order_resolver import (
     TokenInfo,
     lookup_token,
+    resolve_supply_params,
     resolve_swap_params,
+    resolve_withdraw_params,
     usd_to_smallest_unit,
 )
 from icarus.envelopes.orders import OrderParams
@@ -171,3 +173,44 @@ def test_resolve_swap_params_threads_chain_id() -> None:
     )
     # token_in is Sepolia USDC, not mainnet USDC.
     assert params.token_in == "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+
+
+# ── P2.3: cbBTC registry + Aave supply/withdraw ──────────────────────────────
+
+
+def test_lookup_cbbtc_base_mainnet() -> None:
+    info = lookup_token("base", "cbBTC")
+    assert info.address == "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf"
+    assert info.decimals == 8
+
+
+def test_resolve_supply_params_usdc_aave() -> None:
+    params = resolve_supply_params(
+        chain="base", asset_symbol="USDC", usd_amount=Decimal("4000"),
+        price_usd=Decimal("1"), recipient=_SAFE,
+    )
+    assert isinstance(params, OrderParams)
+    assert params.token_in == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    assert params.amount == Decimal("4000000000")  # 4000e6
+    assert params.recipient == _SAFE
+    assert params.venue == "aave_v3"
+
+
+def test_resolve_withdraw_params_cbbtc_aave() -> None:
+    # $3000 of cbBTC at $60000 = 0.05 cbBTC → 0.05e8 = 5_000_000 (8 decimals).
+    params = resolve_withdraw_params(
+        chain="base", asset_symbol="cbBTC", usd_amount=Decimal("3000"),
+        price_usd=Decimal("60000"), recipient=_SAFE,
+    )
+    assert params.token_in == "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf"
+    assert params.amount == Decimal("5000000")
+    assert params.venue == "aave_v3"
+    assert params.recipient == _SAFE
+
+
+def test_resolve_supply_params_custom_venue() -> None:
+    params = resolve_supply_params(
+        chain="base", asset_symbol="USDC", usd_amount=Decimal("1000"),
+        price_usd=Decimal("1"), recipient=_SAFE, venue="moonwell",
+    )
+    assert params.venue == "moonwell"

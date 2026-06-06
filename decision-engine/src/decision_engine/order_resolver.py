@@ -20,14 +20,18 @@ from icarus.types.market import Chain
 
 __all__ = [
     "DEFAULT_CHAIN_ID",
+    "DEFAULT_LENDING_VENUE",
     "TokenInfo",
     "lookup_token",
     "register_token",
+    "resolve_supply_params",
     "resolve_swap_params",
+    "resolve_withdraw_params",
     "usd_to_smallest_unit",
 ]
 
 DEFAULT_CHAIN_ID = 8453  # Base mainnet
+DEFAULT_LENDING_VENUE = "aave_v3"  # the executor's adapter holds the Pool address
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,8 @@ _TOKENS_BY_CHAIN_ID: dict[int, dict[str, TokenInfo]] = {
     8453: {  # Base mainnet
         "USDC": TokenInfo("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", 6),
         "WETH": TokenInfo("0x4200000000000000000000000000000000000006", 18),
+        # cbBTC (Coinbase Wrapped BTC) — the prevalent BTC on Base; 8 decimals.
+        "cbBTC": TokenInfo("0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", 8),
     },
     84532: {  # Base Sepolia — VERIFY before live use; override via env if stale.
         "USDC": TokenInfo("0x036CbD53842c5426634e7929541eC2318f3dCF7e", 6),
@@ -143,4 +149,67 @@ def resolve_swap_params(
             "deadline": str(deadline_unix),
             "stable": "true" if stable else "false",
         },
+    )
+
+
+def _resolve_lending_params(
+    *,
+    chain: Chain,
+    asset_symbol: str,
+    usd_amount: Decimal,
+    price_usd: Decimal,
+    recipient: str,
+    venue: str,
+    chain_id: int,
+) -> OrderParams:
+    """Shared shape for Aave-style supply/withdraw — one asset, one amount.
+
+    `token_in` is the underlying asset; `amount` its smallest unit; `venue` names
+    the lending market (the executor's adapter holds the Pool address). The
+    action ("supply"/"withdraw") is set by the caller on the ExecutionOrder.
+    """
+    info = lookup_token(chain, asset_symbol, chain_id=chain_id)
+    amount = usd_to_smallest_unit(usd_amount, price_usd, info.decimals)
+    return OrderParams(
+        token_in=info.address,
+        amount=amount,
+        recipient=recipient,
+        venue=venue,
+    )
+
+
+def resolve_supply_params(
+    *,
+    chain: Chain,
+    asset_symbol: str,
+    usd_amount: Decimal,
+    price_usd: Decimal,
+    recipient: str,
+    venue: str = DEFAULT_LENDING_VENUE,
+    chain_id: int = DEFAULT_CHAIN_ID,
+) -> OrderParams:
+    """Build executor-ready params for an Aave-style supply (lend an asset)."""
+    return _resolve_lending_params(
+        chain=chain, asset_symbol=asset_symbol, usd_amount=usd_amount,
+        price_usd=price_usd, recipient=recipient, venue=venue, chain_id=chain_id,
+    )
+
+
+def resolve_withdraw_params(
+    *,
+    chain: Chain,
+    asset_symbol: str,
+    usd_amount: Decimal,
+    price_usd: Decimal,
+    recipient: str,
+    venue: str = DEFAULT_LENDING_VENUE,
+    chain_id: int = DEFAULT_CHAIN_ID,
+) -> OrderParams:
+    """Build executor-ready params for an Aave-style withdraw (redeem an asset).
+
+    Withdraws an exact sized `usd_amount` of the underlying; full-balance exit
+    (a max sentinel) is out of scope until P3 de-risk."""
+    return _resolve_lending_params(
+        chain=chain, asset_symbol=asset_symbol, usd_amount=usd_amount,
+        price_usd=price_usd, recipient=recipient, venue=venue, chain_id=chain_id,
     )
