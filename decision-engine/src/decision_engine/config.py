@@ -47,9 +47,11 @@ class ManagedConfig:
     chain_id: int = 8453  # Default to Base mainnet
     depeg_threshold_bps: int = 100  # USDC depeg breaker trips above this deviation
     # P2.5 exposure caps (NAV fractions). max_asset_pct is a safety net >= the
-    # largest upper band; max_venue_pct caps overlay venues (LP, P3).
+    # largest upper band; max_venue_pct caps overlay venues; lp_cap is the LP
+    # overlay's tighter cap (P3.3).
     max_asset_pct: Decimal = Decimal("0.60")
     max_venue_pct: Decimal = Decimal("0.25")
+    lp_cap: Decimal = Decimal("0.15")
     # Operator funding addresses for the PnL deposit-tracker (reporting only).
     # Deposits = inbound to the Safe FROM one of these; withdrawals = outbound
     # TO one of these. Empty → tracker disabled (PnL not computed).
@@ -140,6 +142,7 @@ def load_managed_config(
         operator_funding_addresses=operator_funding_addresses,
         max_asset_pct=Decimal(str(limits.get("max_asset_pct", "0.60"))),
         max_venue_pct=Decimal(str(limits.get("per_venue_cap", "0.25"))),
+        lp_cap=Decimal(str(limits.get("lp_cap", "0.15"))),
     )
 
 

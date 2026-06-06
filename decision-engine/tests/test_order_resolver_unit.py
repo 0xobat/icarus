@@ -8,9 +8,12 @@ import pytest
 from decision_engine.order_resolver import (
     TokenInfo,
     lookup_token,
+    resolve_burn_lp_params,
+    resolve_mint_lp_params,
     resolve_supply_params,
     resolve_swap_params,
     resolve_withdraw_params,
+    slippage_bounded_min_out,
     usd_to_smallest_unit,
 )
 from icarus.envelopes.orders import OrderParams
@@ -220,3 +223,52 @@ def test_resolve_supply_params_custom_venue() -> None:
         price_usd=Decimal("1"), recipient=_SAFE, venue="moonwell",
     )
     assert params.venue == "moonwell"
+
+
+# ── P3.3: LP overlay params + no-naked-minOut guard ──────────────────────────
+
+
+def test_slippage_bounded_min_out_floors_with_slippage() -> None:
+    # 1000 expected at 50 bps → 1000 * 0.995 = 995.
+    assert slippage_bounded_min_out(Decimal("1000"), 50) == Decimal("995")
+
+
+def test_slippage_bounded_min_out_rejects_zero_expected() -> None:
+    # No valid LP action has a zero quote — guard against a naked minOut=0.
+    with pytest.raises(ValueError, match="expected_out"):
+        slippage_bounded_min_out(Decimal("0"), 50)
+
+
+def test_resolve_mint_lp_params_usdc_weth() -> None:
+    params = resolve_mint_lp_params(
+        chain="base", token_a_symbol="USDC", token_b_symbol="WETH",
+        usd_amount_a=Decimal("1000"), usd_amount_b=Decimal("1000"),
+        price_a=Decimal("1"), price_b=Decimal("3000"),
+        expected_lp_out=Decimal("1000000000000000000"),  # 1 LP token (18 dec)
+        recipient=_SAFE, slippage_bps=50, pool_id="base:aerodrome:usdc-weth",
+    )
+    assert isinstance(params, OrderParams)
+    assert params.token_in == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC
+    assert params.token_out == "0x4200000000000000000000000000000000000006"  # WETH
+    assert params.amount == Decimal("1000000000")  # 1000 USDC at 6 dec
+    assert params.extra["amount_b"] == "333333333333333333"  # ~0.333 WETH at $3000
+    # minOut floored with slippage, strictly positive (no naked zero).
+    assert params.extra["amount_lp_min"] == "995000000000000000"
+    assert params.pool_id == "base:aerodrome:usdc-weth"
+    assert params.venue == "aerodrome"
+    assert params.recipient == _SAFE
+
+
+def test_resolve_burn_lp_params_min_amounts_out() -> None:
+    params = resolve_burn_lp_params(
+        chain="base", token_a_symbol="USDC", token_b_symbol="WETH",
+        lp_amount=Decimal("1000000000000000000"),
+        expected_a_out=Decimal("1000000000"),  # 1000 USDC
+        expected_b_out=Decimal("333333333333333333"),
+        recipient=_SAFE, slippage_bps=100, pool_id="base:aerodrome:usdc-weth",
+    )
+    assert params.amount == Decimal("1000000000000000000")  # LP burned
+    assert params.extra["amount_a_min"] == "990000000"  # 1000e6 * 0.99
+    assert params.extra["amount_b_min"] == "329999999999999999"  # floored
+    assert params.pool_id == "base:aerodrome:usdc-weth"
+    assert params.venue == "aerodrome"

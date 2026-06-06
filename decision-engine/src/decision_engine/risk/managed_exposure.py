@@ -17,7 +17,8 @@ Two caps:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 from icarus.envelopes.orders import ExecutionOrder
@@ -32,7 +33,10 @@ class ManagedExposureConfig:
     """Concentration caps as NAV fractions."""
 
     max_asset_pct: Decimal = Decimal("0.60")  # >= the largest upper band (safety net)
-    max_venue_pct: Decimal = Decimal("0.25")  # applies to capped (overlay) venues only
+    max_venue_pct: Decimal = Decimal("0.25")  # default cap for capped (overlay) venues
+    # Per-venue cap overrides (e.g. the LP overlay's tighter 0.15). A capped
+    # venue without an entry falls back to max_venue_pct.
+    venue_caps: Mapping[str, Decimal] = field(default_factory=dict)
 
 
 class ManagedExposureChecker:
@@ -79,13 +83,11 @@ class ManagedExposureChecker:
                     by_venue[venue] = by_venue.get(venue, Decimal("0")) + usd
             for venue, usd in by_venue.items():
                 pct = usd / nav
-                if pct > self._config.max_venue_pct:
+                cap = self._config.venue_caps.get(venue, self._config.max_venue_pct)
+                if pct > cap:
                     return RiskDecision(
                         passed=False, checker=self.name,
-                        reason=(
-                            f"venue {venue} concentration {pct:.1%} > "
-                            f"{self._config.max_venue_pct:.0%} cap"
-                        ),
+                        reason=f"venue {venue} concentration {pct:.1%} > {cap:.0%} cap",
                     )
 
         return RiskDecision(passed=True, checker=self.name)

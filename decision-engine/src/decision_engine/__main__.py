@@ -319,13 +319,17 @@ async def _amain() -> int:
     gas_spike = GasSpikeBreaker()
     tx_failure = TxFailureMonitor()
     depeg = DepegBreaker(threshold_bps=config.depeg_threshold_bps)
-    # P2.5 exposure cap: per-asset (safety net) + per-venue (overlay venues only;
-    # capped_venues empty until P3 wires the LP overlay — core Aave lending of
-    # the allocation assets is governed by the bands, not this cap).
+    # P2.5/P3.3 exposure cap: per-asset (safety net) + per-venue. The LP overlay
+    # venue is capped at its tighter lp_cap (0.15); core Aave lending of the
+    # allocation assets is governed by the bands, not capped.
+    lp_venue = "aerodrome_lp"
     exposure = ManagedExposureChecker(
         ManagedExposureConfig(
-            max_asset_pct=config.max_asset_pct, max_venue_pct=config.max_venue_pct,
+            max_asset_pct=config.max_asset_pct,
+            max_venue_pct=config.max_venue_pct,
+            venue_caps={lp_venue: config.lp_cap},
         ),
+        capped_venues=frozenset({lp_venue}),
     )
     risk_gate = _build_risk_gate(
         drawdown=drawdown, gas_spike=gas_spike, tx_failure=tx_failure, depeg=depeg,

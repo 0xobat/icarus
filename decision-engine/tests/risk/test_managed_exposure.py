@@ -104,3 +104,48 @@ def test_capped_venue_over_cap_rejects() -> None:
     decision = checker.check(_order(), ctx)
     assert not decision.passed
     assert "aerodrome_lp" in decision.reason
+
+
+# ── P3.3: per-venue cap override (LP's tighter 15% cap) ──────────────────────
+
+_LP_CONFIG = ManagedExposureConfig(
+    max_asset_pct=Decimal("0.60"),
+    max_venue_pct=Decimal("0.25"),
+    venue_caps={"aerodrome_lp": Decimal("0.15")},
+)
+
+
+def test_lp_venue_uses_tighter_override_cap() -> None:
+    # LP at 0.18 of NAV: under the generic 0.25 but OVER LP's 0.15 override → reject.
+    checker = ManagedExposureChecker(_LP_CONFIG, capped_venues=frozenset({"aerodrome_lp"}))
+    ctx = _ctx(
+        {"USDC": Decimal("4200"), "LP": Decimal("1800"), "WETH": Decimal("4000")},
+        venues={"USDC": "aave_v3", "LP": "aerodrome_lp", "WETH": "wallet"},
+    )
+    decision = checker.check(_order(), ctx)
+    assert not decision.passed
+    assert "aerodrome_lp" in decision.reason
+
+
+def test_lp_venue_within_override_cap_passes() -> None:
+    # LP at 0.12 < 0.15 override → pass.
+    checker = ManagedExposureChecker(_LP_CONFIG, capped_venues=frozenset({"aerodrome_lp"}))
+    ctx = _ctx(
+        {"USDC": Decimal("4800"), "LP": Decimal("1200"), "WETH": Decimal("4000")},
+        venues={"USDC": "aave_v3", "LP": "aerodrome_lp", "WETH": "wallet"},
+    )
+    assert checker.check(_order(), ctx).passed
+
+
+def test_other_capped_venue_falls_back_to_max_venue_pct() -> None:
+    # A venue without an override uses max_venue_pct (0.25): perps at 0.30 → reject.
+    checker = ManagedExposureChecker(
+        _LP_CONFIG, capped_venues=frozenset({"aerodrome_lp", "drift_perps"})
+    )
+    ctx = _ctx(
+        {"USDC": Decimal("4000"), "PERP": Decimal("3000"), "WETH": Decimal("3000")},
+        venues={"USDC": "aave_v3", "PERP": "drift_perps", "WETH": "wallet"},
+    )
+    decision = checker.check(_order(), ctx)
+    assert not decision.passed
+    assert "drift_perps" in decision.reason

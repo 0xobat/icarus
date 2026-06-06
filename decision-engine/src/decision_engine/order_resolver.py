@@ -21,17 +21,22 @@ from icarus.types.market import Chain
 __all__ = [
     "DEFAULT_CHAIN_ID",
     "DEFAULT_LENDING_VENUE",
+    "DEFAULT_LP_VENUE",
     "TokenInfo",
     "lookup_token",
     "register_token",
+    "resolve_burn_lp_params",
+    "resolve_mint_lp_params",
     "resolve_supply_params",
     "resolve_swap_params",
     "resolve_withdraw_params",
+    "slippage_bounded_min_out",
     "usd_to_smallest_unit",
 ]
 
 DEFAULT_CHAIN_ID = 8453  # Base mainnet
 DEFAULT_LENDING_VENUE = "aave_v3"  # the executor's adapter holds the Pool address
+DEFAULT_LP_VENUE = "aerodrome"  # blue-chip DEX on Base for the LP overlay
 
 
 @dataclass(frozen=True)
@@ -214,4 +219,90 @@ def resolve_withdraw_params(
     return _resolve_lending_params(
         chain=chain, asset_symbol=asset_symbol, usd_amount=usd_amount,
         price_usd=price_usd, recipient=recipient, venue=venue, chain_id=chain_id,
+    )
+
+
+def slippage_bounded_min_out(expected_out: Decimal, slippage_bps: int) -> Decimal:
+    """Floor `expected_out * (1 - slippage)` to an integer smallest unit.
+
+    Guards the design's "no naked minOut=0" rule: a non-positive expected output
+    is never a valid trade/LP action, so it raises rather than emitting minOut=0
+    (which would accept any fill, MEV-exposed).
+    """
+    if expected_out <= 0:
+        raise ValueError(f"expected_out must be positive (no naked minOut=0), got {expected_out}")
+    if not 0 <= slippage_bps <= 1000:
+        raise ValueError(f"slippage_bps must be in [0, 1000], got {slippage_bps}")
+    return (expected_out * Decimal(10_000 - slippage_bps) / Decimal(10_000)).quantize(
+        Decimal(1), rounding=ROUND_DOWN
+    )
+
+
+def resolve_mint_lp_params(
+    *,
+    chain: Chain,
+    token_a_symbol: str,
+    token_b_symbol: str,
+    usd_amount_a: Decimal,
+    usd_amount_b: Decimal,
+    price_a: Decimal,
+    price_b: Decimal,
+    expected_lp_out: Decimal,
+    recipient: str,
+    slippage_bps: int,
+    pool_id: str,
+    venue: str = DEFAULT_LP_VENUE,
+    chain_id: int = DEFAULT_CHAIN_ID,
+) -> OrderParams:
+    """Build executor-ready params for adding liquidity to a pair (LP overlay).
+
+    `amount` is token_a's smallest unit; `extra["amount_b"]` token_b's;
+    `extra["amount_lp_min"]` the slippage-bounded minimum LP shares (from a real
+    `expected_lp_out` quote — never zero)."""
+    token_a = lookup_token(chain, token_a_symbol, chain_id=chain_id)
+    token_b = lookup_token(chain, token_b_symbol, chain_id=chain_id)
+    amount_a = usd_to_smallest_unit(usd_amount_a, price_a, token_a.decimals)
+    amount_b = usd_to_smallest_unit(usd_amount_b, price_b, token_b.decimals)
+    lp_min = slippage_bounded_min_out(expected_lp_out, slippage_bps)
+    return OrderParams(
+        token_in=token_a.address,
+        token_out=token_b.address,
+        amount=amount_a,
+        recipient=recipient,
+        pool_id=pool_id,
+        venue=venue,
+        extra={"amount_b": str(amount_b), "amount_lp_min": str(lp_min)},
+    )
+
+
+def resolve_burn_lp_params(
+    *,
+    chain: Chain,
+    token_a_symbol: str,
+    token_b_symbol: str,
+    lp_amount: Decimal,
+    expected_a_out: Decimal,
+    expected_b_out: Decimal,
+    recipient: str,
+    slippage_bps: int,
+    pool_id: str,
+    venue: str = DEFAULT_LP_VENUE,
+    chain_id: int = DEFAULT_CHAIN_ID,
+) -> OrderParams:
+    """Build executor-ready params for removing liquidity (burn LP shares).
+
+    `amount` is the LP shares to burn; `extra` carries slippage-bounded minimum
+    underlying amounts out (both strictly positive — no naked minOut=0)."""
+    token_a = lookup_token(chain, token_a_symbol, chain_id=chain_id)
+    token_b = lookup_token(chain, token_b_symbol, chain_id=chain_id)
+    amount_a_min = slippage_bounded_min_out(expected_a_out, slippage_bps)
+    amount_b_min = slippage_bounded_min_out(expected_b_out, slippage_bps)
+    return OrderParams(
+        token_in=token_a.address,
+        token_out=token_b.address,
+        amount=lp_amount,
+        recipient=recipient,
+        pool_id=pool_id,
+        venue=venue,
+        extra={"amount_a_min": str(amount_a_min), "amount_b_min": str(amount_b_min)},
     )
