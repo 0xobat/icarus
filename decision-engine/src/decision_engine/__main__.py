@@ -31,6 +31,7 @@ from web3 import AsyncHTTPProvider, AsyncWeb3, Web3
 from decision_engine.config import load_managed_config
 from decision_engine.cycle import RedisExecutorPublisher
 from decision_engine.gas_tracker import GasAverageTracker
+from decision_engine.health_monitor import PortfolioHealthMonitor
 from decision_engine.holdings import RpcHoldingsProvider
 from decision_engine.managed_cycle import ManagedPortfolioCycle
 from decision_engine.order_resolver import lookup_token, register_token
@@ -76,6 +77,8 @@ class ManagedEngine:
         pending_trade_recorder=None,
         pnl_tracker=None,
         pnl_refresh_every: int = 24,
+        health_monitor=None,
+        venue_by_asset: dict[str, str] | None = None,
     ) -> None:
         self._cycle = cycle
         self._holdings = holdings
@@ -93,6 +96,8 @@ class ManagedEngine:
         # cadence (deposits change rarely); contributed_usd is read each tick.
         self._pnl_tracker = pnl_tracker
         self._pnl_refresh_every = max(1, pnl_refresh_every)
+        self._health_monitor = health_monitor
+        self._venue_by_asset = venue_by_asset or {}
         self._tick_count = 0
         self._stop = asyncio.Event()
 
@@ -136,6 +141,26 @@ class ManagedEngine:
         except Exception:
             logger.warning("portfolio_pnl_failed", exc_info=True)
 
+    def _surface_health(self, holdings) -> None:
+        """Best-effort: surface de-risk signals from the health monitor.
+
+        A REPORTING/safety-surface concern — any failure logs and returns, never
+        touching the cycle or breakers. The USDC depeg halt is enforced at the
+        gate; this makes the de-risk decision visible (and is where urgent
+        de-risk-order emission will hook in at the fill run)."""
+        if self._health_monitor is None:
+            return
+        try:
+            actions = self._health_monitor.assess(
+                holdings=holdings, venue_by_asset=self._venue_by_asset,
+            )
+            for action in actions:
+                logger.warning(
+                    "derisk_signal", kind=action.kind, asset=action.asset, reason=action.reason,
+                )
+        except Exception:
+            logger.warning("health_monitor_failed", exc_info=True)
+
     async def _tick(self) -> None:
         self._tick_count += 1
         market = await self._adapter.fetch_live(self._chain)
@@ -151,6 +176,7 @@ class ManagedEngine:
         holdings = await self._holdings.current_usd_by_asset()
         nav_usd = sum(holdings.values(), Decimal("0"))
         self._drawdown.update(nav_usd)
+        self._surface_health(holdings)
         result = await self._cycle.run_one()
         if result.published and self._pending_trade_recorder is not None:
             try:
@@ -377,12 +403,19 @@ async def _amain() -> int:
         db, chain=config.chain, protocol="aerodrome", slippage_bps=config.slippage_bps
     )
 
+    # P3.2 portfolio health monitor: surfaces de-risk signals (USDC depeg →
+    # halt_all; LST depeg / unhealthy venue → exit_position). LST breakers join
+    # the map when the wstETH sleeve goes live (needs the LST market price +
+    # rate in the snapshot); empty today → it surfaces the USDC depeg.
+    health_monitor = PortfolioHealthMonitor(usdc_depeg=depeg, lst_breakers={})
+
     engine = ManagedEngine(
         cycle=cycle, holdings=holdings, adapter=adapter, drawdown=drawdown,
         gas_spike=gas_spike, gas_tracker=GasAverageTracker(), chain=config.chain,
         depeg=depeg, interval_seconds=config.interval_seconds, consumer=consumer,
         redis_client=redis_client, pending_trade_recorder=pending_recorder,
-        pnl_tracker=pnl_tracker,
+        pnl_tracker=pnl_tracker, health_monitor=health_monitor,
+        venue_by_asset=config.venue_by_asset(),
     )
 
     loop = asyncio.get_running_loop()

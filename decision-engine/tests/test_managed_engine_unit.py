@@ -292,6 +292,30 @@ async def test_tick_refresh_cadence_only_every_nth() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tick_surfaces_derisk_signal_on_usdc_depeg() -> None:
+    """P3.2: a tripped USDC depeg → the health monitor surfaces a halt_all
+    derisk_signal in the tick (reporting; isolated from the cycle)."""
+    from decision_engine.health_monitor import PortfolioHealthMonitor
+    from decision_engine.risk.depeg_breaker import DepegBreaker
+    from structlog.testing import capture_logs
+
+    depeg = DepegBreaker(threshold_bps=100)
+    monitor = PortfolioHealthMonitor(usdc_depeg=depeg, lst_breakers={})
+    engine = ManagedEngine(
+        cycle=_FakeCycle(), holdings=_StubHoldings(),
+        adapter=_UsdcFeedAdapter(usdc_price=Decimal("0.95")),  # 500 bps off-peg
+        drawdown=DrawdownBreaker(), gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base", depeg=depeg,
+        health_monitor=monitor,
+    )
+    with capture_logs() as logs:
+        await engine._tick()
+    derisk = [e for e in logs if e.get("event") == "derisk_signal"]
+    assert len(derisk) == 1
+    assert derisk[0]["kind"] == "halt_all"
+
+
+@pytest.mark.asyncio
 async def test_tick_records_pending_trade_on_publish(tmp_path: Path) -> None:
     db = DatabaseManager(DatabaseConfig(url=f"sqlite:///{tmp_path}/e.db"))
     db.create_tables()
