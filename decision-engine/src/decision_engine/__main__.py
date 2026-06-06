@@ -34,10 +34,12 @@ from decision_engine.holdings import RpcHoldingsProvider
 from decision_engine.managed_cycle import ManagedPortfolioCycle
 from decision_engine.order_resolver import register_token
 from decision_engine.results_consumer import ResultsConsumer
+from decision_engine.risk.depeg_breaker import DepegBreaker
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker
 from decision_engine.risk.gas_spike_breaker import GasSpikeBreaker
 from decision_engine.risk.tx_failure_monitor import TxFailureMonitor
 from decision_engine.risk_gate import (
+    DepegChecker,
     DrawdownChecker,
     GasSpikeChecker,
     RiskGate,
@@ -61,6 +63,7 @@ class ManagedEngine:
         gas_spike: GasSpikeBreaker,
         gas_tracker: GasAverageTracker,
         chain: str,
+        depeg: DepegBreaker | None = None,
         interval_seconds: int = 3600,
         consumer: ResultsConsumer | None = None,
         redis_client=None,
@@ -71,6 +74,7 @@ class ManagedEngine:
         self._adapter = adapter
         self._drawdown = drawdown
         self._gas_spike = gas_spike
+        self._depeg = depeg
         self._gas_tracker = gas_tracker
         self._chain = chain
         self._interval = interval_seconds
@@ -83,6 +87,13 @@ class ManagedEngine:
         market = await self._adapter.fetch_live(self._chain)
         avg = self._gas_tracker.update(market.gas_gwei)
         self._gas_spike.update(market.gas_gwei, avg)
+        # Feed the depeg breaker only when the snapshot carries a live USDC price
+        # (i.e. a USDC feed is configured). No feed → no update → never trips,
+        # which is today's $1-pinned behaviour.
+        if self._depeg is not None:
+            usdc_price = market.prices.get("USDC")
+            if usdc_price is not None:
+                self._depeg.update(usdc_price)
         crypto_usd, stable_usd = await self._holdings.current_usd_holdings()
         self._drawdown.update(crypto_usd + stable_usd)
         result = await self._cycle.run_one()
@@ -142,7 +153,7 @@ class ManagedEngine:
         self._stop.set()
 
 
-def _build_risk_gate(*, drawdown, gas_spike, tx_failure) -> RiskGate:
+def _build_risk_gate(*, drawdown, gas_spike, tx_failure, depeg) -> RiskGate:
     """The managed gate: NAV/market-level breakers only.
 
     The lake-era ExposureChecker and PositionLossChecker are intentionally
@@ -150,14 +161,17 @@ def _build_risk_gate(*, drawdown, gas_spike, tx_failure) -> RiskGate:
     concentration policy, the per-protocol exposure cap is a category error
     (we hold spot in the Safe, not deployed in a venue), and the per-strategy
     loss cooldown would freeze all rebalancing on one loss (every order is
-    REBAL:base). A depeg breaker joins these next phase. See
-    docs/superpowers/plans/2026-06-05-managed-gate-rightsizing.md.
+    REBAL:base). See docs/superpowers/plans/2026-06-05-managed-gate-rightsizing.md.
+
+    The DepegChecker (capital protection) halts all rebalancing while USDC is
+    off-peg; ordered among the cheap state-reads, after GasSpike.
     """
     return RiskGate(
         [
             DrawdownChecker(drawdown),
             TxFailureChecker(tx_failure),
             GasSpikeChecker(gas_spike),
+            DepegChecker(depeg),
         ]
     )
 
@@ -209,15 +223,16 @@ async def _amain() -> int:
     db = DatabaseManager(DatabaseConfig())
     db.create_tables()
 
-    # Managed risk gate: NAV/market-level breakers only (drawdown, gas-spike,
-    # tx-failure). The lake-era exposure limiter and position-loss cooldown are
-    # not wired here — the allocation target + bands are the concentration
-    # policy. A depeg breaker joins these next phase.
+    # Managed risk gate: NAV/market-level breakers (drawdown, gas-spike,
+    # tx-failure, USDC depeg). The lake-era exposure limiter and position-loss
+    # cooldown are not wired here — the allocation target + bands are the
+    # concentration policy.
     drawdown = DrawdownBreaker()
     gas_spike = GasSpikeBreaker()
     tx_failure = TxFailureMonitor()
+    depeg = DepegBreaker(threshold_bps=config.depeg_threshold_bps)
     risk_gate = _build_risk_gate(
-        drawdown=drawdown, gas_spike=gas_spike, tx_failure=tx_failure,
+        drawdown=drawdown, gas_spike=gas_spike, tx_failure=tx_failure, depeg=depeg,
     )
 
     # One shared AsyncWeb3 feeds the adapter (prices/gas) and holdings (balances).
@@ -231,6 +246,22 @@ async def _amain() -> int:
     if eth_usd_feed:
         adapter_kwargs["chainlink_eth_usd_address"] = Web3.to_checksum_address(eth_usd_feed)
         logger.info("chainlink_feed_override", address=adapter_kwargs["chainlink_eth_usd_address"])
+    # Optional USDC/USD peg feed. Unset → USDC stays $1 and the depeg breaker
+    # never trips (backward compatible). Set → USDC priced live + breaker armed.
+    usdc_usd_feed = os.environ.get("CHAINLINK_USDC_USD_ADDRESS")
+    if usdc_usd_feed:
+        adapter_kwargs["chainlink_usdc_usd_address"] = Web3.to_checksum_address(usdc_usd_feed)
+        logger.info(
+            "chainlink_usdc_feed_set", address=adapter_kwargs["chainlink_usdc_usd_address"]
+        )
+    else:
+        logger.warning(
+            "chainlink_usdc_feed_not_configured",
+            note=(
+                "USDC pinned to $1; depeg breaker UNARMED — "
+                "set CHAINLINK_USDC_USD_ADDRESS to arm it"
+            ),
+        )
     adapter = RpcAdapter(w3=w3, **adapter_kwargs)
     holdings = RpcHoldingsProvider(
         w3=w3, adapter=adapter, safe_address=config.safe_address,
@@ -251,7 +282,7 @@ async def _amain() -> int:
     engine = ManagedEngine(
         cycle=cycle, holdings=holdings, adapter=adapter, drawdown=drawdown,
         gas_spike=gas_spike, gas_tracker=GasAverageTracker(), chain=config.chain,
-        interval_seconds=config.interval_seconds, consumer=consumer,
+        depeg=depeg, interval_seconds=config.interval_seconds, consumer=consumer,
         redis_client=redis_client, pending_trade_recorder=pending_recorder,
     )
 

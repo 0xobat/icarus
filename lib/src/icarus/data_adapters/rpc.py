@@ -112,6 +112,7 @@ class RpcAdapter:
         rpc_url: str | None = None,
         w3: _Web3Like | None = None,
         chainlink_eth_usd_address: str = _CHAINLINK_ETH_USD_BASE,
+        chainlink_usdc_usd_address: str | None = None,
         historical_stride_blocks: int = _DEFAULT_HISTORICAL_STRIDE_BLOCKS,
     ) -> None:
         if w3 is not None:
@@ -126,8 +127,13 @@ class RpcAdapter:
             self._w3 = AsyncWeb3(AsyncHTTPProvider(url))
 
         self._chainlink_address = chainlink_eth_usd_address
+        # Optional USDC/USD peg feed. When None, we never read it and omit
+        # "USDC" from the snapshot — USDC then pins to $1 downstream (today's
+        # behaviour). When set, fetch_live prices USDC live, symmetric with ETH.
+        self._chainlink_usdc_address = chainlink_usdc_usd_address
         self._stride = historical_stride_blocks
         self._eth_usd_contract: AsyncContract | None = None
+        self._usdc_usd_contract: AsyncContract | None = None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -147,6 +153,19 @@ class RpcAdapter:
             )
         return self._eth_usd_contract
 
+    def _usdc_usd(self) -> Any:
+        """Return (cached) Chainlink USDC/USD contract handle.
+
+        Only called when `_chainlink_usdc_address` is set. Mirrors `_eth_usd`.
+        """
+        if self._usdc_usd_contract is None:
+            w3 = cast(Any, self._w3)
+            self._usdc_usd_contract = w3.eth.contract(
+                address=self._chainlink_usdc_address,
+                abi=_AGGREGATOR_V3_ABI,
+            )
+        return self._usdc_usd_contract
+
     async def _eth_price_usd(self) -> Decimal:
         """Read ETH/USD from Chainlink, normalised to a Decimal in USD.
 
@@ -165,6 +184,22 @@ class RpcAdapter:
             # raising forces the operator to notice.
             raise RuntimeError(
                 f"Chainlink ETH/USD returned non-positive answer={answer}"
+            )
+        return Decimal(answer) / (Decimal(10) ** decimals)
+
+    async def _usdc_price_usd(self) -> Decimal:
+        """Read USDC/USD from Chainlink, normalised to a Decimal in USD.
+
+        Mirrors `_eth_price_usd` exactly (same decimals scaling, same
+        non-positive guard). Only called when a USDC feed is configured.
+        """
+        contract = self._usdc_usd()
+        decimals: int = await contract.functions.decimals().call()
+        round_data = await contract.functions.latestRoundData().call()
+        answer: int = round_data[1]
+        if answer <= 0:
+            raise RuntimeError(
+                f"Chainlink USDC/USD returned non-positive answer={answer}"
             )
         return Decimal(answer) / (Decimal(10) ** decimals)
 
@@ -189,10 +224,18 @@ class RpcAdapter:
         eth_usd, gas_gwei = await self._eth_price_usd(), await self._gas_price_gwei()
         now = datetime.now(tz=UTC)
 
+        prices: dict[str, Decimal] = {"ETH": eth_usd}
+        # Price USDC live only when a feed is configured. Unset → omit USDC so it
+        # pins to $1 downstream (backward compatible; no extra RPC call).
+        usdc_usd: Decimal | None = None
+        if self._chainlink_usdc_address is not None:
+            usdc_usd = await self._usdc_price_usd()
+            prices["USDC"] = usdc_usd
+
         snapshot = MarketSnapshot(
             timestamp=now,
             chain=chain,
-            prices={"ETH": eth_usd},
+            prices=prices,
             apys={},
             pool_state=cast(dict[str, PoolState], {}),
             gas_gwei=gas_gwei,
@@ -202,6 +245,7 @@ class RpcAdapter:
             "rpc_fetch_live_ok",
             chain=chain,
             eth_usd=str(eth_usd),
+            usdc_usd=str(usdc_usd) if usdc_usd is not None else None,
             gas_gwei=str(gas_gwei),
         )
         return snapshot
@@ -253,6 +297,14 @@ class RpcAdapter:
         contract = self._eth_usd()
         decimals: int = await contract.functions.decimals().call()
 
+        # USDC peg feed is optional and symmetric with the ETH read: when a
+        # USDC/USD feed is configured, pull its decimals once and read it
+        # per-block alongside ETH. Unset → omit "USDC" entirely (no extra call).
+        usdc_contract = self._usdc_usd() if self._chainlink_usdc_address is not None else None
+        usdc_decimals: int | None = None
+        if usdc_contract is not None:
+            usdc_decimals = await usdc_contract.functions.decimals().call()
+
         block_no = start_block
         emitted = 0
         while block_no <= end_block:
@@ -283,10 +335,31 @@ class RpcAdapter:
                 )
                 eth_usd = Decimal(0)
 
+            prices: dict[str, Decimal] = {"ETH": eth_usd}
+            if usdc_contract is not None and usdc_decimals is not None:
+                try:
+                    usdc_round = await usdc_contract.functions.latestRoundData().call(
+                        block_identifier=block_no
+                    )
+                    usdc_answer: int = usdc_round[1]
+                    usdc_usd = (
+                        Decimal(usdc_answer) / (Decimal(10) ** usdc_decimals)
+                        if usdc_answer > 0
+                        else Decimal(0)
+                    )
+                except Exception as exc:  # mirror the ETH read: log + continue
+                    _logger.warning(
+                        "rpc_chainlink_usdc_read_failed",
+                        block=block_no,
+                        error=str(exc),
+                    )
+                    usdc_usd = Decimal(0)
+                prices["USDC"] = usdc_usd
+
             yield MarketSnapshot(
                 timestamp=block_dt,
                 chain=chain,
-                prices={"ETH": eth_usd},
+                prices=prices,
                 apys={},
                 pool_state=cast(dict[str, PoolState], {}),
                 gas_gwei=gas_gwei,

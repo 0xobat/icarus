@@ -297,3 +297,141 @@ def test_env_var_constant_unchanged() -> None:
     # would mask the missing-env-var test (defensive — pytest isolation
     # of monkeypatch should handle it, but belt-and-braces).
     _ = os.environ.get(_RPC_ENV_VAR)  # touch to avoid unused-import flag
+
+
+# ---------------------------------------------------------------------------
+# USDC peg oracle — optional USDC/USD feed, $1 fallback, no extra RPC when off
+# ---------------------------------------------------------------------------
+_USDC_FEED_ADDR = "0x458138Fc0D67027E9A6778ef40a6ffC318c69061"  # Base mainnet USDC/USD
+
+
+def _make_w3_two_feeds(
+    *, eth_contract: MagicMock, usdc_contract: MagicMock, usdc_address: str
+) -> MagicMock:
+    """A mock AsyncWeb3 that dispatches `eth.contract(address=...)` by address,
+    so we can give the ETH and USDC feeds independent answers and assert which
+    feeds were actually instantiated."""
+    w3 = _make_w3(contract=eth_contract)
+
+    def _contract(*, address: str, abi: Any) -> MagicMock:
+        if address == usdc_address:
+            return usdc_contract
+        return eth_contract
+
+    w3.eth.contract = MagicMock(side_effect=_contract)
+    return w3
+
+
+@pytest.mark.asyncio
+async def test_fetch_live_populates_usdc_when_feed_configured() -> None:
+    """With a USDC/USD feed address, fetch_live adds prices['USDC'] from it."""
+    eth_contract = _make_contract(decimals=8, eth_price_scaled=3500_00000000)
+    # $0.9996 at 8 decimals.
+    usdc_contract = _make_contract(decimals=8, eth_price_scaled=99_960000)
+    w3 = _make_w3_two_feeds(
+        eth_contract=eth_contract, usdc_contract=usdc_contract, usdc_address=_USDC_FEED_ADDR
+    )
+    adapter = RpcAdapter(w3=w3, chainlink_usdc_usd_address=_USDC_FEED_ADDR)
+    snap = await adapter.fetch_live("base")
+    assert snap.prices["ETH"] == Decimal(3500)
+    assert snap.prices["USDC"] == Decimal("0.9996")
+
+
+@pytest.mark.asyncio
+async def test_fetch_live_omits_usdc_when_no_feed() -> None:
+    """No USDC feed address → USDC absent from prices and no USDC feed read."""
+    eth_contract = _make_contract(decimals=8, eth_price_scaled=3500_00000000)
+    w3 = _make_w3(contract=eth_contract)
+    adapter = RpcAdapter(w3=w3)  # default: no USDC feed
+    snap = await adapter.fetch_live("base")
+    assert "USDC" not in snap.prices
+    assert snap.prices == {"ETH": Decimal(3500)}
+    # Only the ETH feed contract was instantiated (one address).
+    addresses = {c.kwargs.get("address") for c in w3.eth.contract.call_args_list}
+    assert _USDC_FEED_ADDR not in addresses
+
+
+@pytest.mark.asyncio
+async def test_fetch_live_raises_on_zero_usdc_answer() -> None:
+    """A non-positive USDC answer is a feed misconfiguration → raise (same guard
+    as the ETH feed)."""
+    eth_contract = _make_contract(decimals=8, eth_price_scaled=3500_00000000)
+    usdc_contract = _make_contract(eth_price_scaled=0)
+    w3 = _make_w3_two_feeds(
+        eth_contract=eth_contract, usdc_contract=usdc_contract, usdc_address=_USDC_FEED_ADDR
+    )
+    adapter = RpcAdapter(w3=w3, chainlink_usdc_usd_address=_USDC_FEED_ADDR)
+    with pytest.raises(RuntimeError, match="non-positive"):
+        await adapter.fetch_live("base")
+
+
+def _historical_blocks() -> dict[Any, dict[str, Any]]:
+    """Build a block map for the historical walk (mirrors the ETH historical
+    test): `latest` plus every block number the adapter might request."""
+    latest_number = 100_000
+    latest_ts = int(datetime(2026, 5, 1, 12, 0, tzinfo=UTC).timestamp())
+    blocks: dict[Any, dict[str, Any]] = {
+        "latest": {
+            "number": latest_number,
+            "timestamp": latest_ts,
+            "baseFeePerGas": 3_000_000_000,
+        }
+    }
+    for n in range(latest_number - 100, latest_number + 1):
+        blocks[n] = {
+            "number": n,
+            "timestamp": latest_ts - 2 * (latest_number - n),
+            "baseFeePerGas": 1_000_000_000 + (n % 10) * 100_000_000,
+        }
+    return blocks
+
+
+@pytest.mark.asyncio
+async def test_fetch_historical_populates_usdc_when_feed_configured() -> None:
+    """With a USDC/USD feed, each historical snapshot carries prices['USDC'],
+    symmetric with the per-block ETH read."""
+    blocks = _historical_blocks()
+    latest_ts = blocks["latest"]["timestamp"]
+    start = datetime.fromtimestamp(latest_ts - 60, tz=UTC)
+    end = datetime.fromtimestamp(latest_ts, tz=UTC)
+
+    eth_contract = _make_contract(decimals=8, eth_price_scaled=3500_00000000)
+    usdc_contract = _make_contract(decimals=8, eth_price_scaled=99_960000)  # $0.9996
+    w3 = _make_w3(blocks=blocks, contract=eth_contract)
+
+    def _contract(*, address: str, abi: Any) -> MagicMock:
+        return usdc_contract if address == _USDC_FEED_ADDR else eth_contract
+
+    w3.eth.contract = MagicMock(side_effect=_contract)
+
+    adapter = RpcAdapter(
+        w3=w3, historical_stride_blocks=10, chainlink_usdc_usd_address=_USDC_FEED_ADDR
+    )
+    snaps = [s async for s in adapter.fetch_historical("base", start, end)]
+    assert snaps  # non-empty
+    for s in snaps:
+        assert s.prices["ETH"] == Decimal(3500)
+        assert s.prices["USDC"] == Decimal("0.9996")
+
+
+@pytest.mark.asyncio
+async def test_fetch_historical_omits_usdc_when_no_feed() -> None:
+    """No USDC feed address → historical snapshots omit USDC and no USDC feed
+    contract is ever instantiated."""
+    blocks = _historical_blocks()
+    latest_ts = blocks["latest"]["timestamp"]
+    start = datetime.fromtimestamp(latest_ts - 60, tz=UTC)
+    end = datetime.fromtimestamp(latest_ts, tz=UTC)
+
+    eth_contract = _make_contract(decimals=8, eth_price_scaled=3500_00000000)
+    w3 = _make_w3(blocks=blocks, contract=eth_contract)
+    adapter = RpcAdapter(w3=w3, historical_stride_blocks=10)  # no USDC feed
+
+    snaps = [s async for s in adapter.fetch_historical("base", start, end)]
+    assert snaps  # non-empty
+    for s in snaps:
+        assert "USDC" not in s.prices
+        assert s.prices["ETH"] == Decimal(3500)
+    # The USDC feed address was never used to build a contract.
+    addresses = {c.kwargs.get("address") for c in w3.eth.contract.call_args_list}
+    assert _USDC_FEED_ADDR not in addresses

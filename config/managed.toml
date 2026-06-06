@@ -13,7 +13,13 @@ gas_units = 200000
 deadline_seconds = 60
 
 [cadence]
-interval_seconds = 3600  # hourly read; act only on band breach
+interval_seconds = 300  # hourly read; act only on band breach
+
+[risk]
+# USDC depeg breaker: halt rebalancing when USDC drifts off-peg by more than
+# this many basis points. Only armed when CHAINLINK_USDC_USD_ADDRESS is set
+# (otherwise USDC stays pinned to $1 and the breaker never trips). Range (0,2000].
+depeg_threshold_bps = 100
 
 # Reserved for later phases (parsed but unused in P1):
 [limits]

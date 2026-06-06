@@ -45,6 +45,23 @@ class _FakeCycle:
         return ManagedCycleResult(action="hold", reason="test", published=False, correlation_id="x")
 
 
+class _UsdcFeedAdapter:
+    """Like _FakeAdapter but the snapshot carries a live USDC price."""
+
+    name = "fake"
+    historical_supported = False
+
+    def __init__(self, usdc_price: Decimal) -> None:
+        self._usdc_price = usdc_price
+
+    async def fetch_live(self, chain: Chain) -> MarketSnapshot:
+        return MarketSnapshot(
+            timestamp=datetime(2026, 6, 3, tzinfo=UTC), chain=chain,
+            prices={"ETH": Decimal("3000"), "USDC": self._usdc_price},
+            apys={}, pool_state={}, gas_gwei=Decimal("2"), metadata={},
+        )
+
+
 @pytest.mark.asyncio
 async def test_tick_feeds_breakers_and_runs_cycle() -> None:
     drawdown = DrawdownBreaker()
@@ -62,6 +79,40 @@ async def test_tick_feeds_breakers_and_runs_cycle() -> None:
     assert gas_spike.current_gas == Decimal("2")
     # The cycle ran exactly once.
     assert cycle.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_tick_feeds_depeg_breaker_from_usdc_price() -> None:
+    from decision_engine.risk.depeg_breaker import DepegBreaker
+
+    depeg = DepegBreaker(threshold_bps=100)
+    engine = ManagedEngine(
+        cycle=_FakeCycle(), holdings=_StubHoldings(),
+        adapter=_UsdcFeedAdapter(usdc_price=Decimal("0.985")),
+        drawdown=DrawdownBreaker(), gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base", depeg=depeg,
+    )
+    await engine._tick()
+    # The depeg breaker saw the live USDC price and tripped (150 bps > 100).
+    assert depeg.current_price == Decimal("0.985")
+    assert depeg.is_tripped
+
+
+@pytest.mark.asyncio
+async def test_tick_skips_depeg_update_when_no_usdc_price() -> None:
+    from decision_engine.risk.depeg_breaker import DepegBreaker
+
+    depeg = DepegBreaker(threshold_bps=100)
+    engine = ManagedEngine(
+        cycle=_FakeCycle(), holdings=_StubHoldings(),
+        adapter=_FakeAdapter(),  # no USDC in prices
+        drawdown=DrawdownBreaker(), gas_spike=GasSpikeBreaker(),
+        gas_tracker=GasAverageTracker(), chain="base", depeg=depeg,
+    )
+    await engine._tick()
+    # No USDC price → breaker never updated → stays untripped (backward compat).
+    assert depeg.current_price is None
+    assert not depeg.is_tripped
 
 
 class _DeadTask:

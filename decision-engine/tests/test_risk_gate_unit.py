@@ -176,6 +176,47 @@ def test_exposure_checker_uses_value_usd_key_not_amount_usd():
     )
 
 
+def test_depeg_checker_rejects_when_breaker_tripped():
+    """A tripped depeg breaker halts every rebalance; the reason mentions the
+    depeg, the deviation in bps, and the threshold."""
+    from decision_engine.risk.depeg_breaker import DepegBreaker
+    from decision_engine.risk_gate import DepegChecker
+
+    breaker = DepegBreaker(threshold_bps=100)
+    breaker.update(Decimal("0.985"))  # 150 bps > 100 → tripped
+    checker = DepegChecker(breaker)
+    verdict = checker.check(_order(), _ctx())
+    assert verdict.passed is False
+    assert verdict.checker == "depeg_breaker"
+    assert "depeg" in verdict.reason.lower()
+    assert "USDC" in verdict.reason  # the depegging asset
+    assert "0.985" in verdict.reason  # the actual off-peg price
+    assert "150" in verdict.reason  # deviation bps
+    assert "100" in verdict.reason  # threshold bps
+
+
+def test_depeg_checker_passes_when_breaker_untripped():
+    from decision_engine.risk.depeg_breaker import DepegBreaker
+    from decision_engine.risk_gate import DepegChecker
+
+    breaker = DepegBreaker(threshold_bps=100)
+    breaker.update(Decimal("0.9996"))  # 4 bps, pegged
+    checker = DepegChecker(breaker)
+    verdict = checker.check(_order(), _ctx())
+    assert verdict.passed is True
+    assert verdict.checker == "depeg_breaker"
+
+
+def test_depeg_checker_passes_before_any_update():
+    """No feed configured → breaker never updated → never trips (backward compat)."""
+    from decision_engine.risk.depeg_breaker import DepegBreaker
+    from decision_engine.risk_gate import DepegChecker
+
+    checker = DepegChecker(DepegBreaker())
+    verdict = checker.check(_order(), _ctx())
+    assert verdict.passed is True
+
+
 def test_exposure_checker_uses_ctx_usd_notional_not_wei_amount():
     """Regression (testnet rebalance): `params.amount` is the token quantity in
     SMALLEST UNITS (wei), not USD. A 0.0365 WETH sell is 3.65e16 wei but only

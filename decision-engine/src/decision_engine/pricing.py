@@ -16,7 +16,9 @@ from icarus.types import MarketSnapshot
 
 __all__ = ["DEFAULT_SWAP_GAS_UNITS", "estimate_swap_cost_usd", "price_usd"]
 
-# Stablecoins are pinned to $1 (depeg monitoring is a P3 concern, not pricing).
+# Stablecoins pin to $1 *unless* the snapshot carries a live price for them
+# (e.g. a Chainlink USDC/USD feed). The depeg breaker — not this pricing slice —
+# decides whether an off-peg price should halt trading.
 _STABLE_SYMBOLS = frozenset({"USDC", "USDT", "DAI"})
 
 # Wrapped assets price off their underlying's snapshot key.
@@ -26,11 +28,14 @@ _PRICE_KEY_ALIASES = {"WETH": "ETH"}
 def price_usd(symbol: str, market: MarketSnapshot) -> Decimal:
     """USD price for an asset symbol from a market snapshot.
 
-    Stablecoins pin to $1; wrapped assets alias to their underlying's price
-    key; everything else reads `market.prices`. Raises KeyError if unpriced.
+    Stablecoins pin to $1 unless the snapshot carries a live price for them
+    (a configured peg feed), in which case that price wins; wrapped assets alias
+    to their underlying's price key; everything else reads `market.prices`.
+    Raises KeyError if unpriced.
     """
     if symbol in _STABLE_SYMBOLS:
-        return Decimal("1")
+        live = market.prices.get(symbol)
+        return live if live is not None else Decimal("1")
     price_key = _PRICE_KEY_ALIASES.get(symbol, symbol)
     try:
         return market.prices[price_key]

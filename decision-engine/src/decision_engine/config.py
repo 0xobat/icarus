@@ -37,6 +37,7 @@ class ManagedConfig:
     safe_address: str
     chain: Chain
     chain_id: int = 8453  # Default to Base mainnet
+    depeg_threshold_bps: int = 100  # USDC depeg breaker trips above this deviation
 
     def rebalance_target(self) -> RebalanceTarget:
         return RebalanceTarget(
@@ -69,10 +70,13 @@ def load_managed_config(
     alloc = data["allocation"]
     reb = data["rebalance"]
     cad = data["cadence"]
+    risk = data.get("risk", {})
 
     crypto_weight = Decimal(str(alloc["crypto_weight"]))
     band = Decimal(str(alloc["band"]))
     slippage_bps = int(reb["slippage_bps"])
+    # Default 100 bps when [risk] / the key is absent → backward compatible.
+    depeg_threshold_bps = int(risk.get("depeg_threshold_bps", 100))
 
     if not (Decimal("0") < crypto_weight < Decimal("1")):
         raise ValueError(f"crypto_weight must be in (0,1), got {crypto_weight}")
@@ -80,6 +84,10 @@ def load_managed_config(
         raise ValueError(f"band must be in [0,0.5], got {band}")
     if not (0 <= slippage_bps <= 1000):
         raise ValueError(f"slippage_bps must be in [0,1000], got {slippage_bps}")
+    if not (0 < depeg_threshold_bps <= 2000):
+        raise ValueError(
+            f"depeg_threshold_bps must be in (0,2000], got {depeg_threshold_bps}"
+        )
 
     safe_address = env.get("SAFE_ADDRESS")
     if not safe_address:
@@ -102,6 +110,7 @@ def load_managed_config(
         safe_address=safe_address,
         chain=chain,
         chain_id=chain_id,
+        depeg_threshold_bps=depeg_threshold_bps,
     )
 
 

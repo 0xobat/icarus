@@ -27,6 +27,18 @@ def test_price_usd_stablecoin_is_one() -> None:
     assert price_usd("USDC", market) == Decimal("1")
 
 
+def test_price_usd_usdc_from_snapshot_when_present() -> None:
+    # A live USDC/USD feed put a real price in the snapshot — use it, not $1.
+    market = _market({"ETH": Decimal("3000"), "USDC": Decimal("0.9996")})
+    assert price_usd("USDC", market) == Decimal("0.9996")
+
+
+def test_price_usd_usdc_falls_back_to_one_when_absent() -> None:
+    # No USDC feed configured → snapshot omits USDC → pin to $1 (today's behaviour).
+    market = _market({"ETH": Decimal("3000")})
+    assert price_usd("USDC", market) == Decimal("1")
+
+
 def test_price_usd_eth_from_snapshot() -> None:
     market = _market({"ETH": Decimal("3000")})
     assert price_usd("ETH", market) == Decimal("3000")

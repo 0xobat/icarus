@@ -45,6 +45,7 @@ import structlog
 from icarus.envelopes.orders import ExecutionOrder
 from icarus.types import MarketSnapshot, PortfolioSnapshot
 
+from decision_engine.risk.depeg_breaker import DepegBreaker
 from decision_engine.risk.drawdown_breaker import DrawdownBreaker
 from decision_engine.risk.exposure_limits import ExposureLimiter
 from decision_engine.risk.gas_spike_breaker import GasSpikeBreaker
@@ -231,6 +232,34 @@ class GasSpikeChecker:
         )
 
 
+class DepegChecker:
+    """Halts all rebalancing while the USDC depeg breaker is tripped.
+
+    Every managed rebalance is a swap that touches USDC, so a tripped breaker
+    must reject every order — there is no safe rebalance during a depeg (see
+    DepegBreaker docstring). When untripped (or never updated, i.e. no feed
+    configured), this is a pass-through.
+    """
+
+    name = "depeg_breaker"
+
+    def __init__(self, breaker: DepegBreaker) -> None:
+        self._breaker = breaker
+
+    def check(self, order: ExecutionOrder, ctx: RiskContext) -> RiskDecision:
+        if not self._breaker.is_tripped:
+            return RiskDecision(passed=True, checker=self.name)
+        return RiskDecision(
+            passed=False,
+            checker=self.name,
+            reason=(
+                f"USDC depeg (price={self._breaker.current_price}, "
+                f"dev={self._breaker.deviation_bps}bps > "
+                f"{self._breaker.threshold_bps}bps)"
+            ),
+        )
+
+
 class PositionLossChecker:
     """Blocks new `enter`-style orders for strategies in cooldown."""
 
@@ -342,6 +371,7 @@ class RiskGate:
 
 
 __all__ = [
+    "DepegChecker",
     "DrawdownChecker",
     "ExposureChecker",
     "GasSpikeChecker",

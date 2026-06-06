@@ -110,3 +110,29 @@ def test_cycle_config_inherits_chain_id(tmp_path: Path) -> None:
     cfg = load_managed_config(_write(tmp_path), env=env)
     cc = cfg.cycle_config()
     assert cc.chain_id == 84532
+
+
+# ── Depeg threshold ─────────────────────────────────────────────────────────
+
+def test_depeg_threshold_defaults_to_100_when_absent(tmp_path: Path) -> None:
+    # The base _TOML has no [risk] section → backward-compatible default.
+    cfg = load_managed_config(_write(tmp_path), env=_ENV)
+    assert cfg.depeg_threshold_bps == 100
+
+
+def test_depeg_threshold_read_from_toml(tmp_path: Path) -> None:
+    body = _TOML + "\n[risk]\ndepeg_threshold_bps = 75\n"
+    cfg = load_managed_config(_write(tmp_path, body), env=_ENV)
+    assert cfg.depeg_threshold_bps == 75
+
+
+def test_depeg_threshold_rejects_zero(tmp_path: Path) -> None:
+    body = _TOML + "\n[risk]\ndepeg_threshold_bps = 0\n"
+    with pytest.raises(ValueError, match="depeg_threshold_bps"):
+        load_managed_config(_write(tmp_path, body), env=_ENV)
+
+
+def test_depeg_threshold_rejects_too_large(tmp_path: Path) -> None:
+    body = _TOML + "\n[risk]\ndepeg_threshold_bps = 2001\n"
+    with pytest.raises(ValueError, match="depeg_threshold_bps"):
+        load_managed_config(_write(tmp_path, body), env=_ENV)
